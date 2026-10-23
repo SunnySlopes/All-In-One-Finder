@@ -1,10 +1,11 @@
 {
   "name": "all-in-one-finder",
   "productName": "All-In-One Finder",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "main": "electron/main.cjs",
   "description": "A Minecraft set-seed multifunction coordination finder for Java 1.18+",
+  "author": "SunnySlopes & more",
   "scripts": {
     "postinstall": "npx --no-install install-electron",
     "electron:install": "npx --no-install install-electron",

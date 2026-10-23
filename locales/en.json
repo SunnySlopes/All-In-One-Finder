@@ -1,6 +1,6 @@
 {
   "langName": "English",
-  "app": { "title": "All-In-One Finder 0.1.0" },
+  "app": { "title": "All-In-One Finder 0.1.1" },
   "menu": {
     "language": "Language",
     "map": "Map",
@@ -20,22 +20,22 @@
   },
   "about": {
     "title": "About",
-    "body": "All-In-One Finder combines a seed map with multiple Minecraft seed search tools.\nVersion: 0.1.0.\nAvailable now: Map, Low-Y dripstone cave, Large-pit low-Y dripstone.\nComing later: River, Low-Y swamp hut, multi monuments, nether fortress, trial chambers, amethyst geodes, and full flower farms.\nCredits:\n Author: SunnySlopes\nUI design inspired by SlimeFinderGUI @BotCity.\nMap shown by https://github.com/xpple/cubiomes."
+    "body": "All-In-One Finder 0.1.1\nPermission\nThis software is distributed under the MIT License.\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/ZCXEDTA/TrialSpawnerFinder,\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder,\nhttps://github.com/SunnySlopes/TrialSpawnerFinder, authors: EDTA, Half_Kite, qk-yiyihehe, SunnySlopes\nBudding Amethyst: https://github.com/SunnySlopes/GeodeFinderGUI,\nhttps://github.com/soulsoiledit/geode-finder, authors: soulsoiledit, SunnySlopes\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
   },
   "searcher": {
     "map": "Map",
-    "LowYSwampHut": "Low-Y swamp hut",
+    "LowYSwampHut": "Low-Y Swamp Hut",
     "River": "River",
-    "LowYDripstoneCave": "Low-Y dripstone cave",
-    "LowYPitDripstoneCave": "Large-pit low-Y dripstone",
-    "SlimeChunk": "Slime chunk",
-    "DoubleMonument": "Double ocean monument",
-    "MultiMonument": "Multi ocean monument",
-    "NetherFortressCross": "Nether fortress crossroads",
-    "NetherFortressOverall": "Nether fortress overall",
-    "TrialSpawner": "Trial spawner",
-    "BuddingAmethyst": "Budding amethyst",
-    "FlowerFarm": "All flower farm"
+    "LowYDripstoneCave": "Low-Y Dripstone Cave",
+    "LowYPitDripstoneCave": "Large-pit Low-Y Dripstone Cave",
+    "SlimeChunk": "Slime Chunks",
+    "DoubleMonument": "Double Ocean Monument",
+    "MultiMonument": "Multi Ocean Monument",
+    "NetherFortressCross": "Nether Fortress Crossroads",
+    "NetherFortressOverall": "Nether Fortress Large Range",
+    "TrialSpawner": "Trial Spawner",
+    "BuddingAmethyst": "Budding Amethyst",
+    "FlowerFarm": "All Flower Farm"
   },
   "results": {
     "empty": "No results",

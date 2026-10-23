@@ -29,9 +29,9 @@
 [submodule "tools/flower"]
 	path = tools/flower
 	url = https://github.com/SunnySlopes/FlowerFinderGUI.git
-[submodule "tools/slimeradar"]
-	path = tools/slimeradar
+[submodule "tools/slime/slimeradar"]
+	path = tools/slime/slimeradar
 	url = https://github.com/CITYWIDESIGN/SlimeRadar.git
-[submodule "tools/slimeoptimizer"]
-	path = tools/slimeoptimizer
+[submodule "tools/slime/slimeoptimizer"]
+	path = tools/slime/slimeoptimizer
 	url = https://github.com/CITYWIDESIGN/SlimeOptimizer.git

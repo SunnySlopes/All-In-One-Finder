@@ -1,6 +1,6 @@
 {
   "langName": "中文",
-  "app": { "title": "定种多功能搜索器 0.1.0" },
+  "app": { "title": "定种多功能搜索器 0.1.1" },
   "menu": {
     "language": "语言",
     "map": "地图",
@@ -20,7 +20,7 @@
   },
   "about": {
     "title": "关于",
-    "body": "定种多功能搜索器集成地图浏览与多种种子搜索工具。\n版本：0.1.0。\n当前可用：地图、低Y溶洞、大坑低Y溶洞。\n后续将接入河流、低Y女巫小屋、多联海底神殿、地狱堡垒、试炼密室、紫水晶与全花种等搜索器。\n致谢\n作者：SunnySlopes。\n界面设计参考自SlimeFinderGUI，来自@Bot_City。\n地图展示来自https://github.com/xpple/cubiomes。"
+    "body": "定种多功能搜索器 0.1.1\n许可\n本软件使用MIT许可证进行分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinderGUI、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes\n多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes\n试炼刷怪笼：https://github.com/ZCXEDTA/TrialSpawnerFinder、\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder、\nhttps://github.com/SunnySlopes/TrialSpawnerFinder，作者：EDTA、半筝、打野别说话、SunnySlopes\n紫水晶母岩：https://github.com/SunnySlopes/GeodeFinderGUI、\nhttps://github.com/soulsoiledit/geode-finder，作者：soulsoiledit、SunnySlopes\n全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
   },
   "searcher": {
     "map": "地图",

@@ -31,7 +31,7 @@
 | --- | --- |
 | 低 Y 女巫小屋 | `tools/lowyswamphut` |
 | 河流 | `tools/river` |
-| 史莱姆区块聚集 + 挂机点优化 | `tools/slimeradar` + `tools/slimeoptimizer` |
+| 史莱姆区块聚集 + 挂机点优化 | `tools/slime/`（`slimeradar` + `slimeoptimizer` + `slime_search.cpp`） |
 | 二联 / 多联海底神殿 | `tools/doublemonument` / `tools/multimonument` |
 | 地狱堡垒（十字路口 / 大范围） | `tools/fortress` |
 | 试炼刷怪笼 | `tools/trialspawner` |
@@ -65,6 +65,27 @@ npm run package   # 编译原生模块 + 前端 + 打便携包
 
 产物默认在 `release/All-In-One Finder <version>.exe`。
 
-## 许可与致谢
+## 许可
 
-本仓库以项目根目录 `LICENSE` 为准。各搜索器子模块来自社区开源项目，具体许可与作者见对应 `tools/*` 仓库；应用内「关于」页会随接入进度补充 Credits。
+本软件使用MIT许可证进行分发
+
+## 致谢
+感谢所有人的贡献，没有你们的贡献，就没有这款搜索器
+- 界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City
+- 地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple
+- 低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut，作者：M33三角座星系、SunnySlopes
+- 河流：https://github.com/SunnySlopes/RiverFinderGUI、
+https://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes
+- 低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI，作者：SunnySlopes
+- 史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、
+https://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City
+- 二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes
+- 多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes
+- 地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes
+- 试炼刷怪笼：https://github.com/ZCXEDTA/TrialSpawnerFinder、
+https://github.com/qk-yiyihehe/TrialSpawnerFinder、
+https://github.com/SunnySlopes/TrialSpawnerFinder，作者：EDTA、半筝、打野别说话、SunnySlopes
+- 紫水晶母岩：https://github.com/SunnySlopes/GeodeFinderGUI、
+https://github.com/soulsoiledit/geode-finder，作者：soulsoiledit、SunnySlopes
+- 全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes
+- 其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导

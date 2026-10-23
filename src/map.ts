@@ -44,6 +44,11 @@ const SCALES = [1, 4, 16, 64, 256];
 const TILE_CELLS = 128;
 /** GPU/canvas dest textures often fail above ~4k–8k; oversized drawImage aborts the frame. */
 const MAX_TILE_DRAW_PX = 4096;
+/** Keep at most this many cached tile canvases; off-screen ones are evicted first. */
+const MAX_TILE_CACHE = 256;
+/** Drop pending jobs that fall outside the view expanded by this many tiles. */
+const PENDING_MARGIN_TILES = 1;
+const MAX_PENDING = 96;
 const ICON_SIZE = 20;
 const SESSION_NAME = 'map';
 const DEFAULT_FEATURES = [
@@ -405,7 +410,17 @@ export class MapView {
     this.canvas.addEventListener('pointerup', () => {
       this.dragging = false;
       this.canvas.classList.remove('dragging');
-      this.schedule();
+      this.pruneTilePipeline();
+      this.queueDraw();
+      this.kickFlush();
+      this.queueFeatures();
+    });
+    this.canvas.addEventListener('pointercancel', () => {
+      this.dragging = false;
+      this.canvas.classList.remove('dragging');
+      this.pruneTilePipeline();
+      this.queueDraw();
+      this.kickFlush();
       this.queueFeatures();
     });
     this.canvas.addEventListener('pointermove', (event) => {
@@ -592,6 +607,7 @@ export class MapView {
       this.pending.clear();
       this.inflight.clear();
       this.attempts.clear();
+      this.flushQueued = false;
       this.generation += 1;
       this.featureGen += 1;
       this.slimeCanvas = null;
@@ -636,12 +652,14 @@ export class MapView {
       const maxLevel = scale === 1 ? (underlayOk ? 4 : 1) : 256;
       for (let level = scale; level <= maxLevel; level *= 4) levels.push(level);
       const state = this.state();
+      this.pruneTilePipeline();
       for (const level of [...levels].reverse()) {
         const request = level === scale
           || (scale === 1 && level === 4 && underlayOk)
           || (scale > 1 && level === scale * 4);
         this.paintLevel(ctx, state, level, request);
       }
+      this.evictTiles();
       this.drawGrid(ctx, scale);
       this.drawSlime(ctx, state);
       this.drawSpawnCircles(ctx);
@@ -700,34 +718,98 @@ export class MapView {
 
   private enqueueTile(key: string, scale: number, x: number, z: number): void {
     if (this.tiles.has(key) || this.inflight.has(key) || this.pending.has(key)) return;
+    if (this.pending.size >= MAX_PENDING) this.prunePendingOnly();
+    if (this.pending.size >= MAX_PENDING) {
+      // Drop farthest pending job so the newest visible tile can enter the queue.
+      let farthest: string | null = null;
+      let farthestDist = -1;
+      const view = this.viewBounds();
+      const midX = (view.x0 + view.x1) / 2;
+      const midZ = (view.z0 + view.z1) / 2;
+      for (const [pendingKey, job] of this.pending) {
+        const bx = job.x * job.scale + (TILE_CELLS * job.scale) / 2;
+        const bz = job.z * job.scale + (TILE_CELLS * job.scale) / 2;
+        const dist = Math.abs(bx - midX) + Math.abs(bz - midZ);
+        if (dist > farthestDist) {
+          farthestDist = dist;
+          farthest = pendingKey;
+        }
+      }
+      if (farthest) this.pending.delete(farthest);
+    }
     this.pending.set(key, { scale, x, z });
-    if (this.flushQueued) return;
-    this.flushQueued = true;
-    queueMicrotask(() => void this.flush());
+    this.kickFlush();
   }
 
-  private async flush(): Promise<void> {
-    this.flushQueued = false;
+  /** Always safe to call: starts flush if idle, or marks a follow-up if busy. */
+  private kickFlush(): void {
+    if (!this.pending.size || !this.version.value) return;
     if (this.flushRunning) {
       this.flushQueued = true;
       return;
     }
-    if (!this.pending.size || !this.version.value) return;
+    this.flushQueued = true;
+    queueMicrotask(() => void this.flush());
+  }
+
+  /** Drop off-screen pending jobs only (does not touch the tile cache). */
+  private prunePendingOnly(): void {
+    const view = this.expandedViewBounds(PENDING_MARGIN_TILES);
+    for (const [key, job] of this.pending) {
+      const span = TILE_CELLS * job.scale;
+      const x = job.x * job.scale;
+      const z = job.z * job.scale;
+      if (x + span <= view.x0 || x >= view.x1 || z + span <= view.z0 || z >= view.z1) {
+        this.pending.delete(key);
+      }
+    }
+  }
+
+  /** Drop off-screen pending work and trim the tile canvas cache. */
+  private pruneTilePipeline(): void {
+    this.prunePendingOnly();
+    this.evictTiles();
+  }
+
+  private expandedViewBounds(marginTiles: number) {
+    const view = this.viewBounds();
+    const span = TILE_CELLS * this.activeScale();
+    const pad = span * Math.max(0, marginTiles);
+    return { x0: view.x0 - pad, z0: view.z0 - pad, x1: view.x1 + pad, z1: view.z1 + pad };
+  }
+
+  private async flush(): Promise<void> {
+    if (this.flushRunning) {
+      this.flushQueued = true;
+      return;
+    }
     this.flushRunning = true;
+    this.flushQueued = false;
     try {
       while (this.pending.size && this.version.value) {
-        // When zoomed in, prioritize the finest pending scale so scale-1 tiles land first.
-        const preferFine = this.activeScale() <= 4;
-        let pick = preferFine ? Number.POSITIVE_INFINITY : 1;
-        for (const job of this.pending.values()) {
-          pick = preferFine ? Math.min(pick, job.scale) : Math.max(pick, job.scale);
-        }
+        this.prunePendingOnly();
+        if (!this.pending.size) break;
+        // Prefer the active scale, then tiles closest to the current view center.
+        const preferScale = this.activeScale();
+        const view = this.viewBounds();
+        const midX = (view.x0 + view.x1) / 2;
+        const midZ = (view.z0 + view.z1) / 2;
+        const ranked = [...this.pending.entries()].map(([key, job]) => {
+          const bx = job.x * job.scale + (TILE_CELLS * job.scale) / 2;
+          const bz = job.z * job.scale + (TILE_CELLS * job.scale) / 2;
+          const dist = Math.abs(bx - midX) + Math.abs(bz - midZ);
+          const scaleRank = job.scale === preferScale ? 0 : job.scale < preferScale ? 1 : 2;
+          return { key, job, dist, scaleRank };
+        });
+        ranked.sort((a, b) => a.scaleRank - b.scaleRank || a.dist - b.dist);
+        const pickScale = ranked[0]?.job.scale;
         const batch: { key: string; scale: number; x: number; z: number }[] = [];
-        for (const [key, job] of this.pending) {
-          if (job.scale !== pick) continue;
-          batch.push({ key, ...job });
-          this.pending.delete(key);
-          this.inflight.add(key);
+        for (const item of ranked) {
+          if (item.job.scale !== pickScale) continue;
+          if (batch.length >= 8) break;
+          batch.push({ key: item.key, ...item.job });
+          this.pending.delete(item.key);
+          this.inflight.add(item.key);
         }
         if (!batch.length) break;
         const generation = this.generation;
@@ -779,8 +861,12 @@ export class MapView {
       }
     } finally {
       this.flushRunning = false;
-      if (this.flushQueued && this.pending.size) {
-        this.flushQueued = false;
+      // Critical: always clear the latch. If we only cleared when pending was
+      // non-empty, a prune-to-empty mid-flush left flushQueued=true forever and
+      // enqueueTile stopped scheduling new work after the next drag.
+      const again = this.flushQueued || this.pending.size > 0;
+      this.flushQueued = false;
+      if (again && this.pending.size && this.version.value) {
         queueMicrotask(() => void this.flush());
       }
     }
@@ -792,17 +878,34 @@ export class MapView {
     return { x0: this.cx - halfW, z0: this.cz - halfH, x1: this.cx + halfW, z1: this.cz + halfH };
   }
 
-  private evictTiles(keep: string): void {
-    const view = this.viewBounds();
-    const span = TILE_CELLS * this.activeScale();
-    const cols = Math.ceil((view.x1 - view.x0) / span) + 1;
-    const rows = Math.ceil((view.z1 - view.z0) / span) + 1;
-    const limit = Math.min(800, Math.max(cols * rows * 2 + 4, 16));
-    if (this.tiles.size <= limit) return;
+  private evictTiles(keep?: string): void {
+    const keepView = this.expandedViewBounds(PENDING_MARGIN_TILES);
+    // Always drop canvases that are no longer near the viewport.
     for (const cached of [...this.tiles.keys()]) {
-      if (this.tiles.size <= limit) break;
-      if (cached === keep || this.tileVisible(cached, view)) continue;
+      if (cached === keep) continue;
+      if (this.tileVisible(cached, keepView)) continue;
       this.tiles.delete(cached);
+    }
+    if (this.tiles.size <= MAX_TILE_CACHE) return;
+    // If still over budget, drop farthest visible tiles (keep `keep` and nearest).
+    const view = this.viewBounds();
+    const midX = (view.x0 + view.x1) / 2;
+    const midZ = (view.z0 + view.z1) / 2;
+    const ranked = [...this.tiles.keys()]
+      .filter((key) => key !== keep)
+      .map((key) => {
+        const parts = key.split('|');
+        const z = Number(parts.pop());
+        const x = Number(parts.pop());
+        const scale = Number(parts.pop());
+        const span = TILE_CELLS * scale;
+        const dist = Math.abs(x + span / 2 - midX) + Math.abs(z + span / 2 - midZ);
+        return { key, dist };
+      })
+      .sort((a, b) => b.dist - a.dist);
+    for (const item of ranked) {
+      if (this.tiles.size <= MAX_TILE_CACHE) break;
+      this.tiles.delete(item.key);
     }
   }
 
@@ -811,6 +914,9 @@ export class MapView {
     const z = Number(parts.pop());
     const x = Number(parts.pop());
     const scale = Number(parts.pop());
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(scale) || scale <= 0) {
+      return false;
+    }
     const span = TILE_CELLS * scale;
     return x + span > view.x0 && x < view.x1 && z + span > view.z0 && z < view.z1;
   }
