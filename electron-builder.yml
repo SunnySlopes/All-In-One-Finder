@@ -1,0 +1,22 @@
+appId: com.sunnyslopes.allinonefinder
+productName: All-In-One Finder
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+extraResources:
+  - from: native/build/allinone.node
+    to: native/allinone.node
+asar: true
+asarUnpack:
+  - electron/**
+icon: build/icon.ico
+win:
+  icon: build/icon.ico
+  target:
+    - portable
+npmRebuild: false
+electronDist: node_modules/electron/dist

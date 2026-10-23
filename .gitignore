@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+
+# Frontend / Vite build output
+dist/
+dist-beautified/
+sourcemaps/
+.vite/
+.cache/
+
+# Native build output
+native/build/
+*.node
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Electron packaging output
+release/
+*.exe
+*.AppImage
+*.dmg
+*.blockmap
+*.snap
+builder-effective-config.yaml
+builder-debug.yml
+
+# Runtime data (portable userdata / sessions next to exe or in project)
+userdata/
+session/
+*.log
+
+# Tests / smoke / coverage
+smoke-result.json
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+*~
+*.swp
+*.swo
+
+# JetBrains / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+*.hprof
+out/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example

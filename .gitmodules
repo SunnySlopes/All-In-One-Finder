@@ -1,0 +1,37 @@
+[submodule "tools/cubiomes"]
+	path = tools/cubiomes
+	url = https://github.com/xpple/cubiomes
+[submodule "tools/dripstonecave"]
+	path = tools/dripstonecave
+	url = https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI
+[submodule "tools/lowyswamphut"]
+	path = tools/lowyswamphut
+	url = https://github.com/M33Galaxy/LowYSwampHut.git
+[submodule "tools/doublemonument"]
+	path = tools/doublemonument
+	url = https://github.com/SunnySlopes/DoubleMonumentForFixedSeed.git
+[submodule "tools/multimonument"]
+	path = tools/multimonument
+	url = https://github.com/Whisperlyric/MultiMonumentFinder.git
+[submodule "tools/river"]
+	path = tools/river
+	url = https://github.com/SunnySlopes/RiverFinder.git
+	branch = JNI
+[submodule "tools/fortress"]
+	path = tools/fortress
+	url = https://github.com/SunnySlopes/FortressFinderGUI.git
+[submodule "tools/trialspawner"]
+	path = tools/trialspawner
+	url = https://github.com/ZCXEDTA/TrialSpawnerFinder.git
+[submodule "tools/geode"]
+	path = tools/geode
+	url = https://github.com/SunnySlopes/GeodeFinderGUI.git
+[submodule "tools/flower"]
+	path = tools/flower
+	url = https://github.com/SunnySlopes/FlowerFinderGUI.git
+[submodule "tools/slimeradar"]
+	path = tools/slimeradar
+	url = https://github.com/CITYWIDESIGN/SlimeRadar.git
+[submodule "tools/slimeoptimizer"]
+	path = tools/slimeoptimizer
+	url = https://github.com/CITYWIDESIGN/SlimeOptimizer.git
