@@ -18,6 +18,12 @@ const appRoot = path.resolve(__dirname, '..');
 let logFile = '';
 let sessionDir = '';
 
+/** Any Chinese system locale (zh-CN, zh-HK, zh-TW, zh-Hans-CN, zh-SG, ...) defaults to Chinese. */
+function preferredLocale(systemLocale) {
+  const tag = String(systemLocale || '').replaceAll('_', '-').toLowerCase();
+  return tag.startsWith('zh') ? 'zh' : 'en';
+}
+
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
   console.log(line);
@@ -191,6 +197,31 @@ async function runSmoke() {
   } catch (error) {
     searchError = error && error.message ? error.message : String(error);
   }
+  let slime = null;
+  let slimeError = '';
+  try {
+    addon.slimeFarmStart({
+      mc: newest.id,
+      versionRule: 2,
+      threads: 2,
+      minSlimeArea: 9000,
+      minX: -2048,
+      maxX: 2048,
+      minZ: -2048,
+      maxZ: 2048,
+      convert: true,
+      seeds: ['0'],
+    });
+    const started = Date.now();
+    while (Date.now() - started < 20000) {
+      slime = addon.slimeFarmPoll();
+      if (slime.done) break;
+      await sleep(100);
+    }
+    if (slime && !slime.done) addon.slimeFarmStop();
+  } catch (error) {
+    slimeError = error && error.message ? error.message : String(error);
+  }
   const colored = Buffer.isBuffer(tile) && tile.some((byte) => byte !== 0 && byte !== 255);
   const fineColored = Buffer.isBuffer(fineTile) && fineTile.length === 64 * 64 * 4
     && fineTile.some((byte) => byte !== 0 && byte !== 255);
@@ -208,12 +239,39 @@ async function runSmoke() {
     endStructures: endStructures.length,
     search,
     searchError,
+    slime: slime ? {
+      done: slime.done,
+      error: slime.error,
+      stage: slime.stage,
+      hits: slime.hits.length,
+      first: slime.hits[0] ? {
+        x: slime.hits[0].x,
+        z: slime.hits[0].z,
+        area: slime.hits[0].area,
+        areaEquiv: slime.hits[0].areaEquiv,
+        chunks: slime.hits[0].chunks,
+      } : null,
+    } : null,
+    slimeError,
   };
+  const checks = {
+    versions: versions.length > 10,
+    colored,
+    fineColored,
+    biome: !!(biome && biome.name),
+    weird: Number.isFinite(weird),
+    searchError: !searchError,
+    search: !!search,
+    slimeDone: !!(slime && slime.done),
+    slimeError: !!slime && !slime.error && !slimeError,
+    slimeHits: !!(slime && slime.hits.length > 0),
+  };
+  const ok = Object.values(checks).every(Boolean);
+  report.checks = checks;
+  report.ok = ok;
   const out = path.join(appRoot, 'smoke-result.json');
   fs.writeFileSync(out, JSON.stringify(report, null, 2));
   log(`smoke wrote ${out}`);
-  const ok = versions.length > 10 && colored && fineColored
-    && biome && biome.name && Number.isFinite(weird) && !searchError && search;
   app.exit(ok ? 0 : 1);
 }
 
@@ -404,6 +462,13 @@ app.whenReady().then(async () => {
     if (!/\.(json|txt)$/i.test(file)) file += '.json';
     fs.writeFileSync(file, sessionToText(data, /\.txt$/i.test(file)), 'utf8');
     return true;
+  });
+  ipcMain.on('locale-bootstrap', (event) => {
+    // Synchronous so the renderer can pick its first paint language before any async work.
+    event.returnValue = {
+      locale: preferredLocale(app.getLocale()),
+      hasSession: fs.existsSync(sessionPath('map')),
+    };
   });
   const child = await startUtility();
   const window = createWindow();

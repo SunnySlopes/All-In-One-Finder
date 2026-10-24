@@ -1,26 +1,14 @@
 {
-  "langName": "English",
-  "app": { "title": "All-In-One Finder 0.1.1" },
+  "app": { "title": "All-In-One Finder {version}" },
   "menu": {
-    "language": "Language",
-    "map": "Map",
-    "search": "Search",
-    "file": "File",
-    "edit": "Edit",
-    "help": "Help",
-    "about": "About",
-    "searcher": "Searcher",
-    "filePlaceholder": "No file actions",
-    "editPlaceholder": "No edit actions"
+    "language": "Language"
   },
   "searchExtra": {
-    "elapsed": "Elapsed: {time}",
-    "defaultArea": "Reset to default",
-    "worldBorder": "Reset to world border"
+    "elapsed": "Elapsed: {time}"
   },
   "about": {
     "title": "About",
-    "body": "All-In-One Finder 0.1.1\nPermission\nThis software is distributed under the MIT License.\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/ZCXEDTA/TrialSpawnerFinder,\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder,\nhttps://github.com/SunnySlopes/TrialSpawnerFinder, authors: EDTA, Half_Kite, qk-yiyihehe, SunnySlopes\nBudding Amethyst: https://github.com/SunnySlopes/GeodeFinderGUI,\nhttps://github.com/soulsoiledit/geode-finder, authors: soulsoiledit, SunnySlopes\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
+    "body": "All-In-One Finder {version}\nPermission\nThis software is distributed under the MIT License.\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/ZCXEDTA/TrialSpawnerFinder,\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder,\nhttps://github.com/SunnySlopes/TrialSpawnerFinder, authors: EDTA, Half_Kite, qk-yiyihehe, SunnySlopes\nBudding Amethyst: https://github.com/SunnySlopes/GeodeFinderGUI,\nhttps://github.com/soulsoiledit/geode-finder, authors: soulsoiledit, SunnySlopes\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
   },
   "searcher": {
     "map": "Map",
@@ -43,7 +31,10 @@
     "exportSeeds": "Export seed list",
     "exportAll": "Export full results",
     "cave": "Cave",
-    "river": "River"
+    "river": "River",
+    "equivalentArea": "Equivalent area",
+    "generatedArea": "Generated area",
+    "slimeChunks": "Slime chunks"
   },
   "map": {
     "seed": "Seed",
@@ -53,11 +44,7 @@
     "y": "Sample Y",
     "coordX": "X",
     "coordZ": "Z",
-    "features": "Features",
-    "all": "All",
-    "none": "None",
     "goto": "Go",
-    "cancel": "Cancel",
     "parse": "Parse",
     "parseText": "Coordinate text",
     "parseHint": "/tp x y z, or x z, or (x, z) / (x, y, z)",
@@ -65,7 +52,6 @@
     "badParse": "Could not parse that coordinate text.",
     "badSession": "Could not read that session file.",
     "biome": "Biome",
-    "waiting": "Connecting to the native engine…",
     "overworld": "Overworld",
     "nether": "Nether",
     "end": "The End",
@@ -85,11 +71,6 @@
     "pause": "Pause",
     "resume": "Resume",
     "stop": "Stop",
-    "sortArea": "Sort by area",
-    "sortDistance": "Sort by distance",
-    "export": "Export",
-    "results": "Results",
-    "progress": "Progress",
     "unsupported": "This search does not support the selected version.",
     "seedOf": "Seed {index} / {count}",
     "phase": {
@@ -110,9 +91,6 @@
     }
   },
   "lowy": {
-    "single": "Single seed",
-    "list": "Seed list",
-    "fast": "Fast single seed",
     "seed": "Seed",
     "river": "River weight",
     "ratio": "Minimum area ratio %",
@@ -132,6 +110,27 @@
     "verPre": "1.18~26.1",
     "verSulfur": "26.2+"
   },
+  "slime": {
+    "minArea": "Minimum slime area",
+    "convert": "Biome conversion",
+    "fullMap": "Reset full map",
+    "help": "Searches AFK points with the largest slime spawning area in the 24 < distance <= 128 ring. The minimum area is automatically mapped to a slime chunk threshold. Full map supports up to 60000001 blocks per side; very large areas are searched in tiles and may take a long time.",
+    "areaClamped": "The minimum slime area must be between 9000 and 15000. It has been adjusted to {min}.",
+    "tooMany": "The search area is large for this minimum slime area and may produce too many results. Consider raising the minimum slime area to at least {min}.",
+    "tileProgress": "Tile {done}/{total}",
+    "adjust": "Adjust and continue",
+    "keep": "Keep and continue",
+    "stage": {
+      "0": "Idle",
+      "1": "Radar scan",
+      "2": "Prepare mask",
+      "3": "Optimize AFK point",
+      "4": "Biome conversion",
+      "5": "Done",
+      "6": "Cancelled",
+      "7": "Error"
+    }
+  },
   "error": {
     "bad-seed": "Enter an integer seed.",
     "bad-bounds": "The search box is invalid.",
@@ -141,6 +140,7 @@
     "busy": "A search is already running.",
     "out-of-memory": "The search ran out of memory.",
     "bad-ratio": "The area ratio is outside the allowed range.",
+    "slime-start-failed": "The slime search could not start.",
     "native": "The native engine is not connected."
   },
   "structure": {

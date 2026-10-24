@@ -19,7 +19,7 @@ export const SEARCHER_ITEMS: { id: SearcherId; enabled: boolean }[] = [
   { id: 'River', enabled: false },
   { id: 'LowYDripstoneCave', enabled: true },
   { id: 'LowYPitDripstoneCave', enabled: true },
-  { id: 'SlimeChunk', enabled: false },
+  { id: 'SlimeChunk', enabled: true },
   { id: 'DoubleMonument', enabled: false },
   { id: 'MultiMonument', enabled: false },
   { id: 'NetherFortressCross', enabled: false },
@@ -29,7 +29,7 @@ export const SEARCHER_ITEMS: { id: SearcherId; enabled: boolean }[] = [
   { id: 'FlowerFarm', enabled: false },
 ];
 
-export const DRIPSTONE_TABS: SearcherId[] = ['LowYDripstoneCave', 'LowYPitDripstoneCave'];
+const DRIPSTONE_TABS: SearcherId[] = ['LowYDripstoneCave', 'LowYPitDripstoneCave'];
 
 export function isDripstoneTab(id: SearcherId | null | undefined): boolean {
   return !!id && DRIPSTONE_TABS.includes(id);

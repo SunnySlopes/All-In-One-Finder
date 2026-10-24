@@ -2,11 +2,16 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Resolved synchronously in the main process: system language + whether a session file exists.
+const bootstrap = ipcRenderer.sendSync('locale-bootstrap') || {};
+
 ipcRenderer.on('native-port', (event) => {
   window.postMessage('aio-port', '*', event.ports);
 });
 
 contextBridge.exposeInMainWorld('aio', {
+  initialLocale: bootstrap.locale === 'zh' || bootstrap.locale === 'en' ? bootstrap.locale : undefined,
+  hasSession: Boolean(bootstrap.hasSession),
   setTitle(title) {
     ipcRenderer.send('set-title', title);
   },

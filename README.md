@@ -20,6 +20,7 @@
 | --- | --- |
 | **低 Y 溶洞** | 在给定范围内寻找低高度滴水石溶洞区域 |
 | **大坑低 Y 溶洞** | 面向更大搜索范围 /「大坑」类低 Y 溶洞目标 |
+| **史莱姆搜索器** | 搜索刷怪环（24 < 距离 <= 128）内史莱姆生成面积最大的挂机点，可选按 y=-63 群系折算；超大范围自动分块搜索，单边最大 60000001 方块 |
 
 支持单种子或种子列表、线程数、搜索范围（默认正方形或世界边界）、进度与暂停/停止，以及结果排序与导出。
 
@@ -31,7 +32,6 @@
 | --- | --- |
 | 低 Y 女巫小屋 | `tools/lowyswamphut` |
 | 河流 | `tools/river` |
-| 史莱姆区块聚集 + 挂机点优化 | `tools/slime/`（`slimeradar` + `slimeoptimizer` + `slime_search.cpp`） |
 | 二联 / 多联海底神殿 | `tools/doublemonument` / `tools/multimonument` |
 | 地狱堡垒（十字路口 / 大范围） | `tools/fortress` |
 | 试炼刷怪笼 | `tools/trialspawner` |

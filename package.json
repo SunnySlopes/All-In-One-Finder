@@ -1,7 +1,7 @@
 {
   "name": "all-in-one-finder",
   "productName": "All-In-One Finder",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "main": "electron/main.cjs",
   "description": "A Minecraft set-seed multifunction coordination finder for Java 1.18+",

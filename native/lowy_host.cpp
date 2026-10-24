@@ -18,7 +18,7 @@
 
 namespace {
 
-constexpr double kRiverArea = 3.14159265358979323846 * (128.0 * 128.0 - 24.0 * 24.0);
+constexpr double kRiverArea = 49640.0; /* 24 < r <= 128 刷怪环的格点总面积 */
 constexpr int kRing = 128;
 constexpr float kPreserve = 0.9f;
 

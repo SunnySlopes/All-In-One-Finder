@@ -2,11 +2,14 @@ import { biomeLabel, onLocale, structureLabel, t } from './i18n';
 import { call, type FeatureInfo, type McVersion, type Placed } from './native';
 import { type MapSessionData } from './session';
 
-export interface JumpOptions {
+interface JumpOptions {
   x: number;
   z: number;
   seed?: string;
   y?: number;
+  dimension?: number;
+  mcVersion?: string;
+  slimeChunks?: boolean;
   spawnCircles?: boolean;
 }
 
@@ -40,7 +43,6 @@ const COLORS: Record<string, string> = {
   end_gateway: '#7fd0c8',
 };
 
-const SCALES = [1, 4, 16, 64, 256];
 const TILE_CELLS = 128;
 /** GPU/canvas dest textures often fail above ~4k–8k; oversized drawImage aborts the frame. */
 const MAX_TILE_DRAW_PX = 4096;
@@ -298,18 +300,48 @@ export class MapView {
   }
 
   jumpTo(options: JumpOptions): void {
+    const previous = {
+      seed: this.seed.value.trim(),
+      version: this.version.value,
+      dim: this.dimension.value,
+      y: this.y.value,
+      large: this.large.value,
+    };
     const nextSeed = options.seed != null ? options.seed.trim() : this.seed.value.trim();
-    const nextY = options.y != null ? String(options.y) : this.y.value;
-    const worldChanged = nextSeed !== this.seed.value.trim() || nextY !== this.y.value;
+    let nextY = options.y != null ? String(options.y) : this.y.value;
     if (options.seed != null && nextSeed) {
       this.seed.value = nextSeed;
       this.onSeedChange(nextSeed);
     }
-    if (options.y != null) this.y.value = nextY;
+    if (options.mcVersion) {
+      const match = this.versions.find((item) => item.name === options.mcVersion);
+      if (match) this.version.value = String(match.id);
+    }
+    if (options.dimension != null) {
+      this.dimension.value = String(options.dimension);
+      if (options.y == null) nextY = String(defaultYForDim(options.dimension));
+      this.y.value = nextY;
+      this.renderFeatures();
+    } else if (options.y != null) {
+      this.y.value = nextY;
+    }
+    if (options.slimeChunks) {
+      const feature = this.features.find((item) => item.id === -2);
+      if (feature) {
+        this.enabled.add(feature.id);
+        this.slimeCanvas = null;
+        this.renderFeatures();
+      }
+    }
+    const worldChanged = nextSeed !== previous.seed
+      || nextY !== previous.y
+      || this.version.value !== previous.version
+      || this.dimension.value !== previous.dim
+      || this.large.value !== previous.large;
     this.cx = options.x;
     this.cz = options.z;
     this.persistSession();
-    // Panning keeps the current tiles on screen. Only a seed/Y change drops the cache.
+    // Panning keeps the current tiles on screen. Only a seed/Y/version/dimension change drops the cache.
     this.schedule(worldChanged);
     this.spawnOverlay = options.spawnCircles ? { x: options.x, z: options.z } : null;
     this.queueFeatures();

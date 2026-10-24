@@ -15,6 +15,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CUBI "${CMAKE_SOURCE_DIR}/../tools/cubiomes")
 set(LOWY "${CMAKE_SOURCE_DIR}/../tools/dripstonecave/jni")
+set(SLIME "${CMAKE_SOURCE_DIR}/../tools/slime")
+set(SLIMERADAR "${SLIME}/slimeradar/src")
+set(SLIMEOPT "${SLIME}/slimeoptimizer")
 
 set(CUBI_ROOT_SOURCES
   finders.c carver.c generator.c layers.c biomenoise.c biomes.c noise.c
@@ -45,10 +48,19 @@ set(HOT_CXX
   addon.cpp
   map_service.cpp
   lowy_host.cpp
+  slime_host.cpp
+  "${SLIME}/slime_search.cpp"
+  "${SLIMEOPT}/src/geometry.cpp"
+  "${SLIMEOPT}/src/slime_check.cpp"
+  "${SLIMEOPT}/src/java_random.cpp"
   "${LOWY}/BiomeSampler.cpp"
   "${LOWY}/OctaveFieldCache.cpp"
 )
-add_library(allinone SHARED ${HOT_CXX} "${CMAKE_BINARY_DIR}/napi_bind.cpp")
+set(SLIME_C
+  "${SLIMERADAR}/cpu_search.c"
+  "${SLIMERADAR}/cpu_simd_avx2.c"
+)
+add_library(allinone SHARED ${HOT_CXX} ${SLIME_C} "${CMAKE_BINARY_DIR}/napi_bind.cpp")
 set_target_properties(allinone PROPERTIES
   PREFIX ""
   SUFFIX ".node"
@@ -59,6 +71,8 @@ target_include_directories(allinone PRIVATE
   "${NODE_API_HEADERS_DIR}"
   "${CMAKE_SOURCE_DIR}/../tools"
   "${LOWY}"
+  "${SLIMERADAR}"
+  "${SLIMEOPT}/include"
 )
 target_compile_definitions(allinone PRIVATE
   NAPI_VERSION=8
@@ -69,6 +83,15 @@ target_compile_definitions(allinone PRIVATE
 target_compile_options(allinone PRIVATE
   -O3 -DNDEBUG -fwrapv -fexceptions -flto -mpopcnt
   -include "${LOWY}/cxx_compat/pre_cubiomes.h"
+)
+# SlimeRadar 的 AVX2 判定文件需要单独开 -mavx2；运行时仍由 CPUID 分派。
+set_source_files_properties("${SLIMERADAR}/cpu_simd_avx2.c"
+  PROPERTIES COMPILE_OPTIONS "-mavx2"
+)
+# 标量雷达热路径：-march=x86-64-v3 启用 AVX2/BMI2 等现代指令，
+# -funroll-loops 与 SlimeRadar 官方基准一致。
+set_source_files_properties("${SLIMERADAR}/cpu_search.c"
+  PROPERTIES COMPILE_OPTIONS "-march=x86-64-v3;-funroll-loops"
 )
 target_link_libraries(allinone PRIVATE cubiomes_objs "${CMAKE_BINARY_DIR}/napi_proxy.o" -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
 target_link_options(allinone PRIVATE

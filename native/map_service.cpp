@@ -330,24 +330,6 @@ std::vector<McVersion> listMcVersions()
     return out;
 }
 
-std::vector<BiomeEntry> listBiomes(int mc)
-{
-    std::vector<BiomeEntry> out;
-    for (int id = 0; id < 256; id++) {
-        const char *name = biome2str(mc, id);
-        if (!name || !name[0]) continue;
-        bool seen = false;
-        for (const auto &item : out) {
-            if (item.name == name) {
-                seen = true;
-                break;
-            }
-        }
-        if (!seen) out.push_back({id, name});
-    }
-    return out;
-}
-
 std::vector<FeatureEntry> listFeatures()
 {
     std::vector<FeatureEntry> out;
@@ -473,23 +455,6 @@ int biomeAt(int mc, uint64_t seed, int dim, uint32_t flags, int blockX, int bloc
     std::lock_guard<std::mutex> lock(gMu);
     ensureGenerator(mc, seed, dim, flags);
     return getBiomeAt(&gGen, 1, blockX, blockY, blockZ);
-}
-
-bool worldSpawn(int mc, uint64_t seed, uint32_t flags, int *x, int *z)
-{
-    std::lock_guard<std::mutex> lock(gMu);
-    if (!(gSpawnReady && gSpawnMc == mc && gSpawnSeed == seed && gSpawnFlags == flags)) {
-        ensureGenerator(mc, seed, DIM_OVERWORLD, flags);
-        gSpawn = getSpawn(&gGen);
-        gSpawnMc = mc;
-        gSpawnSeed = seed;
-        gSpawnFlags = flags;
-        gSpawnReady = true;
-        gDim = 999;
-    }
-    *x = gSpawn.x;
-    *z = gSpawn.z;
-    return true;
 }
 
 std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32_t flags,

@@ -1,5 +1,6 @@
+import { ask } from './dialog';
 import { applyI18n, t } from './i18n';
-import { call, type McVersion, type SearchHit, type SearchStatus } from './native';
+import { call, type McVersion, type SearchStatus } from './native';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -11,7 +12,6 @@ const WORLD_SIDE = 60000001;
 const DEFAULT_RATIO = '70';
 const BORDER_RATIO = '90';
 
-type Choice = 'yes' | 'no' | 'dismiss';
 type SeedMode = 'single' | 'list';
 type LowyUiVersion = 'pre' | 'sulfur';
 
@@ -31,7 +31,6 @@ function resolveLowyMc(ui: LowyUiVersion, versions: McVersion[]): number {
 
 export class SearchPanel {
   readonly root: HTMLElement;
-  private form!: HTMLElement;
   private footer!: HTMLElement;
   private version!: HTMLSelectElement;
   private threads!: HTMLInputElement;
@@ -48,7 +47,6 @@ export class SearchPanel {
   private supported = true;
   private running = false;
   private paused = false;
-  private hits: SearchHit[] = [];
   private pollTimer = 0;
   private versions: McVersion[] = [];
   private seed = '';
@@ -96,7 +94,6 @@ export class SearchPanel {
       </div>
       <div class="search-panel-footer" id="s-footer"></div>
     `;
-    this.form = this.root.querySelector('#s-form')!;
     this.footer = this.root.querySelector('#s-footer')!;
     this.version = this.root.querySelector('#s-version')!;
     this.threads = this.root.querySelector('#s-threads')!;
@@ -381,7 +378,6 @@ export class SearchPanel {
       this.results?.clear(this.searcher, listMode);
       this.running = true;
       this.paused = false;
-      this.hits = [];
       this.searchStartedAt = Date.now();
       this.phaseStartedAt = Date.now();
       this.lastPhase = Number.NaN;
@@ -411,7 +407,6 @@ export class SearchPanel {
         const status = await call<SearchStatus>('searchPoll');
         this.running = status.running;
         this.paused = status.paused;
-        this.hits = status.hits;
         if (status.phase !== this.lastPhase) {
           this.lastPhase = status.phase;
           this.phaseStartedAt = Date.now();
@@ -481,32 +476,4 @@ function messageOf(error: unknown): string {
   const key = `error.${code}`;
   const text = t(key);
   return text === key ? code : text;
-}
-
-function ask(message: string, buttons: { id: Choice; key: string }[]): Promise<Choice> {
-  const modal = document.querySelector<HTMLElement>('#modal')!;
-  const dialog = document.querySelector<HTMLElement>('#dialog')!;
-  dialog.innerHTML = `<div>${escapeText(message)}</div><div class="row">${buttons.map((button) =>
-    `<button type="button" data-choice="${button.id}">${escapeText(t(button.key))}</button>`).join('')}</div>`;
-  modal.classList.add('show');
-  return new Promise((resolve) => {
-    const finish = (choice: Choice) => {
-      modal.classList.remove('show');
-      modal.onclick = null;
-      resolve(choice);
-    };
-    dialog.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
-      button.addEventListener('click', (event) => {
-        event.stopPropagation();
-        finish(button.dataset.choice as Choice);
-      });
-    });
-    modal.onclick = (event) => {
-      if (event.target === modal) finish('dismiss');
-    };
-  });
-}
-
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
 }

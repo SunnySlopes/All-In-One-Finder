@@ -1,9 +1,11 @@
 import './style.css';
+import { escapeText, showNotice } from './dialog';
 import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n';
 import { MapView } from './map';
 import { call, type FeatureInfo, type McVersion } from './native';
 import { ResultsColumn } from './results';
 import { SearchPanel } from './search';
+import { SlimePanel } from './slime';
 import { SEARCHER_ITEMS, type SearcherId } from './searchers';
 import { parseSessionFile } from './session';
 
@@ -35,13 +37,18 @@ const searcherBar = document.querySelector('#searcher-bar')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const map = new MapView();
 const search = new SearchPanel();
+const slime = new SlimePanel();
 const results = new ResultsColumn(map);
 resultsHost.append(results.root);
 search.bindResults(results);
+slime.bindResults(results);
 map.mountCanvas(document.querySelector('#stage')!);
 search.onNavigate = (id) => show(id);
 results.onShowMap = () => show('map');
-map.onSeedChange = (seed) => search.setSeedFromMap(seed);
+map.onSeedChange = (seed) => {
+  search.setSeedFromMap(seed);
+  slime.setSeedFromMap(seed);
+};
 
 let current: SearcherId = 'map';
 
@@ -74,28 +81,6 @@ language.addEventListener('change', () => {
   paintSearcherBar();
 });
 
-function showNotice(message: string): void {
-  const modal = document.querySelector<HTMLElement>('#modal')!;
-  const dialog = document.querySelector<HTMLElement>('#dialog')!;
-  dialog.innerHTML = `
-    <div>${escapeText(message)}</div>
-    <div class="row"><button type="button" id="notice-close" data-i18n="lowy.dismiss"></button></div>
-  `;
-  applyI18n(dialog);
-  modal.classList.add('show');
-  const close = () => {
-    modal.classList.remove('show');
-    modal.onclick = null;
-  };
-  dialog.querySelector('#notice-close')!.addEventListener('click', (event) => {
-    event.stopPropagation();
-    close();
-  });
-  modal.onclick = (event) => {
-    if (event.target === modal) close();
-  };
-}
-
 function showAbout(): void {
   const modal = document.querySelector<HTMLElement>('#modal')!;
   const dialog = document.querySelector<HTMLElement>('#dialog')!;
@@ -119,10 +104,6 @@ function showAbout(): void {
   };
 }
 
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
-}
-
 function show(which: SearcherId): void {
   current = which;
   if (which === 'map') {
@@ -131,6 +112,9 @@ function show(which: SearcherId): void {
     search.setSeedFromMap(map.getSeed());
     search.setSearcher(which);
     panel.replaceChildren(search.root);
+  } else if (which === 'SlimeChunk') {
+    slime.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(slime.root);
   } else {
     return;
   }
@@ -139,6 +123,7 @@ function show(which: SearcherId): void {
   applyI18n();
   results.refresh();
   if (which === 'map') map.refreshText();
+  else if (which === 'SlimeChunk') slime.refresh();
   else search.refresh();
 }
 
@@ -204,6 +189,7 @@ onLocale(() => {
   applyI18n();
   map.refreshText();
   search.refresh();
+  slime.refresh();
   results.refresh();
   paintSearcherBar();
   setWindowTitle();
@@ -221,6 +207,7 @@ window.aio?.onSessionImport?.((text) => {
   }
   map.applySnapshot(data);
   search.setSeedFromMap(data.seed);
+  slime.setSeedFromMap(data.seed);
   show('map');
 });
 
@@ -237,8 +224,10 @@ void Promise.all([
 ]).then(([versions, features]) => {
   void map.load(versions, features).then(() => {
     search.setSeedFromMap(map.getSeed());
+    slime.setSeedFromMap(map.getSeed());
   });
   search.load(versions);
+  slime.load(versions);
   applyI18n();
   map.refreshText();
   results.refresh();

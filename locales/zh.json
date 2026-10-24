@@ -1,26 +1,14 @@
 {
-  "langName": "中文",
-  "app": { "title": "定种多功能搜索器 0.1.1" },
+  "app": { "title": "定种多功能搜索器 {version}" },
   "menu": {
-    "language": "语言",
-    "map": "地图",
-    "search": "搜索",
-    "file": "File",
-    "edit": "Edit",
-    "help": "Help",
-    "about": "关于",
-    "searcher": "Searcher",
-    "filePlaceholder": "暂无文件操作",
-    "editPlaceholder": "暂无编辑操作"
+    "language": "语言"
   },
   "searchExtra": {
-    "elapsed": "已过时间: {time}",
-    "defaultArea": "重置为默认范围",
-    "worldBorder": "重置为世界边界"
+    "elapsed": "已过时间: {time}"
   },
   "about": {
     "title": "关于",
-    "body": "定种多功能搜索器 0.1.1\n许可\n本软件使用MIT许可证进行分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinderGUI、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes\n多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes\n试炼刷怪笼：https://github.com/ZCXEDTA/TrialSpawnerFinder、\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder、\nhttps://github.com/SunnySlopes/TrialSpawnerFinder，作者：EDTA、半筝、打野别说话、SunnySlopes\n紫水晶母岩：https://github.com/SunnySlopes/GeodeFinderGUI、\nhttps://github.com/soulsoiledit/geode-finder，作者：soulsoiledit、SunnySlopes\n全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
+    "body": "定种多功能搜索器 {version}\n许可\n本软件使用MIT许可证进行分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinderGUI、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes\n多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes\n试炼刷怪笼：https://github.com/ZCXEDTA/TrialSpawnerFinder、\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder、\nhttps://github.com/SunnySlopes/TrialSpawnerFinder，作者：EDTA、半筝、打野别说话、SunnySlopes\n紫水晶母岩：https://github.com/SunnySlopes/GeodeFinderGUI、\nhttps://github.com/soulsoiledit/geode-finder，作者：soulsoiledit、SunnySlopes\n全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
   },
   "searcher": {
     "map": "地图",
@@ -43,7 +31,10 @@
     "exportSeeds": "导出种子列表",
     "exportAll": "导出完整结果",
     "cave": "溶洞",
-    "river": "河流"
+    "river": "河流",
+    "equivalentArea": "等效面积",
+    "generatedArea": "生成面积",
+    "slimeChunks": "史莱姆区块数"
   },
   "map": {
     "seed": "种子",
@@ -53,11 +44,7 @@
     "y": "采样 Y",
     "coordX": "坐标 X",
     "coordZ": "坐标 Z",
-    "features": "地物",
-    "all": "全选",
-    "none": "全不选",
     "goto": "前往",
-    "cancel": "取消",
     "parse": "解析",
     "parseText": "坐标文本",
     "parseHint": "/tp x y z，或 x z，或 (x, z) / (x, y, z)",
@@ -65,7 +52,6 @@
     "badParse": "无法解析这段坐标文本。",
     "badSession": "无法读取这个 session 文件。",
     "biome": "群系",
-    "waiting": "正在连接原生引擎…",
     "overworld": "主世界",
     "nether": "下界",
     "end": "末地",
@@ -85,11 +71,6 @@
     "pause": "暂停",
     "resume": "继续",
     "stop": "停止",
-    "sortArea": "按面积排序",
-    "sortDistance": "按距离排序",
-    "export": "导出",
-    "results": "结果",
-    "progress": "进度",
     "unsupported": "当前版本不能运行这个搜索。",
     "seedOf": "种子 {index} / {count}",
     "phase": {
@@ -110,9 +91,6 @@
     }
   },
   "lowy": {
-    "single": "单种子",
-    "list": "种子列表",
-    "fast": "快速单种子",
     "seed": "种子",
     "river": "河流折算系数",
     "ratio": "最低面积占比 %",
@@ -132,6 +110,27 @@
     "verPre": "1.18~26.1",
     "verSulfur": "26.2+"
   },
+  "slime": {
+    "minArea": "最小史莱姆面积",
+    "convert": "群系折算",
+    "fullMap": "重置为全图",
+    "help": "搜索 24 < 距离 <= 128 的刷怪环内史莱姆生成面积最大的挂机点。最小史莱姆面积会按内置阈值自动换算史莱姆区块数。全图最大单边 60000001 方块，超大范围会分块搜索，耗时可能很长。",
+    "areaClamped": "最小史莱姆面积必须在 9000~15000 之间，已自动调整为 {min}。",
+    "tooMany": "当前搜索范围内最小史莱姆面积较低，可能会产生过多结果。建议将最小史莱姆面积提高到至少 {min}。",
+    "tileProgress": "分块 {done}/{total}",
+    "adjust": "自动调整并继续",
+    "keep": "保持当前值继续",
+    "stage": {
+      "0": "空闲",
+      "1": "雷达扫描",
+      "2": "准备掩码",
+      "3": "挂机点优化",
+      "4": "群系折算",
+      "5": "已完成",
+      "6": "已取消",
+      "7": "出错"
+    }
+  },
   "error": {
     "bad-seed": "请填写整数种子。",
     "bad-bounds": "搜索范围无效。",
@@ -141,6 +140,7 @@
     "busy": "已有搜索正在运行。",
     "out-of-memory": "搜索内存不足。",
     "bad-ratio": "面积占比超出允许范围。",
+    "slime-start-failed": "史莱姆搜索启动失败。",
     "native": "原生引擎还没有连上。"
   },
   "structure": {

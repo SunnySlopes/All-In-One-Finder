@@ -9,11 +9,6 @@ export interface FeatureInfo {
   dim: number;
 }
 
-export interface BiomeInfo {
-  id: number;
-  name: string;
-}
-
 export interface Placed {
   type: number;
   x: number;
@@ -44,6 +39,30 @@ export interface SearchStatus {
   hits: SearchHit[];
 }
 
+export interface SlimeHit {
+  seed: string;
+  x: number;
+  z: number;
+  area: number;
+  areaEquiv: number;
+  chunks: number;
+}
+
+export interface SlimeStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  stage: number;
+  current: number;
+  total: number;
+  tilesDone: number;
+  tilesTotal: number;
+  seedIndex: number;
+  seedCount: number;
+  error: string;
+  hits: SlimeHit[];
+}
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -58,8 +77,8 @@ function seedText(value: bigint | number | string): string {
 }
 
 function normalize(op: string, value: unknown): unknown {
-  if (op !== 'searchPoll' || !value || typeof value !== 'object') return value;
-  const status = value as SearchStatus & { hits: Array<SearchHit & { seed: bigint | number | string }> };
+  if ((op !== 'searchPoll' && op !== 'slimeFarmPoll') || !value || typeof value !== 'object') return value;
+  const status = value as { hits: Array<{ seed: bigint | number | string }> };
   status.hits = status.hits.map((hit) => ({ ...hit, seed: seedText(hit.seed) }));
   return status;
 }

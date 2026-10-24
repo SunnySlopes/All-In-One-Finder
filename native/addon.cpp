@@ -1,5 +1,6 @@
 #include "lowy_host.h"
 #include "map_service.h"
+#include "slime_host.h"
 
 #include "cubiomes/generator.h"
 #include "cubiomes/util.h"
@@ -38,21 +39,6 @@ Napi::Value Versions(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
     auto list = listMcVersions();
-    Napi::Array out = Napi::Array::New(env, list.size());
-    for (size_t i = 0; i < list.size(); i++) {
-        Napi::Object item = Napi::Object::New(env);
-        item.Set("id", list[i].id);
-        item.Set("name", list[i].name);
-        out.Set(i, item);
-    }
-    return out;
-}
-
-Napi::Value Biomes(const Napi::CallbackInfo &info)
-{
-    int mc = info[0].As<Napi::Number>().Int32Value();
-    auto list = listBiomes(mc);
-    Napi::Env env = info.Env();
     Napi::Array out = Napi::Array::New(env, list.size());
     for (size_t i = 0; i < list.size(); i++) {
         Napi::Object item = Napi::Object::New(env);
@@ -166,20 +152,6 @@ Napi::Value BiomeAt(const Napi::CallbackInfo &info)
     return out;
 }
 
-Napi::Value Spawn(const Napi::CallbackInfo &info)
-{
-    Napi::Object args = info[0].As<Napi::Object>();
-    int mc = args.Get("mc").As<Napi::Number>().Int32Value();
-    bool large = readBool(args, "largeBiomes");
-    int64_t seed = readSeed(args.Get("seed"), true);
-    int x = 0, z = 0;
-    worldSpawn(mc, static_cast<uint64_t>(seed), mapFlags(large), &x, &z);
-    Napi::Object out = Napi::Object::New(info.Env());
-    out.Set("x", x);
-    out.Set("z", z);
-    return out;
-}
-
 Napi::Value Structures(const Napi::CallbackInfo &info)
 {
     Napi::Object args = info[0].As<Napi::Object>();
@@ -282,7 +254,7 @@ Napi::Object statusToObject(Napi::Env env, const LowyStatus &status)
     out.Set("seedIndex", status.seedIndex);
     out.Set("seedCount", status.seedCount);
     out.Set("error", status.error);
-    constexpr double area = 3.14159265358979323846 * (128.0 * 128.0 - 24.0 * 24.0);
+    constexpr double area = 49640.0; /* 24 < r <= 128 刷怪环的格点总面积 */
     Napi::Array hits = Napi::Array::New(env, status.hits.size());
     for (size_t i = 0; i < status.hits.size(); i++) {
         const auto &hit = status.hits[i];
@@ -323,16 +295,86 @@ Napi::Value SearchStop(const Napi::CallbackInfo &info)
     return info.Env().Undefined();
 }
 
+Napi::Value SlimeFarmStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    SlimeRequest request;
+    request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    request.versionRule = args.Has("versionRule") ? args.Get("versionRule").As<Napi::Number>().Int32Value() : 2;
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.minSlimeArea = args.Get("minSlimeArea").As<Napi::Number>().Int64Value();
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.convert = readBool(args, "convert");
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = slimeStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object slimeStatusToObject(Napi::Env env, const SlimeStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("stage", status.stage);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("tilesDone", Napi::Number::New(env, static_cast<double>(status.tilesDone)));
+    out.Set("tilesTotal", Napi::Number::New(env, static_cast<double>(status.tilesTotal)));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", Napi::Number::New(env, static_cast<double>(hit.x)));
+        item.Set("z", Napi::Number::New(env, static_cast<double>(hit.z)));
+        item.Set("area", Napi::Number::New(env, static_cast<double>(hit.area)));
+        item.Set("areaEquiv", hit.areaEquiv);
+        item.Set("chunks", hit.chunks);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value SlimeFarmPoll(const Napi::CallbackInfo &info)
+{
+    return slimeStatusToObject(info.Env(), slimePoll());
+}
+
+Napi::Value SlimeFarmPause(const Napi::CallbackInfo &info)
+{
+    slimePause();
+    return info.Env().Undefined();
+}
+
+Napi::Value SlimeFarmResume(const Napi::CallbackInfo &info)
+{
+    slimeResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value SlimeFarmStop(const Napi::CallbackInfo &info)
+{
+    slimeStop();
+    return info.Env().Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set("versions", Napi::Function::New(env, Versions));
-    exports.Set("biomes", Napi::Function::New(env, Biomes));
     exports.Set("features", Napi::Function::New(env, Features));
     exports.Set("renderTile", Napi::Function::New(env, RenderTile));
     exports.Set("renderTiles", Napi::Function::New(env, RenderTiles));
     exports.Set("slimeMask", Napi::Function::New(env, SlimeMask));
     exports.Set("biomeAt", Napi::Function::New(env, BiomeAt));
-    exports.Set("spawn", Napi::Function::New(env, Spawn));
     exports.Set("structures", Napi::Function::New(env, Structures));
     exports.Set("weirdness", Napi::Function::New(env, Weirdness));
     exports.Set("lowySupports", Napi::Function::New(env, Supports));
@@ -341,6 +383,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("searchPause", Napi::Function::New(env, SearchPause));
     exports.Set("searchResume", Napi::Function::New(env, SearchResume));
     exports.Set("searchStop", Napi::Function::New(env, SearchStop));
+    exports.Set("slimeFarmStart", Napi::Function::New(env, SlimeFarmStart));
+    exports.Set("slimeFarmPoll", Napi::Function::New(env, SlimeFarmPoll));
+    exports.Set("slimeFarmPause", Napi::Function::New(env, SlimeFarmPause));
+    exports.Set("slimeFarmResume", Napi::Function::New(env, SlimeFarmResume));
+    exports.Set("slimeFarmStop", Napi::Function::New(env, SlimeFarmStop));
     return exports;
 }
 

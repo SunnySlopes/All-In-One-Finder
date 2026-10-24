@@ -130,10 +130,48 @@ void bindNapi() {
   if (assembled.status !== 0) throw new Error(assembled.stderr || assembled.stdout || 'napi proxy assemble failed');
 }
 
+function normalizePath(p) {
+  return path.resolve(p).replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+}
+
+/**
+ * Copying or moving the project folder brings native/build along, but a
+ * CMakeCache.txt always records absolute paths of the machine/directory that
+ * generated it. CMake then aborts with "current directory is different than
+ * the directory ... where CMakeCache.txt was created". Detect that mismatch
+ * and drop the stale build tree so configure can run from a clean state.
+ */
+function removeStaleBuildTree(buildDir) {
+  const cachePath = path.join(buildDir, 'CMakeCache.txt');
+  if (!fs.existsSync(cachePath)) return false;
+  const cache = fs.readFileSync(cachePath, 'utf8');
+  const cached = (key) => {
+    const match = cache.match(new RegExp(`^${key}(?::[A-Z]+)?=(.*)$`, 'm'));
+    return match ? match[1].trim() : null;
+  };
+  const cachedBuildDir = cached('CMAKE_CACHEFILE_DIR');
+  const cachedSourceDir = cached('CMAKE_HOME_DIRECTORY');
+  const expectedBuildDir = normalizePath(buildDir);
+  const expectedSourceDir = normalizePath(path.join(root, 'native'));
+  const stale =
+    !cachedBuildDir ||
+    !cachedSourceDir ||
+    normalizePath(cachedBuildDir) !== expectedBuildDir ||
+    normalizePath(cachedSourceDir) !== expectedSourceDir;
+  if (!stale) return false;
+  console.log(
+    `native/build was configured elsewhere (${cachedSourceDir ?? 'unknown source'}); ` +
+      'discarding the stale CMake cache and build tree.',
+  );
+  fs.rmSync(buildDir, { recursive: true, force: true });
+  return true;
+}
+
 export function buildNative() {
   const electronExe = ensureElectronBinary();
   if (!fs.existsSync(gxx)) throw new Error(`UCRT64 g++ not found at ${gxx}`);
   const buildDir = path.join(root, 'native', 'build');
+  removeStaleBuildTree(buildDir);
   fs.mkdirSync(buildDir, { recursive: true });
   const exports = peExportNames(electronExe).filter((name) => name.startsWith('napi_'));
   if (exports.length < 20) throw new Error(`expected napi exports from electron.exe, found ${exports.length}`);

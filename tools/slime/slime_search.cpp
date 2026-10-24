@@ -13,9 +13,9 @@
  *   1) Radar 阶段（SlimeRadar）：
  *        sr_search_cpu(&p, threads, ctx, on_result, nullptr)
  *      在大范围区块坐标里找“17x17 甜甜圈”内史莱姆区块数 >= 阈值的中心。
- *      这里按 tile 切分调用 sr_search_cpu，tile 之间检查暂停/取消，
- *      因此进度和暂停是真实的（不是只暂停输出）。on_progress 传 nullptr，
- *      目的是绕过雷达内部每 100ms 的轮询睡眠；tile 自身已经提供进度粒度。
+ *      这里按 z 方向的大 band 连续调用 sr_search_cpu（每 band 最多 16384
+ *      区块高），band 之间检查暂停/取消；所有命中只保存为 (chunkX,
+ *      chunkZ, count) 列表，不再分配整图 hot_grid / hot_prefix。
  *
  *   2) Prepare 阶段（SlimeOptimizer 的数学核心）：
  *        computeRingSpans(inner=24, outer=128)   // 刷怪环按行拆成 x 区间
@@ -108,6 +108,11 @@
  *   最终下限即可。
  * - 64x64 去重：按 floorDiv(blockX,64), floorDiv(blockZ,64) 分格，每格保留
  *   area 最大、chunks 次大的坐标。输出坐标仍是该格内真实最优方块坐标。
+ * - 大范围分块：AFK 矩形按 kTileBlocks（32768 方块）切块，边界对齐 64x64
+ *   去重格；每块独立走 radar/prepare/optimize，最后合并 top-N。这样
+ *   hot_grid / hot_prefix / slime mask / eligible / cell grid 都只占单块
+ *   内存，60000001 方块的世界边界也不会因整图数组而 OOM（但总耗时仍然
+ *   与总面积成正比）。
  * - 本文件不依赖 CUDA；Radar 的 CPU 模式即可。若要用 CUDA，把 Radar 阶段
  *   的 sr_search_cpu 换成 sr_search_cuda(&p, 0, ...) 即可（其余不变）。
  */
@@ -137,6 +142,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 /* SlimeRadar 的公共 C API 用 C linkage 声明；cpu_search.c 也必须用 gcc 编译。 */
@@ -221,6 +228,25 @@ typedef struct SlimeFarmParams {
     /* 0=返回全部；>0 只保留排序后的前 N 个。 */
     int32_t max_results;
 
+    /*
+     * 群系折算（可选）。折算只影响输出的等效面积与排序，不改变搜索到的
+     * 挂机点本身；开启后先保留 max_results 个热点，再逐个折算并只输出
+     * output_limit 个。
+     *
+     * biome_at(ctx, x, y, z) 返回 y=-63 处的群系 ID（cubiomes BiomeID）。
+     * 该回调由调用方提供（本文件不直接依赖 cubiomes）；为 NULL 时自动跳过折算。
+     */
+    int32_t convert_biomes;
+
+    /* 群系规则：0=1.18，1=1.19~26.1，2=26.2+。仅影响 deep_dark / sulfur_caves。 */
+    int32_t version_rule;
+
+    int32_t (*biome_at)(void* ctx, int32_t x, int32_t y, int32_t z);
+    void* biome_ctx;
+
+    /* 折算后最多输出条数；0=不额外截断。 */
+    int32_t output_limit;
+
     /* 保留，必须为 0。 */
     int32_t flags;
 } SlimeFarmParams;
@@ -228,7 +254,8 @@ typedef struct SlimeFarmParams {
 typedef struct SlimeFarmHit {
     int64_t x;       /* 挂机点方块 X */
     int64_t z;       /* 挂机点方块 Z */
-    int64_t area;    /* 有效史莱姆面积（环内史莱姆方块数） */
+    int64_t area;    /* 折算前有效史莱姆面积（环内史莱姆方块数） */
+    double area_equiv; /* 群系折算后的等效面积；未折算时等于 area */
     int32_t chunks;  /* 刷怪环触及的不同史莱姆区块数 */
     int32_t cell_x;  /* floorDiv(x,64)，用于 64x64 去重 */
     int32_t cell_z;  /* floorDiv(z,64) */
@@ -254,6 +281,8 @@ typedef struct SlimeFarmProgress {
     uint64_t eligible_chunks;  /* 被热点覆盖、需要扫描的区块数 */
     uint64_t cells_done;       /* 已完成的 64x64 格子数 */
     uint64_t cells_total;      /* 总 64x64 格子数 */
+    uint64_t tiles_done;       /* 已完成的大范围分块数 */
+    uint64_t tiles_total;      /* 大范围分块总数（<=1 表示未分块） */
     uint64_t results;          /* 当前已保留结果数（完成后为最终数） */
 
     char stage_name[24];
@@ -314,19 +343,19 @@ constexpr int kDefaultPlayerRange = 5;
 
 constexpr int kDedupCell = 64;              /* 64x64 方块去重 */
 constexpr int kChunksPerCell = kDedupCell / 16;  /* 64/16 = 4 */
+constexpr int64_t kTileBlocks = 32768;      /* 大范围搜索的 AFK 分块边长（方块） */
 
 /* 与 tools/slimeradar/src/cpu_search.c 的 SR_MAX_RESULTS 保持一致。 */
 constexpr uint64_t kRadarCapacity = 1u << 20;
 
 constexpr int kMinRadarTile = 256;
 constexpr int kMaxRadarTile = 16384;
-constexpr int kAutoMaxRadarTile = 8192;
-constexpr int kAutoMinRadarTile = 1024;
 
 /* 内存安全上限（可按机器调整）。 */
-constexpr int64_t kMaxSlimeMaskCells = 64ll * 1024 * 1024;   /* 64M chunks */
-constexpr int64_t kMaxPrefCells = 120ll * 1024 * 1024;       /* ~240MB uint16 */
-constexpr int64_t kMaxHotCells = 64ll * 1024 * 1024;         /* 64M chunk grid */
+constexpr int64_t kMaxSlimeMaskCells = 128ll * 1024 * 1024;  /* 128M chunks */
+constexpr int64_t kMaxPrefCells = 80ll * 1024 * 1024;        /* ~320MB uint32 */
+constexpr int64_t kMaxHotCells = 128ll * 1024 * 1024;        /* 128M chunk grid */
+constexpr int64_t kMaxPrefWidth = 300000;                    /* uint32 行前缀宽度上限 */
 constexpr int64_t kMaxDedupCells = 8ll * 1024 * 1024;        /* 8M 64x64 cells */
 
 struct SearchState {
@@ -341,6 +370,8 @@ struct SearchState {
     std::atomic<uint64_t> eligible_chunks{0};
     std::atomic<uint64_t> cells_done{0};
     std::atomic<uint64_t> cells_total{0};
+    std::atomic<uint64_t> tiles_done{0};
+    std::atomic<uint64_t> tiles_total{0};
     std::atomic<uint64_t> result_count{0};
 
     std::atomic<bool> done{true};
@@ -457,9 +488,126 @@ constexpr int32_t kAreaThresholdCount =
     (kAreaThresholdLast - kAreaThresholdFirst) / kAreaThresholdStep + 1;
 
 constexpr int32_t kAreaThresholdDefaults[kAreaThresholdCount] = {
-    40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
-    53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+    35, 36, 37, 38, 39, 40, 41, 41, 42, 43, 44, 45, 46,
+    47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58,
 };
+
+/* ------------------------------------------------------------------------- */
+/* 群系折算                                                                   */
+/* ------------------------------------------------------------------------- */
+
+/* cubiomes BiomeID（tools/cubiomes/biomes.h）；固定 ID，不依赖 cubiomes 头。 */
+constexpr int32_t kBiomeRiver = 7;
+constexpr int32_t kBiomeMushroomFields = 14;
+constexpr int32_t kBiomeOldGrowthPineTaiga = 32;
+constexpr int32_t kBiomeDripstoneCaves = 174;
+constexpr int32_t kBiomeDeepDark = 183;
+constexpr int32_t kBiomeSulfurCaves = 187;
+
+constexpr double kWeightRiver = 515.0 / 615.0;
+constexpr double kWeightDripstoneCaves = 515.0 / 610.0;
+constexpr double kWeightOldGrowthPineTaiga = 515.0 / 540.0;
+
+/*
+ * 折算规则（在 y=-63 处取群系）：
+ *   河流                     ×515/615
+ *   溶洞（滴水石洞）         ×515/610
+ *   原始松木针叶林           ×515/540
+ *   蘑菇岛                   ×0
+ *   深暗之域                 ×0（1.18 除外；1.18 实际没有该群系）
+ *   硫磺洞穴                 ×0（仅 26.2+；更早版本没有该群系）
+ * 其余群系 ×1。
+ */
+double biome_weight(int32_t biome, int32_t version_rule) {
+    switch (biome) {
+        case kBiomeRiver: return kWeightRiver;
+        case kBiomeDripstoneCaves: return kWeightDripstoneCaves;
+        case kBiomeOldGrowthPineTaiga: return kWeightOldGrowthPineTaiga;
+        case kBiomeMushroomFields: return 0.0;
+        case kBiomeDeepDark: return version_rule == 0 ? 1.0 : 0.0;
+        case kBiomeSulfurCaves: return version_rule >= 2 ? 0.0 : 1.0;
+        default: return 1.0;
+    }
+}
+
+/*
+ * 对已经按面积降序、截断到 max_results 的结果做群系折算。
+ *
+ * 只对“环内落在史莱姆区块里的方块”加权：等效面积 = 每个史莱姆方块
+ * 所在群系的系数之和。群系按 4x4 方块（Minecraft 的 quart 分辨率）缓存，
+ * 因此每个热点最多约 65x65 次群系采样，而不是 49640 次。
+ */
+void apply_biome_conversion(const SlimeFarmParams& p,
+                            std::vector<SlimeFarmHit>& hits) {
+    if (hits.empty()) return;
+
+    if (!p.convert_biomes || p.biome_at == nullptr) {
+        for (auto& hit : hits) hit.area_equiv = static_cast<double>(hit.area);
+        if (p.output_limit > 0 &&
+            hits.size() > static_cast<size_t>(p.output_limit)) {
+            hits.resize(static_cast<size_t>(p.output_limit));
+        }
+        return;
+    }
+
+    set_stage(SLIME_FARM_STAGE_FINALIZE, static_cast<uint64_t>(hits.size()));
+    const std::vector<RingSpan> spans =
+        computeRingSpans(p.inner_radius, p.outer_radius);
+    const int64_t outer = p.outer_radius;
+    const int64_t qdim = (2 * outer) / 4 + 1;
+
+    for (auto& hit : hits) {
+        if (!checkpoint()) return;
+
+        const int64_t bx0 = hit.x - outer;
+        const int64_t bz0 = hit.z - outer;
+        std::vector<int32_t> biome_cache(
+            static_cast<size_t>(qdim) * static_cast<size_t>(qdim),
+            std::numeric_limits<int32_t>::min());
+
+        double equiv = 0.0;
+        for (const RingSpan& sp : spans) {
+            const int64_t z = hit.z + sp.dz;
+            const int64_t qz = floorDiv(z - bz0, 4);
+            for (int64_t x = hit.x + sp.loDx; x <= hit.x + sp.hiDx; ++x) {
+                if (!isSlimeChunk(p.seed,
+                                  static_cast<int32_t>(floorDiv(x, 16)),
+                                  static_cast<int32_t>(floorDiv(z, 16)))) {
+                    continue;
+                }
+                const int64_t qx = floorDiv(x - bx0, 4);
+                int32_t& cached =
+                    biome_cache[static_cast<size_t>(qz) *
+                                    static_cast<size_t>(qdim) +
+                                static_cast<size_t>(qx)];
+                if (cached == std::numeric_limits<int32_t>::min()) {
+                    cached = p.biome_at(p.biome_ctx, static_cast<int32_t>(x),
+                                        -63, static_cast<int32_t>(z));
+                }
+                equiv += biome_weight(cached, p.version_rule);
+            }
+        }
+        hit.area_equiv = equiv;
+        g_s.stage_current.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    std::sort(hits.begin(), hits.end(),
+              [](const SlimeFarmHit& a, const SlimeFarmHit& b) {
+                  if (a.area_equiv != b.area_equiv) {
+                      return a.area_equiv > b.area_equiv;
+                  }
+                  if (a.area != b.area) return a.area > b.area;
+                  if (a.chunks != b.chunks) return a.chunks > b.chunks;
+                  if (a.x != b.x) return a.x < b.x;
+                  return a.z < b.z;
+              });
+
+    if (p.output_limit > 0 &&
+        hits.size() > static_cast<size_t>(p.output_limit)) {
+        hits.resize(static_cast<size_t>(p.output_limit));
+    }
+}
+
 
 int area_threshold_index(int64_t area) {
     if (area < kAreaThresholdFirst || area > kAreaThresholdLast) return -1;
@@ -497,6 +645,9 @@ int validate_params(const SlimeFarmParams& p) {
     }
     if (p.threads < 0 || p.threads > 256) return SLIME_FARM_ERR_PARAM;
     if (p.max_results < 0) return SLIME_FARM_ERR_PARAM;
+    if (p.convert_biomes < 0 || p.convert_biomes > 1) return SLIME_FARM_ERR_PARAM;
+    if (p.version_rule < 0 || p.version_rule > 2) return SLIME_FARM_ERR_PARAM;
+    if (p.output_limit < 0) return SLIME_FARM_ERR_PARAM;
     if (p.flags != 0) return SLIME_FARM_ERR_PARAM;
 
     /* 坐标范围必须能安全落到 int32 区块坐标。 */
@@ -511,14 +662,23 @@ int validate_params(const SlimeFarmParams& p) {
         return SLIME_FARM_ERR_PARAM;
     }
 
-    /* 行前缀宽度必须能放进 uint16（也是面积上限的必要条件）。 */
+    /* 行前缀、slime mask、hot grid 都按单个分块分配，见 run_search_tile()。
+     * 这里只校验整个矩形能否安全表示，以及分块后单块必然满足的边界。 */
     const int64_t width = ax1 - ax0 + 1;
     const int64_t height = az1 - az0 + 1;
     if (width <= 0 || height <= 0) return SLIME_FARM_ERR_PARAM;
-    const int64_t pref_w = width + 2 * m + 1;
-    if (pref_w > 65535) return SLIME_FARM_ERR_PARAM;
-    /* 最小 band = 一个 64 行格带 + 两侧各 M 行 halo。 */
-    if ((64 + 2 * m) * pref_w > kMaxPrefCells) return SLIME_FARM_ERR_PARAM;
+
+    /* 每个分块本身必须不超过内存上限。 */
+    const int64_t tile_w = std::min<int64_t>(width, kTileBlocks);
+    const int64_t tile_h = std::min<int64_t>(height, kTileBlocks);
+    const int64_t tile_pref_w = tile_w + 2 * m + 1;
+    if (tile_pref_w > kMaxPrefWidth ||
+        (64 + 2 * m) * tile_pref_w > kMaxPrefCells) {
+        return SLIME_FARM_ERR_PARAM;
+    }
+    const int64_t tile_cw = floorDiv(tile_w + m, 16) - floorDiv(-m, 16) + 1;
+    const int64_t tile_ch = floorDiv(tile_h + m, 16) - floorDiv(-m, 16) + 1;
+    if (tile_cw * tile_ch > kMaxSlimeMaskCells) return SLIME_FARM_ERR_PARAM;
 
     /* Radar 区域是 AFK 区块范围 ± pr，再各自 +1 成半开区间。 */
     const int64_t acx0 = floorDiv(ax0, 16);
@@ -528,10 +688,6 @@ int validate_params(const SlimeFarmParams& p) {
     const int64_t pr = p.player_search_range;
     const int64_t gx0 = acx0 - pr, gx1 = acx1 + pr;
     const int64_t gz0 = acz0 - pr, gz1 = acz1 + pr;
-    const int64_t gw = gx1 - gx0 + 1;
-    const int64_t gh = gz1 - gz0 + 1;
-    if (gw <= 0 || gh <= 0) return SLIME_FARM_ERR_PARAM;
-    if (gw > kMaxHotCells / gh) return SLIME_FARM_ERR_PARAM;
     if (gx0 - 1 < INT32_MIN || gx1 + 1 > INT32_MAX ||
         gz0 - 1 < INT32_MIN || gz1 + 1 > INT32_MAX) {
         return SLIME_FARM_ERR_PARAM;
@@ -559,131 +715,116 @@ double binomial_tail(int n, double p, int k) {
     return std::min(1.0, sum);
 }
 
-int estimate_radar_tile(int threshold) {
-    /* 17x17 甜甜圈 = 192 个区块；史莱姆概率 = 1/10。 */
-    const double tail = binomial_tail(192, 0.1, threshold);
-    if (!(tail > 0.0)) return kAutoMaxRadarTile;
-    double side = std::sqrt(400000.0 / tail);
-    int s = static_cast<int>(side);
-    if (s < kAutoMinRadarTile) s = kAutoMinRadarTile;
-    if (s > kAutoMaxRadarTile) s = kAutoMaxRadarTile;
-    return s;
-}
+bool scan_radar_rect(const SlimeFarmParams& p, int threads, int threshold,
+                     int64_t x0, int64_t z0, int64_t x1, int64_t z1,
+                     std::vector<SrResult>& out) {
+    out.clear();
+    SrParams rp{};
+    rp.world_seed = p.seed;
+    rp.threshold = static_cast<uint8_t>(threshold);
+    rp.x0 = static_cast<int32_t>(x0);
+    rp.z0 = static_cast<int32_t>(z0);
+    rp.x1 = static_cast<int32_t>(x1);
+    rp.z1 = static_cast<int32_t>(z1);
 
-/* ------------------------------------------------------------------------- */
-/* Radar 阶段                                                                */
-/* ------------------------------------------------------------------------- */
+    struct Ctx {
+        std::vector<SrResult>* hits;
+    } ctx{&out};
 
-struct RadarCtx {
-    uint8_t* grid = nullptr;   /* [gz0,gz1] x [gx0,gx1] 的 chunk 位图 */
-    int64_t gw = 0, gh = 0;
-    int64_t gx0 = 0, gz0 = 0;
-    uint64_t hits = 0;         /* 本 tile 回调次数 */
-};
-
-extern "C" void radar_result_cb(void* vp, SrResult r) {
-    RadarCtx* c = static_cast<RadarCtx*>(vp);
-    ++c->hits;
-    const int64_t ix = static_cast<int64_t>(r.x) - c->gx0;
-    const int64_t iz = static_cast<int64_t>(r.z) - c->gz0;
-    if (ix >= 0 && ix < c->gw && iz >= 0 && iz < c->gh) {
-        c->grid[static_cast<size_t>(iz) * static_cast<size_t>(c->gw) +
-                static_cast<size_t>(ix)] = 1;
-    }
-}
-
-/*
- * 跑一遍完整 Radar。返回 true=成功，false=取消或需要重试（overflow=true）。
- * hot_grid 由调用方分配并清零；本函数只在成功时保留内容。
- */
-bool run_radar_attempt(const SlimeFarmParams& p, int tile_side, int threads,
-                       std::vector<uint8_t>& hot_grid, int64_t gw, int64_t gh,
-                       int64_t gx0, int64_t gz0,
-                       int64_t radar_x0, int64_t radar_z0,
-                       int64_t radar_x1, int64_t radar_z1,
-                       bool& overflow) {
-    overflow = false;
-    uint64_t done_chunks = 0;
-    uint64_t total_hits = 0;
-
-    for (int64_t z0 = radar_z0; z0 < radar_z1; z0 += tile_side) {
-        const int64_t z1 = std::min(radar_z1, z0 + tile_side);
-        for (int64_t x0 = radar_x0; x0 < radar_x1; x0 += tile_side) {
-            if (!checkpoint()) return false;
-            const int64_t x1 = std::min(radar_x1, x0 + tile_side);
-
-            SrParams rp{};
-            rp.world_seed = p.seed;
-            rp.threshold = static_cast<uint8_t>(
-                p.radar_threshold >= 0 ? p.radar_threshold : p.min_slime_chunks);
-            rp.x0 = static_cast<int32_t>(x0);
-            rp.z0 = static_cast<int32_t>(z0);
-            rp.x1 = static_cast<int32_t>(x1);
-            rp.z1 = static_cast<int32_t>(z1);
-
-            RadarCtx ctx;
-            ctx.grid = hot_grid.data();
-            ctx.gw = gw;
-            ctx.gh = gh;
-            ctx.gx0 = gx0;
-            ctx.gz0 = gz0;
-
-            const int rc = sr_search_cpu(&rp, static_cast<unsigned>(threads),
-                                         &ctx, radar_result_cb, nullptr);
-            if (rc != SR_OK) {
-                throw std::runtime_error("sr_search_cpu failed");
-            }
-
-            total_hits += ctx.hits;
-            done_chunks += static_cast<uint64_t>(x1 - x0) *
-                           static_cast<uint64_t>(z1 - z0);
-            g_s.stage_current.store(done_chunks, std::memory_order_relaxed);
-            g_s.radar_hits.store(total_hits, std::memory_order_relaxed);
-
-            if (ctx.hits >= kRadarCapacity) {
-                /* 该 tile 的结果被 Radar 的 1M 缓冲截断；必须拆小重跑。 */
-                overflow = true;
-                return true;
-            }
-        }
-    }
+    const int rc = sr_search_cpu(&rp, static_cast<unsigned>(threads), &ctx,
+                                 [](void* vp, SrResult r) {
+                                     static_cast<Ctx*>(vp)->hits->push_back(r);
+                                 },
+                                 nullptr);
+    if (rc != SR_OK) throw std::runtime_error("sr_search_cpu failed");
     return true;
 }
 
-bool run_radar(const SlimeFarmParams& p, int threads,
-               std::vector<uint8_t>& hot_grid, int64_t gw, int64_t gh,
-               int64_t gx0, int64_t gz0,
-               int64_t radar_x0, int64_t radar_z0,
-               int64_t radar_x1, int64_t radar_z1) {
-    const uint64_t total = static_cast<uint64_t>(radar_x1 - radar_x0) *
-                           static_cast<uint64_t>(radar_z1 - radar_z0);
+/*
+ * 单次 Radar 调用最多缓存 SR_MAX_RESULTS（1M）个命中。若接近上限，
+ * 把矩形沿 z 对半拆开重新扫描，避免被静默截断。
+ */
+bool scan_radar_rect_safe(const SlimeFarmParams& p, int threads, int threshold,
+                          int64_t x0, int64_t z0, int64_t x1, int64_t z1,
+                          std::vector<SrResult>& out, int depth = 0) {
+    scan_radar_rect(p, threads, threshold, x0, z0, x1, z1, out);
+    if (out.size() < kRadarCapacity - 1 || z1 - z0 <= 1 || depth >= 16) {
+        return true;
+    }
+    const int64_t zm = (z0 + z1) / 2;
+    std::vector<SrResult> lo, hi;
+    if (!scan_radar_rect_safe(p, threads, threshold, x0, z0, x1, zm, lo,
+                              depth + 1) ||
+        !scan_radar_rect_safe(p, threads, threshold, x0, zm, x1, z1, hi,
+                              depth + 1)) {
+        return false;
+    }
+    out.clear();
+    out.reserve(lo.size() + hi.size());
+    out.insert(out.end(), lo.begin(), lo.end());
+    out.insert(out.end(), hi.begin(), hi.end());
+    return true;
+}
+
+/*
+ * 连续雷达扫描：按 z 方向的大 band 调用 sr_search_cpu，而不是按 AFK
+ * 分块调用。band 高度根据阈值命中概率自适应，保证单次结果大概率低于
+ * Radar 的 1M 缓冲；同时限制最大 band 高度，让暂停/停止的响应不至于
+ * 等到整张全图扫描结束。
+ *
+ * 所有命中只保存为 (chunkX, chunkZ, count) 列表（约 12 字节/条），
+ * 不再分配整图 hot_grid / hot_prefix。
+ */
+bool run_radar_all(const SlimeFarmParams& p, int threads,
+                   int64_t x0, int64_t z0, int64_t x1, int64_t z1,
+                   std::vector<SrResult>& hits) {
+    const uint64_t total = static_cast<uint64_t>(x1 - x0) *
+                           static_cast<uint64_t>(z1 - z0);
     set_stage(SLIME_FARM_STAGE_RADAR, total);
 
-    int tile_side = p.radar_tile_chunks;
-    if (tile_side <= 0) tile_side = estimate_radar_tile(
-        p.radar_threshold >= 0 ? p.radar_threshold : p.min_slime_chunks);
+    const int threshold = p.radar_threshold >= 0
+        ? p.radar_threshold : p.min_slime_chunks;
+    const double tail = binomial_tail(192, 0.1, threshold);
 
-    for (int attempt = 0; attempt < 10; ++attempt) {
-        std::fill(hot_grid.begin(), hot_grid.end(), 0);
-        g_s.radar_hits.store(0, std::memory_order_relaxed);
-        g_s.stage_current.store(0, std::memory_order_relaxed);
+    /*
+     * 用“大正方形 tile”连续扫描。tile 越大，sr_search_cpu 的线程/结果
+     * 缓冲复用越好；65536 区块边长的 tile 约 43 亿个中心，单次约 0.8 秒，
+     * 暂停/停止的响应也足够快。
+     */
+    int64_t side = 65536;
+    if (tail > 0.0) {
+        /* 目标：单 tile 期望命中约 60 万，低于 1M 结果缓冲。 */
+        const double area = 600000.0 / tail;
+        const double s = std::sqrt(area);
+        side = static_cast<int64_t>(s);
+    }
+    if (side < 256) side = 256;
+    if (side > 65536) side = 65536;
+    if (side > x1 - x0) side = x1 - x0;
+    if (side > z1 - z0) side = z1 - z0;
 
-        bool overflow = false;
-        const bool ok = run_radar_attempt(
-            p, tile_side, threads, hot_grid, gw, gh, gx0, gz0,
-            radar_x0, radar_z0, radar_x1, radar_z1, overflow);
-        if (!ok) return false;  /* cancelled */
-        if (!overflow) return true;
-
-        /* Radar 结果缓冲不够；tile 减半重跑。256² 的 tile 最多 65k 命中，
-         * 必定小于 1M，所以循环一定会在 10 次内收敛。 */
-        tile_side = std::max(kMinRadarTile, tile_side / 2);
-        if (tile_side == kMinRadarTile) {
-            /* 理论上不会到这里；保守报错。 */
-            throw std::runtime_error("radar result overflow");
+    hits.clear();
+    hits.reserve(1u << 16);
+    std::vector<SrResult> tile;
+    tile.reserve(1u << 16);
+    uint64_t done = 0;
+    for (int64_t z = z0; z < z1; z += side) {
+        const int64_t zz = std::min(z1, z + side);
+        for (int64_t x = x0; x < x1; x += side) {
+            if (!checkpoint()) return false;
+            const int64_t xx = std::min(x1, x + side);
+            if (!scan_radar_rect_safe(p, threads, threshold, x, z, xx, zz,
+                                      tile)) {
+                return false;
+            }
+            hits.insert(hits.end(), tile.begin(), tile.end());
+            done += static_cast<uint64_t>(xx - x) *
+                    static_cast<uint64_t>(zz - z);
+            g_s.stage_current.store(done, std::memory_order_relaxed);
+            g_s.radar_hits.store(hits.size(), std::memory_order_relaxed);
         }
     }
-    throw std::runtime_error("radar result overflow");
+    return true;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -751,9 +892,6 @@ struct SearchGeom {
     /* AFK 区块范围 */
     int64_t acx0 = 0, acx1 = 0, acz0 = 0, acz1 = 0;
 
-    /* 热点 chunk 位图范围（AFK 区块范围 ± pr） */
-    int64_t gx0 = 0, gz0 = 0, gw = 0, gh = 0;
-
     /* 64x64 去重格子范围 */
     int64_t cell_x0 = 0, cell_z0 = 0, cell_w = 0, cell_h = 0;
 };
@@ -787,7 +925,7 @@ struct CellBest {
 void scan_cell(int64_t cell_index, const SearchGeom& g,
                const SlimeFarmParams& p,
                const std::vector<uint8_t>& slime,
-               const uint16_t* pref, int64_t pref_z_base,
+               const uint32_t* pref, int64_t pref_z_base,
                const std::vector<uint8_t>& eligible,
                const std::vector<RingSpan>& spans,
                const std::vector<PairTerm>& pairs,
@@ -854,10 +992,10 @@ void scan_cell(int64_t cell_index, const SearchGeom& g,
                 /* 环按 ±dz 成对累加。内层沿连续 x 扫描，前缀行是顺序读取，
                  * 比“每个挂机点跳 153 行”的旧顺序缓存友好得多。 */
                 for (const PairTerm& pt : pairs) {
-                    const uint16_t* rp =
+                    const uint32_t* rp =
                         pref + static_cast<size_t>(pz + pt.dz - pref_z_base) *
                                    static_cast<size_t>(g.pref_w);
-                    const uint16_t* rn =
+                    const uint32_t* rn =
                         pref + static_cast<size_t>(pz - pt.dz - pref_z_base) *
                                    static_cast<size_t>(g.pref_w);
 
@@ -937,8 +1075,16 @@ void scan_cell(int64_t cell_index, const SearchGeom& g,
 /* 主搜索流程                                                                */
 /* ------------------------------------------------------------------------- */
 
-bool run_search() {
-    const SlimeFarmParams p = g_s.p;
+bool run_search_tile(const SlimeFarmParams& p0,
+                     int32_t afk_x0, int32_t afk_x1,
+                     int32_t afk_z0, int32_t afk_z1,
+                     const std::vector<SrResult>& radar_hits,
+                     std::vector<SlimeFarmHit>& out) {
+    SlimeFarmParams p = p0;
+    p.afk_x0 = afk_x0;
+    p.afk_x1 = afk_x1;
+    p.afk_z0 = afk_z0;
+    p.afk_z1 = afk_z1;
 
     SearchGeom g;
     g.ax0 = p.afk_x0;
@@ -953,38 +1099,14 @@ bool run_search() {
     g.acz1 = floorDiv(g.az1, 16);
 
     const int64_t pr = p.player_search_range;
-    g.gx0 = g.acx0 - pr;
-    g.gz0 = g.acz0 - pr;
-    g.gw = (g.acx1 + pr) - g.gx0 + 1;
-    g.gh = (g.acz1 + pr) - g.gz0 + 1;
 
-    const int threads = resolve_threads(p);
-
-    /* ---- Stage 1: Radar ---- */
-    std::vector<uint8_t> hot_grid(
-        static_cast<size_t>(g.gw) * static_cast<size_t>(g.gh), 0);
-
-    const int64_t radar_x0 = g.gx0;
-    const int64_t radar_z0 = g.gz0;
-    const int64_t radar_x1 = g.gx0 + g.gw;  /* 半开 */
-    const int64_t radar_z1 = g.gz0 + g.gh;
-
-    if (!run_radar(p, threads, hot_grid, g.gw, g.gh, g.gx0, g.gz0,
-                   radar_x0, radar_z0, radar_x1, radar_z1)) {
-        return false;
-    }
-
-    if (g_s.radar_hits.load() == 0) {
-        /* 没有热点，直接完成（仍然给 finalize 一个完整阶段）。 */
-        set_stage(SLIME_FARM_STAGE_FINALIZE, 1);
-        {
-            std::lock_guard<std::mutex> lock(g_s.mutex);
-            g_s.hits.clear();
-        }
-        g_s.result_count.store(0, std::memory_order_relaxed);
-        g_s.stage_current.store(1, std::memory_order_relaxed);
+    if (radar_hits.empty()) {
+        /* 本分块附近没有雷达热点，无需构建 mask。 */
+        out.clear();
         return true;
     }
+
+    const int threads = resolve_threads(p);
 
     /* ---- Stage 2: Prepare ---- */
     g.min_cx = floorDiv(g.ax0 - g.m, 16);
@@ -1003,7 +1125,7 @@ bool run_search() {
     g.z_base = g.az0 - g.m;
     g.pref_w = (g.ax1 - g.ax0 + 1) + 2 * g.m + 1;
 
-    if (g.pref_w > 65535 ||
+    if (g.pref_w > kMaxPrefWidth ||
         (64 + 2 * g.m) * g.pref_w > kMaxPrefCells) {
         throw std::runtime_error("row prefix too large");
     }
@@ -1033,62 +1155,34 @@ bool run_search() {
         return false;
     }
 
-    /* 2.2 热点膨胀：hot_grid 的 2D 前缀和 -> 每个 AFK 区块是否在某个
-     *     radar hit 的 ±pr 范围内。 */
-    std::vector<uint32_t> hot_prefix(
-        static_cast<size_t>(g.gw + 1) * static_cast<size_t>(g.gh + 1), 0);
-    const int64_t hp_stride = g.gw + 1;
-    for (int64_t z = 0; z < g.gh; ++z) {
-        if ((z & 63) == 0 && !checkpoint()) return false;
-        uint32_t row_sum = 0;
-        const uint8_t* hot_row = hot_grid.data() +
-                                 static_cast<size_t>(z) *
-                                     static_cast<size_t>(g.gw);
-        for (int64_t x = 0; x < g.gw; ++x) {
-            row_sum += hot_row[x];
-            hot_prefix[static_cast<size_t>(z + 1) * hp_stride +
-                       static_cast<size_t>(x + 1)] =
-                hot_prefix[static_cast<size_t>(z) * hp_stride +
-                           static_cast<size_t>(x + 1)] +
-                row_sum;
-        }
-    }
-
-    std::atomic<uint64_t> eligible_count{0};
-    if (!parallel_rows(ech, threads, [&](int64_t zr) {
-            const int64_t cz = g.acz0 + zr;
-            const int64_t z0 = cz - pr - g.gz0;
-            const int64_t z1 = cz + pr + 1 - g.gz0;
-            uint64_t local = 0;
-
-            for (int64_t cx = g.acx0; cx <= g.acx1; ++cx) {
-                const int64_t x0 = cx - pr - g.gx0;
-                const int64_t x1 = cx + pr + 1 - g.gx0;
-                const uint32_t sum =
-                    hot_prefix[static_cast<size_t>(z1) * hp_stride +
-                               static_cast<size_t>(x1)] -
-                    hot_prefix[static_cast<size_t>(z0) * hp_stride +
-                               static_cast<size_t>(x1)] -
-                    hot_prefix[static_cast<size_t>(z1) * hp_stride +
-                               static_cast<size_t>(x0)] +
-                    hot_prefix[static_cast<size_t>(z0) * hp_stride +
-                               static_cast<size_t>(x0)];
-                if (sum != 0) {
-                    eligible[static_cast<size_t>(zr) *
-                                 static_cast<size_t>(ecw) +
-                             static_cast<size_t>(cx - g.acx0)] = 1;
-                    ++local;
+    /* 2.2 热点膨胀：直接把本分块关联的 radar hits 标记到 eligible，
+     *     不再分配整块 hot_grid / hot_prefix。 */
+    uint64_t eligible_count = 0;
+    for (const SrResult& hit : radar_hits) {
+        const int64_t cz0 = std::max(g.acz0,
+            static_cast<int64_t>(hit.z) - pr);
+        const int64_t cz1 = std::min(g.acz1,
+            static_cast<int64_t>(hit.z) + pr);
+        const int64_t cx0 = std::max(g.acx0,
+            static_cast<int64_t>(hit.x) - pr);
+        const int64_t cx1 = std::min(g.acx1,
+            static_cast<int64_t>(hit.x) + pr);
+        if (cx0 > cx1 || cz0 > cz1) continue;
+        for (int64_t cz = cz0; cz <= cz1; ++cz) {
+            uint8_t* row = eligible.data() +
+                static_cast<size_t>(cz - g.acz0) * static_cast<size_t>(ecw);
+            for (int64_t cx = cx0; cx <= cx1; ++cx) {
+                uint8_t& v = row[static_cast<size_t>(cx - g.acx0)];
+                if (!v) {
+                    v = 1;
+                    ++eligible_count;
                 }
             }
-            eligible_count.fetch_add(local, std::memory_order_relaxed);
-        })) {
-        return false;
+        }
     }
-    g_s.eligible_chunks.store(eligible_count.load(), std::memory_order_relaxed);
-
-    /* 热点位图和它的前缀和已经用完，尽早释放以降低 optimize 阶段峰值。 */
-    std::vector<uint8_t>().swap(hot_grid);
-    std::vector<uint32_t>().swap(hot_prefix);
+    g_s.eligible_chunks.store(eligible_count, std::memory_order_relaxed);
+    g_s.stage_current.fetch_add(static_cast<uint64_t>(ech),
+                                std::memory_order_relaxed);
 
     /* 2.4 把有资格区块映射到 64x64 格子；每个格子只扫描一次。 */
     const int64_t cell_x0 = floorDiv(g.ax0, kDedupCell);
@@ -1273,7 +1367,7 @@ bool run_search() {
     std::vector<CellBest> cell_best(static_cast<size_t>(cells_total));
     std::vector<uint8_t> cell_has(static_cast<size_t>(cells_total), 0);
     std::atomic<bool> thread_failed{false};
-    std::vector<uint16_t> pref_band;
+    std::vector<uint32_t> pref_band;
 
     for (const PrefixBand& b : bands) {
         if (!checkpoint()) return false;
@@ -1288,7 +1382,7 @@ bool run_search() {
                 const uint8_t* srow =
                     slime.data() + static_cast<size_t>(cz - g.min_cz) *
                                        static_cast<size_t>(g.cw);
-                uint16_t* row = pref_band.data() +
+                uint32_t* row = pref_band.data() +
                                 static_cast<size_t>(zr) *
                                     static_cast<size_t>(g.pref_w);
 
@@ -1306,7 +1400,7 @@ bool run_search() {
                     uint32_t cur = acc;
                     for (int64_t k = 0; k < len; ++k) {
                         cur += v;
-                        row[++i] = static_cast<uint16_t>(cur);
+                        row[++i] = static_cast<uint32_t>(cur);
                     }
                     acc += v * static_cast<uint32_t>(len);
                     x = seg_end + 1;
@@ -1382,8 +1476,7 @@ bool run_search() {
         hits.push_back(h);
     }
 
-    /* ---- Stage 4: Finalize（排序 + max_results） ---- */
-    set_stage(SLIME_FARM_STAGE_FINALIZE, 1);
+    /* 本分块内部先按面积排序，最多保留 max_results 个，便于外层合并。 */
     std::sort(hits.begin(), hits.end(),
               [](const SlimeFarmHit& a, const SlimeFarmHit& b) {
                   if (a.area != b.area) return a.area > b.area;
@@ -1396,11 +1489,205 @@ bool run_search() {
         hits.size() > static_cast<size_t>(p.max_results)) {
         hits.resize(static_cast<size_t>(p.max_results));
     }
+    for (auto& hit : hits) hit.area_equiv = static_cast<double>(hit.area);
+    out = std::move(hits);
+    return true;
+}
+
+/* 按全局 64x64 方块格子去重；调用前 hits 已按面积降序，保留每格第一个。 */
+void dedupe_by_cell(std::vector<SlimeFarmHit>& hits) {
+    if (hits.size() < 2) return;
+    std::unordered_set<uint64_t> seen;
+    seen.reserve(hits.size() * 2 + 1);
+    std::vector<SlimeFarmHit> unique;
+    unique.reserve(hits.size());
+    for (const SlimeFarmHit& hit : hits) {
+        const uint64_t key =
+            (static_cast<uint64_t>(static_cast<uint32_t>(hit.cell_x)) << 32) |
+            static_cast<uint32_t>(hit.cell_z);
+        if (seen.insert(key).second) unique.push_back(hit);
+    }
+    hits.swap(unique);
+}
+
+/* 合并分块结果：按面积保留前 max_results 个。分块边界与 64x64 去重格
+ * 对齐，因此跨分块时仍按 cell 再做一次全局去重。 */
+void merge_best(std::vector<SlimeFarmHit>& best,
+                std::vector<SlimeFarmHit>& tile,
+                int32_t max_results) {
+    if (tile.empty()) return;
+    best.insert(best.end(), tile.begin(), tile.end());
+    std::sort(best.begin(), best.end(),
+              [](const SlimeFarmHit& a, const SlimeFarmHit& b) {
+                  if (a.area != b.area) return a.area > b.area;
+                  if (a.chunks != b.chunks) return a.chunks > b.chunks;
+                  if (a.x != b.x) return a.x < b.x;
+                  return a.z < b.z;
+              });
+    dedupe_by_cell(best);
+    if (max_results > 0 &&
+        best.size() > static_cast<size_t>(max_results)) {
+        best.resize(static_cast<size_t>(max_results));
+    }
+}
+
+/*
+ * 主流程：
+ *   1) 连续 Radar 扫描整个搜索区域（内部按大 band 调用 sr_search_cpu），
+ *      只收集命中 chunk 列表，不分配整图 hot_grid / hot_prefix。
+ *   2) 把命中按 AFK 分块 bucket；每个分块用命中列表直接标记 eligible。
+ *   3) 每个 AFK 分块执行 prepare / optimize，最后合并 top-N。
+ *
+ * AFK 分块边长 32768 只影响 optimizer 的内存/缓存；Radar 不再按分块调用。
+ */
+bool run_search() {
+    const SlimeFarmParams p = g_s.p;
+    std::vector<SlimeFarmHit> best;
+    const int threads = resolve_threads(p);
+
+    /* AFK 分块边界对齐到 64 方块，避免一个 64x64 去重格被切到两个分块里。
+     * 第一块从用户 min 开始，之后每块最多 kTileBlocks 宽/高。 */
+    const int64_t x_origin0 =
+        floorDiv(static_cast<int64_t>(p.afk_x0), kDedupCell) * kDedupCell;
+    const int64_t z_origin0 =
+        floorDiv(static_cast<int64_t>(p.afk_z0), kDedupCell) * kDedupCell;
+
+    std::vector<int64_t> x_starts;
+    std::vector<int64_t> z_starts;
+    x_starts.push_back(p.afk_x0);
+    for (int64_t origin = x_origin0;; origin += kTileBlocks) {
+        const int64_t end = std::min<int64_t>(p.afk_x1,
+                                              origin + kTileBlocks - 1);
+        if (end >= p.afk_x1) break;
+        x_starts.push_back(std::max<int64_t>(p.afk_x0, origin + kTileBlocks));
+    }
+    z_starts.push_back(p.afk_z0);
+    for (int64_t origin = z_origin0;; origin += kTileBlocks) {
+        const int64_t end = std::min<int64_t>(p.afk_z1,
+                                              origin + kTileBlocks - 1);
+        if (end >= p.afk_z1) break;
+        z_starts.push_back(std::max<int64_t>(p.afk_z0, origin + kTileBlocks));
+    }
+
+    const int64_t tiles_x = static_cast<int64_t>(x_starts.size());
+    const int64_t tiles_z = static_cast<int64_t>(z_starts.size());
+    g_s.tiles_done.store(0, std::memory_order_relaxed);
+    g_s.tiles_total.store(static_cast<uint64_t>(tiles_x * tiles_z),
+                          std::memory_order_relaxed);
+
+    /* ---- 连续 Radar：一次扫描整个搜索区域，而不是每个 AFK 分块调用一次 ---- */
+    const int64_t pr = p.player_search_range;
+    const int64_t acx0 = floorDiv(static_cast<int64_t>(p.afk_x0), 16);
+    const int64_t acx1 = floorDiv(static_cast<int64_t>(p.afk_x1), 16);
+    const int64_t acz0 = floorDiv(static_cast<int64_t>(p.afk_z0), 16);
+    const int64_t acz1 = floorDiv(static_cast<int64_t>(p.afk_z1), 16);
+
+    std::vector<SrResult> radar_hits;
+    if (!run_radar_all(p, threads, acx0 - pr, acz0 - pr,
+                       acx1 + pr + 1, acz1 + pr + 1, radar_hits)) {
+        return false;
+    }
+
+    if (!radar_hits.empty()) {
+        /* 把每个 radar hit 放进它可能影响到的 AFK 分块 bucket。
+         * 一个 hit 最多跨 2x2 个分块（pr 远小于分块大小）。
+         * 用 hash map 只保存非空 bucket，避免为全图 300 多万个分块
+         * 各分配一个空 vector。 */
+        std::unordered_map<uint64_t, std::vector<SrResult>> buckets;
+        buckets.reserve(static_cast<size_t>(radar_hits.size()) * 2 + 1);
+
+        for (const SrResult& hit : radar_hits) {
+            const int64_t bx0 = static_cast<int64_t>(hit.x) * 16 - pr * 16;
+            const int64_t bx1 = static_cast<int64_t>(hit.x) * 16 + 15 + pr * 16;
+            const int64_t bz0 = static_cast<int64_t>(hit.z) * 16 - pr * 16;
+            const int64_t bz1 = static_cast<int64_t>(hit.z) * 16 + 15 + pr * 16;
+            if (bx1 < p.afk_x0 || bx0 > p.afk_x1 ||
+                bz1 < p.afk_z0 || bz0 > p.afk_z1) {
+                continue;
+            }
+
+            const int64_t cx0 = std::max<int64_t>(p.afk_x0, bx0);
+            const int64_t cx1 = std::min<int64_t>(p.afk_x1, bx1);
+            const int64_t cz0 = std::max<int64_t>(p.afk_z0, bz0);
+            const int64_t cz1 = std::min<int64_t>(p.afk_z1, bz1);
+
+            const int64_t tx0 = static_cast<int64_t>(
+                std::upper_bound(x_starts.begin(), x_starts.end(), cx0) -
+                x_starts.begin()) - 1;
+            const int64_t tx1 = std::min<int64_t>(tiles_x - 1,
+                static_cast<int64_t>(
+                    std::upper_bound(x_starts.begin(), x_starts.end(), cx1) -
+                    x_starts.begin()) - 1);
+            const int64_t tz0 = static_cast<int64_t>(
+                std::upper_bound(z_starts.begin(), z_starts.end(), cz0) -
+                z_starts.begin()) - 1;
+            const int64_t tz1 = std::min<int64_t>(tiles_z - 1,
+                static_cast<int64_t>(
+                    std::upper_bound(z_starts.begin(), z_starts.end(), cz1) -
+                    z_starts.begin()) - 1);
+
+            for (int64_t tz = std::max<int64_t>(0, tz0); tz <= tz1; ++tz) {
+                for (int64_t tx = std::max<int64_t>(0, tx0); tx <= tx1; ++tx) {
+                    buckets[static_cast<uint64_t>(tz * tiles_x + tx)].push_back(hit);
+                }
+            }
+        }
+        std::vector<SrResult>().swap(radar_hits);
+
+        /* 只处理真正有 radar 命中的 AFK 分块。 */
+        g_s.tiles_done.store(0, std::memory_order_relaxed);
+        g_s.tiles_total.store(static_cast<uint64_t>(buckets.size()),
+                              std::memory_order_relaxed);
+        for (auto& entry : buckets) {
+            if (!checkpoint()) return false;
+            const uint64_t key = entry.first;
+            const int64_t tz = static_cast<int64_t>(key / static_cast<uint64_t>(tiles_x));
+            const int64_t tx = static_cast<int64_t>(key % static_cast<uint64_t>(tiles_x));
+            const int64_t z0 = z_starts[static_cast<size_t>(tz)];
+            const int64_t z1 = tz + 1 < tiles_z
+                ? z_starts[static_cast<size_t>(tz + 1)] - 1 : p.afk_z1;
+            const int64_t x0 = x_starts[static_cast<size_t>(tx)];
+            const int64_t x1 = tx + 1 < tiles_x
+                ? x_starts[static_cast<size_t>(tx + 1)] - 1 : p.afk_x1;
+
+            std::vector<SlimeFarmHit> tile_best;
+            if (!run_search_tile(p, static_cast<int32_t>(x0),
+                                 static_cast<int32_t>(x1),
+                                 static_cast<int32_t>(z0),
+                                 static_cast<int32_t>(z1),
+                                 entry.second, tile_best)) {
+                return false;
+            }
+            merge_best(best, tile_best, p.max_results);
+            g_s.tiles_done.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    /* ---- Finalize：排序 + max_results + 群系折算 + 输出上限 ---- */
+    set_stage(SLIME_FARM_STAGE_FINALIZE, 1);
+    std::sort(best.begin(), best.end(),
+              [](const SlimeFarmHit& a, const SlimeFarmHit& b) {
+                  if (a.area != b.area) return a.area > b.area;
+                  if (a.chunks != b.chunks) return a.chunks > b.chunks;
+                  if (a.x != b.x) return a.x < b.x;
+                  return a.z < b.z;
+              });
+    dedupe_by_cell(best);
+    if (p.max_results > 0 &&
+        best.size() > static_cast<size_t>(p.max_results)) {
+        best.resize(static_cast<size_t>(p.max_results));
+    }
+
+    for (auto& hit : best) hit.area_equiv = static_cast<double>(hit.area);
+    apply_biome_conversion(p, best);
+    g_s.stage_current.store(std::max<uint64_t>(
+        g_s.stage_current.load(std::memory_order_relaxed), 1),
+        std::memory_order_relaxed);
 
     size_t final_count = 0;
     {
         std::lock_guard<std::mutex> lock(g_s.mutex);
-        g_s.hits.swap(hits);
+        g_s.hits.swap(best);
         final_count = g_s.hits.size();
     }
     g_s.result_count.store(final_count, std::memory_order_relaxed);
@@ -1457,6 +1744,11 @@ void slime_farm_params_init(SlimeFarmParams* p) {
     p->radar_tile_chunks = 0;
     p->threads = 0;
     p->max_results = 0;
+    p->convert_biomes = 0;
+    p->version_rule = 2;
+    p->biome_at = nullptr;
+    p->biome_ctx = nullptr;
+    p->output_limit = 0;
     p->flags = 0;
 }
 
@@ -1497,6 +1789,8 @@ int slime_farm_start(const SlimeFarmParams* p) {
     g_s.eligible_chunks.store(0, std::memory_order_relaxed);
     g_s.cells_done.store(0, std::memory_order_relaxed);
     g_s.cells_total.store(0, std::memory_order_relaxed);
+    g_s.tiles_done.store(0, std::memory_order_relaxed);
+    g_s.tiles_total.store(0, std::memory_order_relaxed);
     g_s.result_count.store(0, std::memory_order_relaxed);
     g_s.done.store(false, std::memory_order_relaxed);
     g_s.cancelled.store(false, std::memory_order_relaxed);
@@ -1584,6 +1878,8 @@ int slime_farm_poll(SlimeFarmProgress* out) {
     out->eligible_chunks = g_s.eligible_chunks.load(std::memory_order_relaxed);
     out->cells_done = g_s.cells_done.load(std::memory_order_relaxed);
     out->cells_total = g_s.cells_total.load(std::memory_order_relaxed);
+    out->tiles_done = g_s.tiles_done.load(std::memory_order_relaxed);
+    out->tiles_total = g_s.tiles_total.load(std::memory_order_relaxed);
     out->results = g_s.result_count.load(std::memory_order_relaxed);
 
     const uint64_t elapsed = elapsed_ms();
@@ -1839,10 +2135,11 @@ int main(int argc, char** argv) {
     std::vector<SlimeFarmHit> hits(static_cast<size_t>(n));
     slime_farm_get_results(hits.data(), n);
 
-    std::printf("x,z,area,chunks,cell_x,cell_z\n");
+    std::printf("x,z,area,area_equiv,chunks,cell_x,cell_z\n");
     for (const auto& h : hits) {
-        std::printf("%" PRId64 ",%" PRId64 ",%" PRId64 ",%d,%d,%d\n",
-                    h.x, h.z, h.area, h.chunks, h.cell_x, h.cell_z);
+        std::printf("%" PRId64 ",%" PRId64 ",%" PRId64 ",%.3f,%d,%d,%d\n",
+                    h.x, h.z, h.area, h.area_equiv, h.chunks, h.cell_x,
+                    h.cell_z);
     }
     std::printf("# %d result(s)\n", n);
 

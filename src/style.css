@@ -28,18 +28,6 @@ button:disabled { opacity: 0.45; cursor: default; }
   min-height: 100%;
 }
 
-#menubar-top {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 8px;
-  border-bottom: 1px solid #2c3340;
-  background: #12161d;
-  flex: none;
-  position: relative;
-  z-index: 25;
-}
-
 #menubar {
   display: flex;
   align-items: center;
@@ -71,38 +59,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .searcher-chip:hover:not(:disabled) { background: #222833; border-color: #3c4454; }
 .searcher-chip.active { background: #3d6b4f; border-color: #6ea884; }
 
-.menu { position: relative; flex: none; }
-.menu-btn {
-  background: transparent;
-  border-color: transparent;
-  padding: 4px 10px;
-}
-.menu-btn:hover { background: #222833; border-color: #3c4454; }
-.menu-drop {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  min-width: 180px;
-  max-height: 70vh;
-  overflow: auto;
-  background: #1c212b;
-  border: 1px solid #3c4454;
-  border-radius: 6px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 30;
-}
-.menu-drop[hidden] { display: none !important; }
-.menu-drop button {
-  text-align: left;
-  background: transparent;
-  border-color: transparent;
-  border-radius: 4px;
-}
-.menu-drop button:hover:not(:disabled) { background: #2a3342; }
-.menu-drop button.active { background: #3d6b4f; border-color: #6ea884; }
 .menu-lang {
   display: flex;
   align-items: center;
@@ -317,11 +273,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 #tools { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; }
 
-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-th, td { text-align: left; padding: 4px 2px; border-bottom: 1px solid #2c3340; }
-tr.clickable { cursor: pointer; }
-tr.clickable:hover { background: #243028; }
-
 #modal {
   position: fixed;
   inset: 0;
@@ -343,19 +294,6 @@ tr.clickable:hover { background: #243028; }
   flex-direction: column;
   gap: 12px;
 }
-#dialog textarea {
-  width: 100%;
-  resize: vertical;
-  min-height: 64px;
-  background: #12161d;
-  color: #e8edf5;
-  border: 1px solid #3c4454;
-  border-radius: 6px;
-  padding: 8px;
-  font: inherit;
-}
-#dialog .hint:empty { display: none; }
-#dialog .hint { color: #e2a39a; }
 .about-body {
   white-space: normal;
   line-height: 1.55;

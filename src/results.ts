@@ -1,10 +1,13 @@
 import { parseCoords } from './coords';
+import { escapeText } from './dialog';
 import { applyI18n, t } from './i18n';
 import type { MapView } from './map';
-import type { SearchHit } from './native';
+import type { SearchHit, SlimeHit } from './native';
 import { isDripstoneTab, type SearcherId } from './searchers';
+import { slimeMapVersion, type SlimeVersionGroup } from './slime';
 
-const AREA = Math.PI * (128 * 128 - 24 * 24);
+/** 24 < r <= 128 刷怪环的格点总面积；溶洞与史莱姆共用同一口径。 */
+const FULL_RING_AREA = 49640;
 
 export class ResultsColumn {
   readonly root: HTMLElement;
@@ -18,8 +21,12 @@ export class ResultsColumn {
   private exportSeedsBtn!: HTMLButtonElement;
   private exportAllBtn!: HTMLButtonElement;
   private hits: SearchHit[] = [];
+  private slimeHits: SlimeHit[] = [];
+  private slimeConvert = true;
+  private slimeVersion: SlimeVersionGroup = 'modern';
   private sourceTab: SearcherId | null = null;
   private viewTab: SearcherId = 'map';
+  private display: 'lowy' | 'slime' = 'lowy';
   private listMode = false;
   private map: MapView;
   onShowMap: () => void = () => {};
@@ -80,13 +87,17 @@ export class ResultsColumn {
 
   setViewTab(tab: SearcherId): void {
     this.viewTab = tab;
+    if (tab === 'SlimeChunk') this.display = 'slime';
+    else if (isDripstoneTab(tab)) this.display = 'lowy';
     this.updateSpawnUi();
+    this.paint();
   }
 
   clear(sourceTab: SearcherId | null = null, listMode = false): void {
     this.hits = [];
     this.sourceTab = sourceTab;
     this.listMode = listMode;
+    if (this.viewTab !== 'SlimeChunk') this.display = 'lowy';
     this.map.clearSpawnCircles();
     this.updateSpawnUi();
     this.paint();
@@ -96,6 +107,26 @@ export class ResultsColumn {
     this.hits = hits;
     this.sourceTab = sourceTab;
     this.listMode = listMode;
+    if (this.viewTab !== 'SlimeChunk') this.display = 'lowy';
+    this.updateSpawnUi();
+    this.paint();
+  }
+
+  clearSlime(convert: boolean, version: SlimeVersionGroup): void {
+    this.slimeHits = [];
+    this.slimeConvert = convert;
+    this.slimeVersion = version;
+    if (this.viewTab === 'SlimeChunk' || this.viewTab === 'map') this.display = 'slime';
+    this.map.clearSpawnCircles();
+    this.updateSpawnUi();
+    this.paint();
+  }
+
+  setSlimeHits(hits: SlimeHit[], convert: boolean, version: SlimeVersionGroup): void {
+    this.slimeHits = hits;
+    this.slimeConvert = convert;
+    this.slimeVersion = version;
+    if (this.viewTab === 'SlimeChunk' || this.viewTab === 'map') this.display = 'slime';
     this.updateSpawnUi();
     this.paint();
   }
@@ -146,13 +177,37 @@ export class ResultsColumn {
         z,
         seed,
         y: dripstoneResult && fromResult ? -56 : undefined,
+        dimension: dripstoneResult ? 0 : undefined,
         spawnCircles: draw,
       });
     };
     requestAnimationFrame(jump);
   }
 
+  private performSlimeJump(hit: SlimeHit): void {
+    this.spawnCheck.checked = true;
+    this.onShowMap();
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.jumpTo({
+        x: hit.x,
+        z: hit.z,
+        seed: hit.seed,
+        y: -64,
+        dimension: 0,
+        mcVersion: slimeMapVersion(this.slimeVersion),
+        slimeChunks: true,
+        spawnCircles: true,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
   private paint(): void {
+    if (this.display === 'slime') {
+      this.paintSlime();
+      return;
+    }
     this.exportSeedsBtn.disabled = !(this.listMode && this.hits.length > 0);
     this.exportAllBtn.disabled = this.hits.length === 0;
     if (!this.hits.length) {
@@ -162,7 +217,7 @@ export class ResultsColumn {
     }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     this.list.innerHTML = this.hits.map((hit, index) => {
-      const full = Math.floor(AREA);
+      const full = FULL_RING_AREA;
       const stats = showDetail
         ? `<div class="result-stats">
             <span>${hit.total}/${full} (${hit.ratio.toFixed(2)}%)</span>
@@ -202,24 +257,82 @@ export class ResultsColumn {
     applyI18n(this.list);
   }
 
+  private paintSlime(): void {
+    this.exportSeedsBtn.disabled = this.slimeHits.length === 0;
+    this.exportAllBtn.disabled = this.slimeHits.length === 0;
+    if (!this.slimeHits.length) {
+      this.list.innerHTML = `<div class="hint results-empty" data-i18n="results.empty"></div>`;
+      applyI18n(this.list);
+      return;
+    }
+    this.list.innerHTML = this.slimeHits.map((hit, index) => {
+      const equivalent = this.slimeConvert
+        ? `<span>${escapeText(t('results.equivalentArea'))} ${formatArea(hit.areaEquiv)}</span>`
+        : '';
+      return `<article class="result-card result-slime" data-index="${index}">
+        <div class="result-seed">${escapeText(hit.seed)}</div>
+        <div class="result-coords">
+          <span>X ${hit.x}</span>
+          <span>Z ${hit.z}</span>
+          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+        </div>
+        <div class="result-stats">
+          ${equivalent}
+          <span>${escapeText(t('results.generatedArea'))} ${hit.area}</span>
+          <span>${escapeText(t('results.slimeChunks'))} ${hit.chunks}</span>
+        </div>
+      </article>`;
+    }).join('');
+    this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('.result-copy')) return;
+        const hit = this.slimeHits[Number(card.dataset.index)];
+        if (!hit) return;
+        this.jumpX.value = String(hit.x);
+        this.jumpZ.value = String(hit.z);
+        this.performSlimeJump(hit);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-copy').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.slimeHits[Number(button.dataset.index)];
+        if (!hit) return;
+        void navigator.clipboard.writeText(`/tp ${hit.x} -64 ${hit.z}`);
+      });
+    });
+    applyI18n(this.list);
+  }
+
   private exportAll(): void {
+    if (this.display === 'slime') {
+      const text = this.slimeHits.map((hit) => {
+        const equiv = this.slimeConvert ? ` equiv=${formatArea(hit.areaEquiv)}` : '';
+        return `/tp ${hit.x} -64 ${hit.z}${equiv} area=${hit.area} chunks=${hit.chunks}`;
+      }).join('\n');
+      void window.aio.saveFile('slime-results.txt', text);
+      return;
+    }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     const text = this.hits.map((hit) => line(hit, showDetail)).join('\n');
     void window.aio.saveFile('results.txt', text);
   }
 
   private exportSeeds(): void {
-    const seeds = [...new Set(this.hits.map((hit) => hit.seed))];
+    const seedSource = this.display === 'slime' ? this.slimeHits : this.hits;
+    const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
     void window.aio.saveFile('seeds.txt', seeds.join('\n'));
   }
 }
 
-function line(hit: SearchHit, showRiver: boolean): string {
-  const full = Math.floor(AREA);
-  const base = `/tp ${hit.x} 64 ${hit.z} ${hit.total}/${full} (${hit.ratio.toFixed(2)}%)`;
-  return showRiver ? `${base} cave=${hit.cave} river=${hit.river}` : base;
+function formatArea(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
+function line(hit: SearchHit, showRiver: boolean): string {
+  const full = FULL_RING_AREA;
+  const base = `/tp ${hit.x} 64 ${hit.z} ${hit.total}/${full} (${hit.ratio.toFixed(2)}%)`;
+  return showRiver ? `${base} cave=${hit.cave} river=${hit.river}` : base;
 }
