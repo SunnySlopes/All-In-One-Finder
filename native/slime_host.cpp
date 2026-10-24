@@ -2,6 +2,7 @@
 
 #include "cubiomes/biomes.h"
 #include "cubiomes/generator.h"
+#include "search_gate.h"
 
 #define SLIME_FARM_DECLARATIONS_ONLY
 #include "../tools/slime/slime_search.cpp"
@@ -206,6 +207,7 @@ void job(SlimeRequest request)
         gStatus.total = 0;
     }
     publish(all, false, true, error);
+    searchGateRelease(SearchOwner::Slime);
 }
 
 } // namespace
@@ -237,6 +239,7 @@ std::string slimeStart(const SlimeRequest &request)
         if (gStatus.running) return "busy";
     }
     if (gThread.joinable()) gThread.join();
+    if (!searchGateAcquire(SearchOwner::Slime)) return "busy";
 
     gPause.store(false);
     gStop.store(false);
@@ -246,7 +249,16 @@ std::string slimeStart(const SlimeRequest &request)
         gStatus.running = true;
         gStatus.seedCount = static_cast<int>(request.seeds.size());
     }
-    gThread = std::thread(job, request);
+    try {
+        gThread = std::thread(job, request);
+    } catch (const std::exception &) {
+        {
+            std::lock_guard<std::mutex> lock(gMu);
+            gStatus = {};
+        }
+        searchGateRelease(SearchOwner::Slime);
+        return "search-start-failed";
+    }
     return "";
 }
 

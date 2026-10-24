@@ -94,31 +94,31 @@ export class SlimePanel {
     this.root.innerHTML = `
       <div class="search-panel-body" id="sl-form">
         <div class="grid">
-          <label data-i18n="search.seedMode"></label>
+          <label data-i18n="common.search.seedMode"></label>
           <select id="sl-seed-mode">
-            <option value="single" data-i18n="search.seedModeSingle"></option>
-            <option value="list" data-i18n="search.seedModeList"></option>
+            <option value="single" data-i18n="common.search.seedModeSingle"></option>
+            <option value="list" data-i18n="common.search.seedModeList"></option>
           </select>
         </div>
         <div id="sl-seed-block"></div>
         <div class="grid">
-          <label data-i18n="search.version"></label>
+          <label data-i18n="common.search.version"></label>
           <select id="sl-version">
             ${VERSION_OPTIONS.map((item) => `<option value="${item.value}">${item.label}</option>`).join('')}
           </select>
-          <label data-i18n="search.threads"></label><input id="sl-threads" type="number" min="1" max="256" value="8" />
-          <label data-i18n="search.minX"></label><input id="sl-minx" type="number" value="-16384" />
-          <label data-i18n="search.maxX"></label><input id="sl-maxx" type="number" value="16383" />
-          <label data-i18n="search.minZ"></label><input id="sl-minz" type="number" value="-16384" />
-          <label data-i18n="search.maxZ"></label><input id="sl-maxz" type="number" value="16383" />
+          <label data-i18n="common.search.threads"></label><input id="sl-threads" type="number" min="1" max="256" value="8" />
+          <label data-i18n="common.search.minX"></label><input id="sl-minx" type="number" value="-16384" />
+          <label data-i18n="common.search.maxX"></label><input id="sl-maxx" type="number" value="16383" />
+          <label data-i18n="common.search.minZ"></label><input id="sl-minz" type="number" value="-16384" />
+          <label data-i18n="common.search.maxZ"></label><input id="sl-maxz" type="number" value="16383" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="sl-square" type="checkbox" checked /><span data-i18n="search.square"></span></label>
+          <label class="feature"><input id="sl-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="sl-side" type="number" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="sl-reset" type="button" data-i18n="search.reset"></button>
-          <button id="sl-border" type="button" data-i18n="slime.fullMap"></button>
+          <button id="sl-reset" type="button" data-i18n="common.search.reset"></button>
+          <button id="sl-border" type="button" data-i18n="common.search.border"></button>
         </div>
         <div class="grid">
           <label data-i18n="slime.minArea"></label>
@@ -219,11 +219,11 @@ export class SlimePanel {
     const host = this.root.querySelector('#sl-seed-block')!;
     if (this.seedMode === 'single') {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="lowy.seed"></label><input id="sl-seed" value="${escapeAttr(this.seed)}" />
+        <label data-i18n="common.search.seed"></label><input id="sl-seed" value="${escapeAttr(this.seed)}" />
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="lowy.seeds"></label><button id="sl-file" type="button" data-i18n="lowy.pick"></button>
+        <label data-i18n="common.search.seeds"></label><button id="sl-file" type="button" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="sl-file-name"></div>`;
       const fileName = host.querySelector('#sl-file-name');
       if (fileName && this.seedText) {
@@ -241,9 +241,9 @@ export class SlimePanel {
     this.renderSeedBlock();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="sl-start" type="button" data-i18n="search.start" ${this.running ? 'disabled' : ''}></button>
-        <button id="sl-pause" type="button" data-i18n="${this.paused ? 'search.resume' : 'search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="sl-stop" type="button" data-i18n="search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="sl-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="sl-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="sl-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="sl-bar"></div></div>
       <div id="sl-progress" class="hint"></div>
@@ -288,11 +288,11 @@ export class SlimePanel {
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1) {
-        await showNotice(t('error.bad-bounds'));
+        await showNotice(t('common.error.bad-bounds'));
         return;
       }
       if (side > WORLD_SIDE) {
-        await showNotice(t('error.area-too-large'));
+        await showNotice(t('common.error.area-too-large'));
         return;
       }
       this.applySquare();
@@ -303,7 +303,7 @@ export class SlimePanel {
     const minZ = Number(this.minZ.value);
     const maxZ = Number(this.maxZ.value);
     if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ) {
-      await showNotice(t('error.bad-bounds'));
+      await showNotice(t('common.error.bad-bounds'));
       return;
     }
     const width = maxX - minX + 1;
@@ -311,7 +311,7 @@ export class SlimePanel {
     if (width > WORLD_SIDE || height > WORLD_SIDE
       || minX < -WORLD_COORD || maxX > WORLD_COORD
       || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
-      await showNotice(t('error.area-too-large'));
+      await showNotice(t('common.error.area-too-large'));
       return;
     }
 
@@ -320,7 +320,7 @@ export class SlimePanel {
       const choice = await ask(t('slime.tooMany', { min: warning }), [
         { id: 'adjust', key: 'slime.adjust' },
         { id: 'keep', key: 'slime.keep' },
-        { id: 'cancel', key: 'lowy.dismiss' },
+        { id: 'cancel', key: 'common.dialog.close' },
       ]);
       if (choice === 'cancel' || choice === 'dismiss') return;
       if (choice === 'adjust') {
@@ -331,7 +331,7 @@ export class SlimePanel {
 
     const mc = resolveMc(this.searchVersion, this.versions);
     if (mc == null) {
-      await showNotice(t('error.unsupported-version'));
+      await showNotice(t('common.error.unsupported-version'));
       return;
     }
 
@@ -391,7 +391,7 @@ export class SlimePanel {
         const bar = this.footer.querySelector<HTMLElement>('#sl-bar');
         if (progress) progress.textContent = this.progressText(status);
         if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) elapsed.textContent = t('searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
+        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
         if (bar) {
           const useTiles = status.tilesTotal > 1 && status.stage >= 2;
           const pct = useTiles
@@ -417,9 +417,10 @@ export class SlimePanel {
   }
 
   private progressText(status: SlimeStatus): string {
-    const stage = t(`slime.stage.${status.stage}`);
+    // 阶段 4 与“群系折算”复选框共用 slime.convert，不再保留重复 key。
+    const stage = t(status.stage === 4 ? 'slime.convert' : `slime.stage.${status.stage}`);
     const seeds = status.seedCount > 1
-      ? `${t('search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
     const tiles = status.tilesTotal > 1
       ? `${t('slime.tileProgress', { done: status.tilesDone, total: status.tilesTotal })} `
@@ -430,20 +431,20 @@ export class SlimePanel {
   }
 
   private etaText(status: SlimeStatus): string {
-    if (status.done) return t('search.eta.completed');
-    if (status.paused) return t('search.eta.paused');
+    if (status.done) return t('common.search.eta.completed');
+    if (status.paused) return t('common.search.eta.paused');
     if (status.tilesTotal > 1 && status.tilesDone > 0) {
       const elapsed = Date.now() - this.searchStartedAt;
       const remaining = elapsed * ((status.tilesTotal - status.tilesDone) / status.tilesDone);
       if (remaining > 0 && Number.isFinite(remaining)) {
-        return t('search.eta.remaining', { time: formatDuration(remaining) });
+        return t('common.search.eta.remaining', { time: formatDuration(remaining) });
       }
     }
-    if (!(status.current > 0 && status.total > status.current)) return t('search.eta.calculating');
+    if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
     const elapsed = Date.now() - this.phaseStartedAt;
     const remaining = elapsed * ((status.total - status.current) / status.current);
-    if (!(remaining > 0) || !Number.isFinite(remaining)) return t('search.eta.calculating');
-    return t('search.eta.remaining', { time: formatDuration(remaining) });
+    if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
+    return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
 }
 
@@ -462,7 +463,7 @@ function escapeAttr(value: string): string {
 
 function messageOf(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
-  const key = `error.${code}`;
+  const key = `common.error.${code}`;
   const text = t(key);
   return text === key ? code : text;
 }

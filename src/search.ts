@@ -11,6 +11,11 @@ const DEFAULT_SIDE = 131072;
 const WORLD_SIDE = 60000001;
 const DEFAULT_RATIO = '70';
 const BORDER_RATIO = '90';
+/** 溶洞范围小于这个等效面积时，提示改去河流页搜索。 */
+const RIVER_HINT_AREA = 100000 * 100000;
+
+/** 溶洞搜索的面积口径：24 < r <= 128 刷怪环格点总面积。 */
+const FULL_RING_AREA = 49640;
 
 type SeedMode = 'single' | 'list';
 type LowyUiVersion = 'pre' | 'sulfur';
@@ -42,6 +47,8 @@ export class SearchPanel {
   private side!: HTMLInputElement;
   private seedModeSelect!: HTMLSelectElement;
   private searcher: SearcherId = 'LowYDripstoneCave';
+  /** 开始搜索时快照当前页是不是大坑（切 Tab 后阶段名称仍按启动页解释）。 */
+  private searchPit = false;
   private seedMode: SeedMode = 'single';
   private uiVersion: LowyUiVersion = 'sulfur';
   private supported = true;
@@ -67,28 +74,28 @@ export class SearchPanel {
     this.root.innerHTML = `
       <div class="search-panel-body" id="s-form">
         <div class="grid">
-          <label data-i18n="search.seedMode"></label>
+          <label data-i18n="common.search.seedMode"></label>
           <select id="s-seed-mode">
-            <option value="single" data-i18n="search.seedModeSingle"></option>
-            <option value="list" data-i18n="search.seedModeList"></option>
+            <option value="single" data-i18n="common.search.seedModeSingle"></option>
+            <option value="list" data-i18n="common.search.seedModeList"></option>
           </select>
         </div>
         <div id="s-seed-block"></div>
         <div class="grid">
-          <label data-i18n="search.version"></label><select id="s-version"></select>
-          <label data-i18n="search.threads"></label><input id="s-threads" type="number" min="1" max="256" value="8" />
-          <label data-i18n="search.minX"></label><input id="s-minx" type="number" value="-65536" />
-          <label data-i18n="search.maxX"></label><input id="s-maxx" type="number" value="65535" />
-          <label data-i18n="search.minZ"></label><input id="s-minz" type="number" value="-65536" />
-          <label data-i18n="search.maxZ"></label><input id="s-maxz" type="number" value="65535" />
+          <label data-i18n="common.search.version"></label><select id="s-version"></select>
+          <label data-i18n="common.search.threads"></label><input id="s-threads" type="number" min="1" max="256" value="8" />
+          <label data-i18n="common.search.minX"></label><input id="s-minx" type="number" value="-65536" />
+          <label data-i18n="common.search.maxX"></label><input id="s-maxx" type="number" value="65535" />
+          <label data-i18n="common.search.minZ"></label><input id="s-minz" type="number" value="-65536" />
+          <label data-i18n="common.search.maxZ"></label><input id="s-maxz" type="number" value="65535" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="s-square" type="checkbox" checked /><span data-i18n="search.square"></span></label>
+          <label class="feature"><input id="s-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="s-side" type="number" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="s-reset" type="button" data-i18n="search.reset"></button>
-          <button id="s-border" type="button" data-i18n="search.border"></button>
+          <button id="s-reset" type="button" data-i18n="common.search.reset"></button>
+          <button id="s-border" type="button" data-i18n="common.search.border"></button>
         </div>
         <div id="s-params"></div>
       </div>
@@ -142,8 +149,8 @@ export class SearchPanel {
   load(versions: McVersion[]): void {
     this.versions = versions;
     this.version.innerHTML = `
-      <option value="sulfur" data-i18n="lowy.verSulfur"></option>
-      <option value="pre" data-i18n="lowy.verPre"></option>
+      <option value="sulfur" data-i18n="dripstonecave.verSulfur"></option>
+      <option value="pre" data-i18n="dripstonecave.verPre"></option>
     `;
     this.version.value = this.uiVersion;
     applyI18n(this.version);
@@ -211,6 +218,28 @@ export class SearchPanel {
     return (box.maxX - box.minX + 1) * (box.maxZ - box.minZ + 1);
   }
 
+  private caveRatioLimits(pit: boolean): [number, number] {
+    if (pit) return [80, 95];
+    return this.fastMode ? [60, 95] : [40, 95];
+  }
+
+  /** 由占比算出的面积；占比不在当前模式允许区间时留空。 */
+  private caveAreaValue(pit: boolean): string {
+    const ratio = Number(pit ? this.fastRatio : this.ratio);
+    const [min, max] = this.caveRatioLimits(pit);
+    if (!Number.isFinite(ratio) || ratio < min || ratio > max) return '';
+    return String(Math.round(ratio / 100 * FULL_RING_AREA));
+  }
+
+  private caveRatioFromArea(value: string, pit: boolean): number | null {
+    const area = Number(value);
+    if (!Number.isFinite(area) || area < 0) return null;
+    const ratio = Math.round(area / FULL_RING_AREA * 100);
+    const [min, max] = this.caveRatioLimits(pit);
+    if (ratio < min || ratio > max) return null;
+    return ratio;
+  }
+
   private async refreshSupport(): Promise<void> {
     try {
       this.supported = await call<boolean>('lowySupports', this.shared().mc);
@@ -225,11 +254,11 @@ export class SearchPanel {
     const pit = this.searcher === 'LowYPitDripstoneCave';
     if (pit || this.seedMode === 'single') {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="lowy.seed"></label><input id="p-seed" value="${escapeAttr(this.seed)}" />
+        <label data-i18n="common.search.seed"></label><input id="p-seed" value="${escapeAttr(this.seed)}" />
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="lowy.seeds"></label><button id="p-file" type="button" data-i18n="lowy.pick"></button>
+        <label data-i18n="common.search.seeds"></label><button id="p-file" type="button" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="p-file-name"></div>`;
       const fileName = host.querySelector('#p-file-name');
       if (fileName && this.seedText) {
@@ -250,34 +279,57 @@ export class SearchPanel {
     this.renderSeedBlock();
 
     const params = this.root.querySelector('#s-params')!;
-    const notice = this.supported ? '' : `<div class="hint" data-i18n="search.unsupported"></div>`;
+    const notice = this.supported ? '' : `<div class="hint" data-i18n="common.search.unsupported"></div>`;
     const help = pit
-      ? `<div class="hint" data-i18n="lowy.helpPit"></div>`
-      : `<div class="hint" data-i18n="lowy.helpCave"></div>`;
+      ? `<div class="hint" data-i18n="dripstonecave.helpPit"></div>`
+      : `<div class="hint" data-i18n="dripstonecave.helpCave"></div>`;
 
     if (pit) {
-      params.innerHTML = `${notice}${help}<div class="grid">
-        <label data-i18n="lowy.fastRatio"></label><input id="p-ratio" type="number" min="80" max="95" step="1" value="${escapeAttr(this.fastRatio)}" />
-      </div>`;
+      params.innerHTML = `${notice}<div class="grid">
+        <label data-i18n="dripstonecave.fastRatio"></label><input id="p-ratio" type="number" min="80" max="95" step="1" value="${escapeAttr(this.fastRatio)}" />
+        <label data-i18n="dripstonecave.area"></label><input id="p-area" type="number" min="0" step="1" value="${this.caveAreaValue(true)}" />
+      </div>${help}`;
     } else if (this.seedMode === 'list') {
-      params.innerHTML = `${notice}${help}<div class="grid">
-        <label data-i18n="lowy.river"></label><input id="p-river" type="number" min="0" max="1" step="0.05" value="${escapeAttr(this.river)}" />
-        <label data-i18n="lowy.ratio"></label><input id="p-ratio" type="number" min="40" max="95" step="1" value="${escapeAttr(this.ratio)}" />
-        <label data-i18n="lowy.fastMode"></label><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} />
-      </div>`;
+      params.innerHTML = `${notice}<div class="grid">
+        <label data-i18n="dripstonecave.riverWeight"></label><input id="p-river" type="number" min="0" max="1" step="0.05" value="${escapeAttr(this.river)}" />
+        <label data-i18n="dripstonecave.ratio"></label><input id="p-ratio" type="number" min="40" max="95" step="1" value="${escapeAttr(this.ratio)}" />
+        <label data-i18n="dripstonecave.area"></label><input id="p-area" type="number" min="0" step="1" value="${this.caveAreaValue(false)}" />
+        <label data-i18n="dripstonecave.fastMode"></label><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} />
+      </div>${help}`;
     } else {
-      params.innerHTML = `${notice}${help}<div class="grid">
-        <label data-i18n="lowy.river"></label><input id="p-river" type="number" min="0" max="1" step="0.05" value="${escapeAttr(this.river)}" />
-        <label data-i18n="lowy.ratio"></label><input id="p-ratio" type="number" min="40" max="95" step="1" value="${escapeAttr(this.ratio)}" />
-        <label data-i18n="lowy.fastMode"></label><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} />
-      </div>`;
+      params.innerHTML = `${notice}<div class="grid">
+        <label data-i18n="dripstonecave.riverWeight"></label><input id="p-river" type="number" min="0" max="1" step="0.05" value="${escapeAttr(this.river)}" />
+        <label data-i18n="dripstonecave.ratio"></label><input id="p-ratio" type="number" min="40" max="95" step="1" value="${escapeAttr(this.ratio)}" />
+        <label data-i18n="dripstonecave.area"></label><input id="p-area" type="number" min="0" step="1" value="${this.caveAreaValue(false)}" />
+        <label data-i18n="dripstonecave.fastMode"></label><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} />
+      </div>${help}`;
     }
+
+    const ratioInput = params.querySelector<HTMLInputElement>('#p-ratio');
+    const areaInput = params.querySelector<HTMLInputElement>('#p-area');
+    ratioInput?.addEventListener('input', () => {
+      if (pit) this.fastRatio = ratioInput.value;
+      else this.ratio = ratioInput.value;
+      const area = this.caveAreaValue(pit);
+      if (areaInput) areaInput.value = area;
+    });
+    areaInput?.addEventListener('input', () => {
+      const ratio = this.caveRatioFromArea(areaInput.value, pit);
+      if (ratio == null) return;
+      if (ratioInput) ratioInput.value = String(ratio);
+      if (pit) this.fastRatio = String(ratio);
+      else this.ratio = String(ratio);
+    });
+    params.querySelector<HTMLInputElement>('#p-fast')?.addEventListener('change', () => {
+      const fast = params.querySelector<HTMLInputElement>('#p-fast');
+      if (fast) this.fastMode = fast.checked;
+    });
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="s-start" type="button" data-i18n="search.start" ${this.supported && !this.running ? '' : 'disabled'}></button>
-        <button id="s-pause" type="button" data-i18n="${this.paused ? 'search.resume' : 'search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="s-stop" type="button" data-i18n="search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="s-start" type="button" data-i18n="common.search.start" ${this.supported && !this.running ? '' : 'disabled'}></button>
+        <button id="s-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="s-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="s-bar"></div></div>
       <div id="s-progress" class="hint"></div>
@@ -317,21 +369,41 @@ export class SearchPanel {
     this.readFields();
     const box = this.shared();
     const fastPage = this.searcher === 'LowYPitDripstoneCave';
+    this.searchPit = fastPage;
     const listMode = !fastPage && this.seedMode === 'list';
     const ratio = Number(fastPage ? this.fastRatio : this.ratio);
     const min = fastPage ? 80 : this.fastMode ? 60 : 40;
     if (!(ratio >= min && ratio <= 95)) {
-      await ask(t('error.bad-ratio'), [{ id: 'dismiss', key: 'lowy.dismiss' }]);
+      await ask(t('common.error.bad-ratio'), [{ id: 'dismiss', key: 'common.dialog.close' }]);
       return;
+    }
+    const areaInput = this.root.querySelector<HTMLInputElement>('#p-area');
+    if (areaInput) areaInput.value = String(Math.round(ratio / 100 * FULL_RING_AREA));
+    // 范围较小时先问要不要改去河流页；选“是”直接切 Tab，不启动本次搜索。
+    if (!fastPage) {
+      const width = box.maxX - box.minX + 1;
+      const height = box.maxZ - box.minZ + 1;
+      if (width > 0 && height > 0 && width * height < RIVER_HINT_AREA) {
+        const choice = await ask(t('dripstonecave.toRiver'), [
+          { id: 'yes', key: 'dripstonecave.goRiver' },
+          { id: 'no', key: 'dripstonecave.stay' },
+          { id: 'dismiss', key: 'common.dialog.close' },
+        ]);
+        if (choice === 'yes') {
+          this.onNavigate('River');
+          return;
+        }
+        if (choice !== 'no') return;
+      }
     }
     if (!fastPage && !listMode && this.area() >= LUCKY_AREA) {
       try {
         const score = await call<number>('weirdness', this.seed);
         if (score < LUCKY_BELOW) {
-          const choice = await ask(t('lowy.tryLuck'), [
-            { id: 'yes', key: 'lowy.goFast' },
-            { id: 'no', key: 'lowy.stay' },
-            { id: 'dismiss', key: 'lowy.dismiss' },
+          const choice = await ask(t('dripstonecave.tryLuck'), [
+            { id: 'yes', key: 'dripstonecave.goFast' },
+            { id: 'no', key: 'dripstonecave.stay' },
+            { id: 'dismiss', key: 'common.dialog.close' },
           ]);
           if (choice === 'yes') {
             this.onNavigate('LowYPitDripstoneCave');
@@ -340,7 +412,7 @@ export class SearchPanel {
           if (choice !== 'no') return;
         }
       } catch (error) {
-        await ask(messageOf(error), [{ id: 'dismiss', key: 'lowy.dismiss' }]);
+        await ask(messageOf(error), [{ id: 'dismiss', key: 'common.dialog.close' }]);
         return;
       }
     }
@@ -348,10 +420,10 @@ export class SearchPanel {
       try {
         const score = await call<number>('weirdness', this.seed);
         if (score > LOW_PROB) {
-          const choice = await ask(t('lowy.unlikely'), [
-            { id: 'yes', key: 'lowy.anyway' },
-            { id: 'no', key: 'lowy.back' },
-            { id: 'dismiss', key: 'lowy.dismiss' },
+          const choice = await ask(t('dripstonecave.unlikely'), [
+            { id: 'yes', key: 'dripstonecave.anyway' },
+            { id: 'no', key: 'dripstonecave.back' },
+            { id: 'dismiss', key: 'common.dialog.close' },
           ]);
           if (choice === 'no') {
             this.ratio = this.fastRatio;
@@ -361,7 +433,7 @@ export class SearchPanel {
           if (choice !== 'yes') return;
         }
       } catch (error) {
-        await ask(messageOf(error), [{ id: 'dismiss', key: 'lowy.dismiss' }]);
+        await ask(messageOf(error), [{ id: 'dismiss', key: 'common.dialog.close' }]);
         return;
       }
     }
@@ -384,7 +456,7 @@ export class SearchPanel {
       this.render();
       this.poll();
     } catch (error) {
-      await ask(messageOf(error), [{ id: 'dismiss', key: 'lowy.dismiss' }]);
+      await ask(messageOf(error), [{ id: 'dismiss', key: 'common.dialog.close' }]);
     }
   }
 
@@ -417,7 +489,7 @@ export class SearchPanel {
         const bar = this.footer.querySelector<HTMLElement>('#s-bar');
         if (progress) progress.textContent = this.progressText(status);
         if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) elapsed.textContent = t('searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
+        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
         if (bar) {
           const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
           bar.style.width = `${pct}%`;
@@ -436,25 +508,34 @@ export class SearchPanel {
     }, 100);
   }
 
+  /** 与源程序一致的阶段名称：普通溶洞 0/1/2，大坑 0/1/2/3。 */
+  private stageLabel(phase: number): string {
+    if (this.searchPit) {
+      if (phase === 0) return t('dripstonecave.stage.0');
+      if (phase === 2) return t('dripstonecave.pitStage.2');
+      if (phase === 3 || phase === -1) return t('dripstonecave.pitStage.3');
+      return t('dripstonecave.pitStage.1');
+    }
+    if (phase === 0) return t('dripstonecave.stage.0');
+    if (phase === 2 || phase === -1) return t('dripstonecave.stage.2');
+    return t('dripstonecave.stage.1');
+  }
+
   private progressText(status: SearchStatus): string {
-    const phase = status.phase === 0 ? t('search.phase.cache')
-      : status.phase === 1 ? t('search.phase.scan')
-        : status.phase === 2 ? t('search.phase.refine')
-          : status.phase < 0 ? t('search.phase.done')
-            : t('search.phase.work');
-    const seeds = status.seedCount > 1 ? `${t('search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} ` : '';
+    const phase = this.stageLabel(status.phase);
+    const seeds = status.seedCount > 1 ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} ` : '';
     const pct = status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
-    return `${seeds}${phase} ${status.current}/${status.total} (${pct}%)${status.error ? ` ${t(`error.${status.error}`) || status.error}` : ''}`;
+    return `${seeds}${phase} ${status.current}/${status.total} (${pct}%)${status.error ? ` ${t(`common.error.${status.error}`) || status.error}` : ''}`;
   }
 
   private etaText(status: SearchStatus): string {
-    if (status.done || status.phase < 0) return t('search.eta.completed');
-    if (status.paused) return t('search.eta.paused');
-    if (!(status.current > 0 && status.total > status.current)) return t('search.eta.calculating');
+    if (status.done || status.phase < 0) return t('common.search.eta.completed');
+    if (status.paused) return t('common.search.eta.paused');
+    if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
     const elapsed = Date.now() - this.phaseStartedAt;
     const remaining = elapsed * ((status.total - status.current) / status.current);
-    if (!(remaining > 0) || !Number.isFinite(remaining)) return t('search.eta.calculating');
-    return t('search.eta.remaining', { time: formatDuration(remaining) });
+    if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
+    return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
 }
 
@@ -473,7 +554,7 @@ function escapeAttr(value: string): string {
 
 function messageOf(error: unknown): string {
   const code = error instanceof Error ? error.message : String(error);
-  const key = `error.${code}`;
+  const key = `common.error.${code}`;
   const text = t(key);
   return text === key ? code : text;
 }

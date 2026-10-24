@@ -222,6 +222,57 @@ async function runSmoke() {
   } catch (error) {
     slimeError = error && error.message ? error.message : String(error);
   }
+  let witch = null;
+  let witchError = '';
+  try {
+    addon.witchSearchStart({
+      versionGroup: 2,
+      largeBiomes: false,
+      singleBiome: false,
+      threads: 2,
+      maxY: -40,
+      minX: 14848,
+      maxX: 15359,
+      minZ: -3072,
+      maxZ: -2561,
+      seeds: ['-143551518615525778'],
+    });
+    const started = Date.now();
+    while (Date.now() - started < 60000) {
+      witch = addon.witchSearchPoll();
+      if (witch.done) break;
+      await sleep(100);
+    }
+    if (witch && !witch.done) addon.witchSearchStop();
+  } catch (error) {
+    witchError = error && error.message ? error.message : String(error);
+  }
+  let river = null;
+  let riverError = '';
+  try {
+    const riverMc = versions.find((item) => item.name === '26.3') || newest;
+    addon.riverSearchStart({
+      mc: riverMc.id,
+      threads: 2,
+      minScore: 24831,
+      y: -64,
+      calcCave: false,
+      minX: -1024,
+      maxX: 1023,
+      minZ: -1024,
+      maxZ: 1023,
+      seeds: ['0'],
+    });
+    const started = Date.now();
+    while (Date.now() - started < 60000) {
+      river = addon.riverSearchPoll();
+      if (river.done) break;
+      await sleep(100);
+    }
+    if (river && !river.done) addon.riverSearchStop();
+  } catch (error) {
+    riverError = error && error.message ? error.message : String(error);
+  }
   const colored = Buffer.isBuffer(tile) && tile.some((byte) => byte !== 0 && byte !== 255);
   const fineColored = Buffer.isBuffer(fineTile) && fineTile.length === 64 * 64 * 4
     && fineTile.some((byte) => byte !== 0 && byte !== 255);
@@ -253,6 +304,36 @@ async function runSmoke() {
       } : null,
     } : null,
     slimeError,
+    witch: witch ? {
+      done: witch.done,
+      error: witch.error,
+      regions: witch.total,
+      hits: witch.hits.length,
+      first: witch.hits[0] ? {
+        x: witch.hits[0].x,
+        z: witch.hits[0].z,
+        y: witch.hits[0].y,
+        sizeX: witch.hits[0].sizeX,
+        sizeZ: witch.hits[0].sizeZ,
+        wet: witch.hits[0].wet,
+      } : null,
+    } : null,
+    witchError,
+    river: river ? {
+      done: river.done,
+      error: river.error,
+      stage: river.stage,
+      hits: river.hits.length,
+      first: river.hits[0] ? {
+        x: river.hits[0].x,
+        z: river.hits[0].z,
+        score: river.hits[0].score,
+        river: river.hits[0].river,
+        cave: river.hits[0].cave,
+        sampleY: river.hits[0].sampleY,
+      } : null,
+    } : null,
+    riverError,
   };
   const checks = {
     versions: versions.length > 10,
@@ -265,6 +346,11 @@ async function runSmoke() {
     slimeDone: !!(slime && slime.done),
     slimeError: !!slime && !slime.error && !slimeError,
     slimeHits: !!(slime && slime.hits.length > 0),
+    witchDone: !!(witch && witch.done),
+    witchError: !!witch && !witch.error && !witchError,
+    witchHits: !!(witch && witch.hits.length > 0),
+    riverDone: !!(river && river.done),
+    riverError: !!river && !river.error && !riverError,
   };
   const ok = Object.values(checks).every(Boolean);
   report.checks = checks;

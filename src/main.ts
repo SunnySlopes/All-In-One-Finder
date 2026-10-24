@@ -4,8 +4,10 @@ import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n
 import { MapView } from './map';
 import { call, type FeatureInfo, type McVersion } from './native';
 import { ResultsColumn } from './results';
+import { RiverPanel } from './river';
 import { SearchPanel } from './search';
 import { SlimePanel } from './slime';
+import { WitchPanel } from './witch';
 import { SEARCHER_ITEMS, type SearcherId } from './searchers';
 import { parseSessionFile } from './session';
 
@@ -14,7 +16,7 @@ app.innerHTML = `
   <header id="menubar">
     <nav id="searcher-bar" class="searcher-bar" aria-label="searchers"></nav>
     <label class="menu-lang flat-lang">
-      <span data-i18n="menu.language"></span>
+      <span data-i18n="common.menu.language"></span>
       <select id="language">
         <option value="zh">中文</option>
         <option value="en">English</option>
@@ -38,29 +40,37 @@ const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const map = new MapView();
 const search = new SearchPanel();
 const slime = new SlimePanel();
+const witch = new WitchPanel();
+const river = new RiverPanel();
 const results = new ResultsColumn(map);
 resultsHost.append(results.root);
 search.bindResults(results);
 slime.bindResults(results);
+witch.bindResults(results);
+river.bindResults(results);
 map.mountCanvas(document.querySelector('#stage')!);
 search.onNavigate = (id) => show(id);
+river.onNavigate = (id) => show(id);
 results.onShowMap = () => show('map');
+witch.getLargeBiomes = () => map.getLargeBiomes();
 map.onSeedChange = (seed) => {
   search.setSeedFromMap(seed);
   slime.setSeedFromMap(seed);
+  witch.setSeedFromMap(seed);
+  river.setSeedFromMap(seed);
 };
 
 let current: SearcherId = 'map';
 
 function setWindowTitle(): void {
-  const title = t('app.title');
+  const title = t('common.app.title');
   document.title = title;
   window.aio?.setTitle(title);
 }
 
 function paintSearcherBar(): void {
   searcherBar.innerHTML = SEARCHER_ITEMS.map((item) =>
-    `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}" data-i18n="searcher.${item.id}"></button>`,
+    `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}" data-i18n="common.searcher.${item.id}"></button>`,
   ).join('');
   searcherBar.querySelectorAll<HTMLButtonElement>('[data-searcher]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -85,9 +95,9 @@ function showAbout(): void {
   const modal = document.querySelector<HTMLElement>('#modal')!;
   const dialog = document.querySelector<HTMLElement>('#dialog')!;
   dialog.innerHTML = `
-    <strong>${escapeText(t('about.title'))}</strong>
-    <div class="about-body">${escapeText(t('about.body')).replaceAll('\n', '<br>')}</div>
-    <div class="row"><button type="button" id="about-close" data-i18n="lowy.dismiss"></button></div>
+    <strong>${escapeText(t('common.about.title'))}</strong>
+    <div class="about-body">${escapeText(t('common.about.body')).replaceAll('\n', '<br>')}</div>
+    <div class="row"><button type="button" id="about-close" data-i18n="common.dialog.close"></button></div>
   `;
   applyI18n(dialog);
   modal.classList.add('show');
@@ -115,6 +125,12 @@ function show(which: SearcherId): void {
   } else if (which === 'SlimeChunk') {
     slime.setSeedFromMap(map.getSeed());
     panel.replaceChildren(slime.root);
+  } else if (which === 'LowYSwampHut') {
+    witch.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(witch.root);
+  } else if (which === 'River') {
+    river.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(river.root);
   } else {
     return;
   }
@@ -124,6 +140,8 @@ function show(which: SearcherId): void {
   results.refresh();
   if (which === 'map') map.refreshText();
   else if (which === 'SlimeChunk') slime.refresh();
+  else if (which === 'LowYSwampHut') witch.refresh();
+  else if (which === 'River') river.refresh();
   else search.refresh();
 }
 
@@ -190,6 +208,8 @@ onLocale(() => {
   map.refreshText();
   search.refresh();
   slime.refresh();
+  witch.refresh();
+  river.refresh();
   results.refresh();
   paintSearcherBar();
   setWindowTitle();
@@ -202,12 +222,14 @@ window.aio?.onSessionExport?.(() => {
 window.aio?.onSessionImport?.((text) => {
   const data = parseSessionFile(text);
   if (!data) {
-    showNotice(t('map.badSession'));
+    showNotice(t('common.map.badSession'));
     return;
   }
   map.applySnapshot(data);
   search.setSeedFromMap(data.seed);
   slime.setSeedFromMap(data.seed);
+  witch.setSeedFromMap(data.seed);
+  river.setSeedFromMap(data.seed);
   show('map');
 });
 
@@ -225,12 +247,16 @@ void Promise.all([
   void map.load(versions, features).then(() => {
     search.setSeedFromMap(map.getSeed());
     slime.setSeedFromMap(map.getSeed());
+    witch.setSeedFromMap(map.getSeed());
+    river.setSeedFromMap(map.getSeed());
   });
   search.load(versions);
   slime.load(versions);
+  witch.load(versions);
+  river.load(versions);
   applyI18n();
   map.refreshText();
   results.refresh();
 }).catch((error) => {
-  panel.insertAdjacentHTML('afterbegin', `<div class="hint">${t('error.native')} ${String(error)}</div>`);
+  panel.insertAdjacentHTML('afterbegin', `<div class="hint">${t('common.error.native')} ${String(error)}</div>`);
 });

@@ -15,8 +15,8 @@ export type SearcherId =
 
 export const SEARCHER_ITEMS: { id: SearcherId; enabled: boolean }[] = [
   { id: 'map', enabled: true },
-  { id: 'LowYSwampHut', enabled: false },
-  { id: 'River', enabled: false },
+  { id: 'LowYSwampHut', enabled: true },
+  { id: 'River', enabled: true },
   { id: 'LowYDripstoneCave', enabled: true },
   { id: 'LowYPitDripstoneCave', enabled: true },
   { id: 'SlimeChunk', enabled: true },

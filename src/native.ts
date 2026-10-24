@@ -63,6 +63,55 @@ export interface SlimeStatus {
   hits: SlimeHit[];
 }
 
+export interface WitchHit {
+  seed: string;
+  x: number;
+  z: number;
+  /** avg_y：footprint 平均高度，也是结果里的 Y。 */
+  y: number;
+  dir: number;
+  sizeX: number;
+  sizeZ: number;
+  wet: number;
+  flooded: number;
+  reject: number;
+}
+
+export interface WitchStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  current: number;
+  total: number;
+  seedIndex: number;
+  seedCount: number;
+  error: string;
+  hits: WitchHit[];
+}
+
+export interface RiverHit {
+  seed: string;
+  x: number;
+  z: number;
+  sampleY: number;
+  river: number;
+  cave: number;
+  score: number;
+}
+
+export interface RiverStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  stage: number;
+  current: number;
+  total: number;
+  seedIndex: number;
+  seedCount: number;
+  error: string;
+  hits: RiverHit[];
+}
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -76,8 +125,10 @@ function seedText(value: bigint | number | string): string {
   return typeof value === 'bigint' ? value.toString() : String(value);
 }
 
+const HIT_POLL_OPS = new Set(['searchPoll', 'slimeFarmPoll', 'witchSearchPoll', 'riverSearchPoll']);
+
 function normalize(op: string, value: unknown): unknown {
-  if ((op !== 'searchPoll' && op !== 'slimeFarmPoll') || !value || typeof value !== 'object') return value;
+  if (!HIT_POLL_OPS.has(op) || !value || typeof value !== 'object') return value;
   const status = value as { hits: Array<{ seed: bigint | number | string }> };
   status.hits = status.hits.map((hit) => ({ ...hit, seed: seedText(hit.seed) }));
   return status;

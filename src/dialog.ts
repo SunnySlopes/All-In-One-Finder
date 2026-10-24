@@ -4,7 +4,7 @@ export function escapeText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
 }
 
-export function showNotice(message: string, closeKey = 'lowy.dismiss'): void {
+export function showNotice(message: string, closeKey = 'common.dialog.close'): void {
   const modal = document.querySelector<HTMLElement>('#modal')!;
   const dialog = document.querySelector<HTMLElement>('#dialog')!;
   dialog.innerHTML = `

@@ -2,6 +2,7 @@
 
 #include "OctaveFieldCache.h"
 #include "cubiomes/generator.h"
+#include "search_gate.h"
 
 #include <algorithm>
 #include <atomic>
@@ -301,6 +302,7 @@ void job(LowyRequest request)
     }
     setActiveOctaveACache(nullptr);
     publish(all, false, true, error);
+    searchGateRelease(SearchOwner::Cave);
 }
 
 } // namespace
@@ -351,6 +353,7 @@ std::string lowyStart(const LowyRequest &request)
         if (gStatus.running) return "busy";
     }
     if (gThread.joinable()) gThread.join();
+    if (!searchGateAcquire(SearchOwner::Cave)) return "busy";
     gProgress.try_pause.store(false);
     gProgress.try_stop.store(false);
     resetCounters();
@@ -361,7 +364,17 @@ std::string lowyStart(const LowyRequest &request)
         gStatus.seedCount = (int)request.seeds.size();
     }
     gJoined = false;
-    gThread = std::thread(job, request);
+    try {
+        gThread = std::thread(job, request);
+    } catch (const std::exception &) {
+        gJoined = true;
+        {
+            std::lock_guard<std::mutex> lock(gMu);
+            gStatus = {};
+        }
+        searchGateRelease(SearchOwner::Cave);
+        return "search-start-failed";
+    }
     return "";
 }
 

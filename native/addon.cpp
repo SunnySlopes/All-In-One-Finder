@@ -1,6 +1,8 @@
 #include "lowy_host.h"
 #include "map_service.h"
+#include "river_host.h"
 #include "slime_host.h"
+#include "witch_host.h"
 
 #include "cubiomes/generator.h"
 #include "cubiomes/util.h"
@@ -367,6 +369,150 @@ Napi::Value SlimeFarmStop(const Napi::CallbackInfo &info)
     return info.Env().Undefined();
 }
 
+Napi::Value WitchSearchStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    WitchRequest request;
+    request.versionGroup = args.Get("versionGroup").As<Napi::Number>().Int32Value();
+    request.largeBiomes = readBool(args, "largeBiomes");
+    request.singleBiome = readBool(args, "singleBiome");
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.maxY = args.Get("maxY").As<Napi::Number>().Int32Value();
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = witchStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object witchStatusToObject(Napi::Env env, const WitchStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("z", hit.z);
+        item.Set("y", hit.y);
+        item.Set("dir", hit.dir);
+        item.Set("sizeX", hit.sizeX);
+        item.Set("sizeZ", hit.sizeZ);
+        item.Set("wet", hit.wet);
+        item.Set("flooded", hit.flooded);
+        item.Set("reject", hit.reject);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value WitchSearchPoll(const Napi::CallbackInfo &info)
+{
+    return witchStatusToObject(info.Env(), witchPoll());
+}
+
+Napi::Value WitchSearchPause(const Napi::CallbackInfo &info)
+{
+    witchPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value WitchSearchResume(const Napi::CallbackInfo &info)
+{
+    witchResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value WitchSearchStop(const Napi::CallbackInfo &info)
+{
+    witchStop();
+    return info.Env().Undefined();
+}
+
+Napi::Value RiverSearchStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    RiverRequest request;
+    request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.minScore = args.Get("minScore").As<Napi::Number>().Int32Value();
+    request.y = args.Get("y").As<Napi::Number>().Int32Value();
+    request.calcCave = readBool(args, "calcCave");
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = riverStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object riverStatusToObject(Napi::Env env, const RiverStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("stage", status.stage);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("z", hit.z);
+        item.Set("sampleY", hit.sampleY);
+        item.Set("river", hit.river);
+        item.Set("cave", hit.cave);
+        item.Set("score", hit.score);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value RiverSearchPoll(const Napi::CallbackInfo &info)
+{
+    return riverStatusToObject(info.Env(), riverPoll());
+}
+
+Napi::Value RiverSearchPause(const Napi::CallbackInfo &info)
+{
+    riverPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value RiverSearchResume(const Napi::CallbackInfo &info)
+{
+    riverResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value RiverSearchStop(const Napi::CallbackInfo &info)
+{
+    riverStop();
+    return info.Env().Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set("versions", Napi::Function::New(env, Versions));
@@ -388,6 +534,16 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("slimeFarmPause", Napi::Function::New(env, SlimeFarmPause));
     exports.Set("slimeFarmResume", Napi::Function::New(env, SlimeFarmResume));
     exports.Set("slimeFarmStop", Napi::Function::New(env, SlimeFarmStop));
+    exports.Set("witchSearchStart", Napi::Function::New(env, WitchSearchStart));
+    exports.Set("witchSearchPoll", Napi::Function::New(env, WitchSearchPoll));
+    exports.Set("witchSearchPause", Napi::Function::New(env, WitchSearchPause));
+    exports.Set("witchSearchResume", Napi::Function::New(env, WitchSearchResume));
+    exports.Set("witchSearchStop", Napi::Function::New(env, WitchSearchStop));
+    exports.Set("riverSearchStart", Napi::Function::New(env, RiverSearchStart));
+    exports.Set("riverSearchPoll", Napi::Function::New(env, RiverSearchPoll));
+    exports.Set("riverSearchPause", Napi::Function::New(env, RiverSearchPause));
+    exports.Set("riverSearchResume", Napi::Function::New(env, RiverSearchResume));
+    exports.Set("riverSearchStop", Napi::Function::New(env, RiverSearchStop));
     return exports;
 }
 

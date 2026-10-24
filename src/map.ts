@@ -10,6 +10,8 @@ interface JumpOptions {
   dimension?: number;
   mcVersion?: string;
   slimeChunks?: boolean;
+  /** 打开这些结构图标（例如女巫小屋结果跳转时的 swamp_hut）。 */
+  features?: string[];
   spawnCircles?: boolean;
 }
 
@@ -191,14 +193,14 @@ export class MapView {
     this.root.className = 'stack';
     this.root.innerHTML = `
       <div class="grid">
-        <label data-i18n="map.version"></label><select id="map-version"></select>
-        <label data-i18n="map.seed"></label><input id="map-seed" value="${randomMcSeed()}" />
-        <label data-i18n="map.dimension"></label><select id="map-dim"></select>
-        <label data-i18n="map.y"></label><input id="map-y" type="number" value="256" />
-        <label data-i18n="map.largeBiomes"></label><input id="map-large" type="checkbox" />
+        <label data-i18n="common.search.version"></label><select id="map-version"></select>
+        <label data-i18n="common.search.seed"></label><input id="map-seed" value="${randomMcSeed()}" />
+        <label data-i18n="common.map.dimension"></label><select id="map-dim"></select>
+        <label data-i18n="common.map.y"></label><input id="map-y" type="number" value="256" />
+        <label data-i18n="common.map.largeBiomes"></label><input id="map-large" type="checkbox" />
       </div>
       <div class="row">
-        <label class="feature"><input id="map-grid" type="checkbox" checked /><span data-i18n="map.grid"></span></label>
+        <label class="feature"><input id="map-grid" type="checkbox" checked /><span data-i18n="common.map.grid"></span></label>
       </div>
       <div id="map-features" class="features"></div>
     `;
@@ -263,6 +265,11 @@ export class MapView {
 
   getSeed(): string {
     return this.seed.value.trim();
+  }
+
+  /** 女巫小屋搜索开始时的世界预设快照：大型生物群系跟随地图勾选。 */
+  getLargeBiomes(): boolean {
+    return this.large.checked && Number(this.dimension.value) === 0;
   }
 
   center(x: number, z: number): void {
@@ -333,6 +340,17 @@ export class MapView {
         this.renderFeatures();
       }
     }
+    if (options.features?.length) {
+      let changed = false;
+      for (const key of options.features) {
+        const feature = this.features.find((item) => item.key === key);
+        if (feature && !this.enabled.has(feature.id)) {
+          this.enabled.add(feature.id);
+          changed = true;
+        }
+      }
+      if (changed) this.renderFeatures();
+    }
     const worldChanged = nextSeed !== previous.seed
       || nextY !== previous.y
       || this.version.value !== previous.version
@@ -394,7 +412,7 @@ export class MapView {
   refreshText(): void {
     this.renderFeatures();
     this.dimension.querySelectorAll('option').forEach((option) => {
-      option.textContent = t(`map.${option.dataset.key}`);
+      option.textContent = t(`common.map.${option.dataset.key}`);
     });
   }
 
@@ -1127,7 +1145,7 @@ export class MapView {
         x: Math.round(this.pointer.x),
         z: Math.round(this.pointer.z),
       });
-      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}  ${t('map.biome')} ${biomeLabel(biome.name)}`;
+      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}  ${t('common.map.biome')} ${biomeLabel(biome.name)}`;
     } catch {
       this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`;
     }

@@ -72,13 +72,13 @@ export function t(key: string, vars?: Record<string, string | number>): string {
 
 export function biomeLabel(name: string): string {
   if (!name) return '';
-  const key = `biome.${name}`;
+  const key = `common.biome.${name}`;
   const text = t(key);
   return text === key ? name.replaceAll('_', ' ') : text;
 }
 
 export function structureLabel(key: string): string {
-  const full = `structure.${key}`;
+  const full = `common.structure.${key}`;
   const text = t(full);
   return text === full ? key : text;
 }
