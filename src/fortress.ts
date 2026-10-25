@@ -60,6 +60,10 @@ export class FortressPanel {
   private pollTimer = 0;
   private searchStartedAt = 0;
   private border: BorderState = 'none';
+  private spanSquare = true;
+  private spanLong = String(DEFAULT_SPAN_LONG);
+  private spanShort = String(DEFAULT_SPAN_SHORT);
+  private spanHeight = String(DEFAULT_SPAN_HEIGHT);
   private shownError = '';
 
   constructor(mode: FortressMode) {
@@ -231,11 +235,40 @@ export class FortressPanel {
     } else {
       params.innerHTML = `
         <div class="grid">
-          <label data-i18n="fortress.minLong"></label><input id="f-long" type="number" min="0" max="260" value="${DEFAULT_SPAN_LONG}" />
-          <label data-i18n="fortress.minShort"></label><input id="f-short" type="number" min="0" max="260" value="${DEFAULT_SPAN_SHORT}" />
-          <label data-i18n="fortress.minHeight"></label><input id="f-height" type="number" min="0" max="40" value="${DEFAULT_SPAN_HEIGHT}" />
+          <label data-i18n="fortress.minLong"></label><input id="f-long" type="number" min="0" max="260" value="${escapeAttr(this.spanLong)}" />
+          <label data-i18n="fortress.minShort"></label><input id="f-short" type="number" min="0" max="260" value="${escapeAttr(this.spanSquare ? this.spanLong : this.spanShort)}" />
+          <label class="feature span-full"><input id="f-span-square" type="checkbox" ${this.spanSquare ? 'checked' : ''} /><span data-i18n="fortress.spanSquare"></span></label>
+          <label data-i18n="fortress.minHeight"></label><input id="f-height" type="number" min="0" max="40" value="${escapeAttr(this.spanHeight)}" />
         </div>
         <div class="hint" data-i18n="fortress.spanHelp"></div>`;
+      const longInput = params.querySelector<HTMLInputElement>('#f-long')!;
+      const shortInput = params.querySelector<HTMLInputElement>('#f-short')!;
+      const heightInput = params.querySelector<HTMLInputElement>('#f-height')!;
+      const spanSquareInput = params.querySelector<HTMLInputElement>('#f-span-square')!;
+      const applySpanSquare = (): void => {
+        shortInput.disabled = this.spanSquare;
+        if (!this.spanSquare) return;
+        shortInput.value = longInput.value;
+        this.spanShort = longInput.value;
+      };
+      spanSquareInput.addEventListener('change', () => {
+        this.spanSquare = spanSquareInput.checked;
+        applySpanSquare();
+      });
+      longInput.addEventListener('input', () => {
+        this.spanLong = longInput.value;
+        if (this.spanSquare) {
+          shortInput.value = longInput.value;
+          this.spanShort = longInput.value;
+        }
+      });
+      shortInput.addEventListener('input', () => {
+        this.spanShort = shortInput.value;
+      });
+      heightInput.addEventListener('input', () => {
+        this.spanHeight = heightInput.value;
+      });
+      applySpanSquare();
     }
 
     const borderModeButton = this.root.querySelector<HTMLButtonElement>('#f-bordermode');
@@ -329,7 +362,9 @@ export class FortressPanel {
       payload.crossFilter = Number(this.root.querySelector<HTMLSelectElement>('#f-filter')?.value || 2);
     } else {
       const minLong = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-long')?.value || 0));
-      const minShort = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-short')?.value || 0));
+      const minShort = this.spanSquare
+        ? minLong
+        : Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-short')?.value || 0));
       const minHeight = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-height')?.value || 0));
       if (!Number.isFinite(minLong) || minLong < 0 || minLong > 260
         || !Number.isFinite(minShort) || minShort < 0 || minShort > 260) {

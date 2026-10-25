@@ -83,7 +83,17 @@ npm run package
 
 ## 许可
 
-本软件使用MIT许可证进行分发
+本项目以 **GNU 通用公共许可证第 3 版（GPLv3）** 分发，SPDX 标识：`GPL-3.0-only`。  
+Copyright (C) 2026 SunnySlopes
+
+完整条款见仓库根目录的 [LICENSE](LICENSE)，或 <https://www.gnu.org/licenses/gpl-3.0.html>。要点：
+
+- 你可以自由运行、研究、修改和再分发本软件，商业使用亦被允许；
+- 再分发（包括修改后的版本）时，必须以 GPLv3 提供完整的对应源代码，保留版权与许可声明，并标明修改；
+- 本软件不提供任何担保，详见许可证第 15、16 条。
+
+> 本项目此前的版本以 MIT 许可发布，自本版本起改为 GPLv3；此前按 MIT 条款获得的旧版本副本不受影响。
+> `tools/` 下的第三方子模块（如 [cubiomes](https://github.com/xpple/cubiomes)）保留各自的许可证，再分发时需同时满足其条款。
 
 ## 致谢
 感谢所有人的贡献，没有你们的贡献，就没有这款搜索器

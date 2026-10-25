@@ -82,9 +82,14 @@ function setWindowTitle(): void {
   window.aio?.setTitle(title);
 }
 
+function searcherIcon(icon: string | undefined): string {
+  if (!icon) return '<span class="searcher-icon searcher-icon-empty" aria-hidden="true"></span>';
+  return `<img class="searcher-icon" src="/icons/${icon}.png" alt="" draggable="false" />`;
+}
+
 function paintSearcherBar(): void {
   searcherBar.innerHTML = SEARCHER_ITEMS.map((item) =>
-    `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}" data-i18n="common.searcher.${item.id}"></button>`,
+    `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}">${searcherIcon(item.icon)}<span data-i18n="common.searcher.${item.id}"></span></button>`,
   ).join('');
   searcherBar.querySelectorAll<HTMLButtonElement>('[data-searcher]').forEach((button) => {
     button.addEventListener('click', () => {

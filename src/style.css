@@ -51,10 +51,25 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 .searcher-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: transparent;
   border-color: transparent;
-  padding: 4px 8px;
+  padding: 3px 6px;
   white-space: nowrap;
+}
+.searcher-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+.searcher-icon-empty {
+  border: 1px dashed #4b5464;
+  border-radius: 3px;
+  opacity: 0.55;
 }
 .searcher-chip:hover:not(:disabled) { background: #222833; border-color: #3c4454; }
 .searcher-chip.active { background: #3d6b4f; border-color: #6ea884; }
@@ -166,6 +181,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .hint { color: #b7c0aa; font-size: 12px; line-height: 1.4; }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 12px; }
 .feature { display: flex; gap: 6px; align-items: center; }
+.grid .span-full { grid-column: 1 / -1; }
 .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
 .icon { width: 16px; height: 16px; flex: none; image-rendering: pixelated; }
 

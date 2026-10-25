@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "About",
-      "body": "All-In-One Finder {version}\nPermission\nThis software is distributed under the MIT License.\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/ZCXEDTA/TrialSpawnerFinder,\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder,\nhttps://github.com/SunnySlopes/TrialSpawnerFinder, authors: EDTA, Half_Kite, qk-yiyihehe, SunnySlopes\nBudding Amethyst: https://github.com/SunnySlopes/GeodeFinderGUI,\nhttps://github.com/soulsoiledit/geode-finder, authors: soulsoiledit, SunnySlopes\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
+      "body": "All-In-One Finder {version}\nLicense: GNU General Public License v3.0 (GPLv3)\nCopyright (C) 2026 SunnySlopes\n\nThis program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License version 3 as published by the Free Software Foundation.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.\n\nYou should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/gpl-3.0.html . The full text is also in the LICENSE file at the project root.\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/ZCXEDTA/TrialSpawnerFinder,\nhttps://github.com/qk-yiyihehe/TrialSpawnerFinder,\nhttps://github.com/SunnySlopes/TrialSpawnerFinder, authors: EDTA, Half_Kite, qk-yiyihehe, SunnySlopes\nBudding Amethyst: https://github.com/SunnySlopes/GeodeFinderGUI,\nhttps://github.com/soulsoiledit/geode-finder, authors: soulsoiledit, SunnySlopes\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
     },
     "searcher": {
       "map": "Map",
@@ -300,7 +300,7 @@
     "yLabel": "Y"
   },
   "river": {
-    "help": "Searches for the location with the largest river area inside the player's spawn ring. With \"Count cave area\" enabled, cave area counts 1:1 toward the score; results are deduplicated per 64×64 block cell.",
+    "help": "Searches for the location with the largest river area inside the player's spawn ring. With \"Count cave area\" enabled, cave area counts toward the total area the same way river area does.",
     "minArea": "Minimum river area",
     "minRatio": "Minimum river ratio %",
     "sampleY": "Biome sample Y",
@@ -326,6 +326,7 @@
     },
     "minLong": "Min long edge",
     "minShort": "Min short edge",
+    "spanSquare": "Square",
     "minHeight": "Min height",
     "border": "Border mode",
     "borderState": {
@@ -335,8 +336,8 @@
       "se": "SE (++)",
       "ne": "NE (+-)"
     },
-    "crossHelp": "Finds 2/3/4-crossing layouts in soul sand valleys. The search uses the bounding square of the selected area.",
-    "spanHelp": "Finds large fortress spans by long/short edge and height; result Y is fixed at 48. The search uses the bounding square.",
+    "crossHelp": "Finds 2/3/4-crossing layouts in soul sand valleys.",
+    "spanHelp": "Finds nether fortresses whose large-range long/short edges and height all exceed the required minimums.",
     "crossingsUnit": " crossings",
     "areaLabel": "Area"
   },
@@ -344,9 +345,9 @@
     "level": "Monuments",
     "minArea": "Min usable area",
     "biomeCheck": "Biome check",
-    "help": "Only 3/4-monument groups; members are at most 336 blocks apart and must beat the shared AFK area threshold.",
+    "help": "Only triple or quadruple monuments; the area inside a single player's AFK range must exceed the threshold.",
     "double": {
-      "help": "Double monuments only; area limit is 262144 for one seed and 131072 for a seed list.",
+      "help": "Always searches full-efficiency double monuments, so only small areas are supported.",
       "lowHint": "Low-efficiency pairs are sorted last and dropped first."
     },
     "lowEfficiency": "Slightly reduced efficiency",
