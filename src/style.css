@@ -271,6 +271,26 @@ button:disabled { opacity: 0.45; cursor: default; }
   font-size: 12px;
   pointer-events: none;
 }
+#structure-info {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  max-width: min(380px, calc(100% - 24px));
+  background: rgba(10, 12, 16, 0.86);
+  border: 1px solid #3c4454;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#structure-info[hidden] { display: none; }
+#structure-info .si-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+#structure-info .si-icon { width: 24px; height: 24px; image-rendering: pixelated; flex: none; }
+#structure-info .si-coords { color: #b7c0aa; }
+#structure-info .si-details { display: flex; flex-direction: column; gap: 2px; color: #d5dbe6; }
 #tools { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; }
 
 #modal {

@@ -83,6 +83,8 @@
       "badParse": "Could not parse that coordinate text.",
       "badSession": "Could not read that session file.",
       "biome": "Biome",
+      "calculating": "Calculating…",
+      "boundsFailed": "Could not read structure bounds",
       "overworld": "Overworld",
       "nether": "Nether",
       "end": "The End",
@@ -102,7 +104,15 @@
       "river-start-failed": "The river search could not start.",
       "search-start-failed": "The search thread could not start.",
       "unsupported-preset": "This preset is not supported by the search.",
-      "native": "The native engine is not connected."
+      "native": "The native engine is not connected.",
+      "range-too-large": "Search area is too large; shrink it or use the multi-monument search.",
+      "bad-span-edge": "Span long/short edge must be between 0 and 260.",
+      "bad-span-height": "Span minimum height must be between 0 and 40.",
+      "bad-monument-area": "Minimum usable area must be between 6728 and 13455.",
+      "bad-level": "Invalid search parameters.",
+      "fortress-start-failed": "Failed to start the nether fortress search.",
+      "multi-monument-start-failed": "Failed to start the multi-monument search.",
+      "double-monument-start-failed": "Failed to start the double-monument search."
     },
     "structure": {
       "desert_pyramid": "Desert pyramid",
@@ -218,6 +228,12 @@
       "dappled_forest": "Dappled forest",
       "eroded_badlands": "Eroded badlands",
       "desert_lakes": "Desert lakes"
+    },
+    "labelColon": ": ",
+    "crossing": {
+      "2": "Double",
+      "3": "Triple",
+      "4": "Quadruple"
     }
   },
   "dripstonecave": {
@@ -249,7 +265,8 @@
       "3": "Phase 3 precise check of candidate points"
     },
     "caveLabel": "Cave",
-    "riverLabel": "River"
+    "riverLabel": "River",
+    "ratio90": "This area exceeds 20000001×20000001, so the cave ratio must be at least 90%; it has been set to 90%."
   },
   "slime": {
     "minArea": "Minimum slime area",
@@ -299,5 +316,46 @@
     "stayRiver": "Keep searching river",
     "areaLabel": "River area",
     "caveLabel": "Cave area"
+  },
+  "fortress": {
+    "crossFilter": "Minimum crossings",
+    "filter": {
+      "all": "Double",
+      "triple": "Triple",
+      "quad": "Quadruple"
+    },
+    "minLong": "Min long edge",
+    "minShort": "Min short edge",
+    "minHeight": "Min height",
+    "border": "Border mode",
+    "borderState": {
+      "none": "None",
+      "nw": "NW (--)",
+      "sw": "SW (-+)",
+      "se": "SE (++)",
+      "ne": "NE (+-)"
+    },
+    "crossHelp": "Finds 2/3/4-crossing layouts in soul sand valleys. The search uses the bounding square of the selected area.",
+    "spanHelp": "Finds large fortress spans by long/short edge and height; result Y is fixed at 48. The search uses the bounding square.",
+    "crossingsUnit": " crossings",
+    "areaLabel": "Area"
+  },
+  "monument": {
+    "level": "Monuments",
+    "minArea": "Min usable area",
+    "biomeCheck": "Biome check",
+    "help": "Only 3/4-monument groups; members are at most 336 blocks apart and must beat the shared AFK area threshold.",
+    "double": {
+      "help": "Double monuments only; area limit is 262144 for one seed and 131072 for a seed list.",
+      "lowHint": "Low-efficiency pairs are sorted last and dropped first."
+    },
+    "lowEfficiency": "Slightly reduced efficiency",
+    "areaLabel": "Area",
+    "groupUnit": "-group",
+    "ocean": {
+      "cold": "Cold",
+      "frozen": "Frozen",
+      "others": "Other"
+    }
   }
 }

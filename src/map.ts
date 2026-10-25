@@ -1,5 +1,13 @@
+import { escapeText } from './dialog';
 import { biomeLabel, onLocale, structureLabel, t } from './i18n';
-import { call, type FeatureInfo, type McVersion, type Placed } from './native';
+import {
+  call,
+  type Bounds3,
+  type FeatureInfo,
+  type McVersion,
+  type Placed,
+  type StructureBoundsData,
+} from './native';
 import { type MapSessionData } from './session';
 
 interface JumpOptions {
@@ -13,6 +21,8 @@ interface JumpOptions {
   /** 打开这些结构图标（例如女巫小屋结果跳转时的 swamp_hut）。 */
   features?: string[];
   spawnCircles?: boolean;
+  /** 刷怪环半径；缺省 [24,128]。 */
+  spawnRadii?: number[];
 }
 
 const COLORS: Record<string, string> = {
@@ -54,6 +64,8 @@ const MAX_TILE_CACHE = 256;
 const PENDING_MARGIN_TILES = 1;
 const MAX_PENDING = 96;
 const ICON_SIZE = 20;
+/** Ocean monuments are 58x58 blocks and centered on the structure position. */
+const MONUMENT_SIZE = 58;
 const SESSION_NAME = 'map';
 const DEFAULT_FEATURES = [
   'swamp_hut',
@@ -73,6 +85,18 @@ interface MapSession {
   y: number;
   largeBiomes: boolean;
   features: string[];
+}
+
+type DetailState = 'none' | 'pending' | 'ready' | 'failed';
+
+interface SelectedStructure {
+  type: number;
+  key: string;
+  x: number;
+  z: number;
+  variant: number;
+  large?: Bounds3;
+  details: DetailState;
 }
 
 function randomMcSeed(): string {
@@ -147,6 +171,11 @@ export class MapView {
   readonly root: HTMLElement;
   private canvas: HTMLCanvasElement;
   private readout: HTMLElement;
+  private info: HTMLElement;
+  private infoIcon: HTMLImageElement;
+  private infoName: HTMLElement;
+  private infoCoords: HTMLElement;
+  private infoDetails: HTMLElement;
   private featureBox: HTMLElement;
   private version: HTMLSelectElement;
   private seed: HTMLInputElement;
@@ -175,6 +204,9 @@ export class MapView {
   private featureGen = 0;
   private biomeTimer = 0;
   private pointer = { x: 0, z: 0 };
+  private selected: SelectedStructure | null = null;
+  private selectGen = 0;
+  private press: { x: number; y: number; moved: boolean } | null = null;
   private grid!: HTMLInputElement;
   private icons = new Map<string, HTMLImageElement>();
   private slimeCanvas: HTMLCanvasElement | null = null;
@@ -182,7 +214,7 @@ export class MapView {
   private slimeOrigin = { cx: 0, cz: 0 };
   private slimeSpan = { w: 0, h: 0 };
   private slimeFlight = false;
-  private spawnOverlay: { x: number; z: number } | null = null;
+  private spawnOverlay: { x: number; z: number; radii?: number[] } | null = null;
   private saveTimer = 0;
   private drawing = false;
   private drawQueued = false;
@@ -216,11 +248,23 @@ export class MapView {
     this.canvas.id = 'map';
     this.readout = document.createElement('div');
     this.readout.id = 'readout';
+    this.info = document.createElement('div');
+    this.info.id = 'structure-info';
+    this.info.hidden = true;
+    this.info.innerHTML = `
+      <div class="si-head"><img class="si-icon" alt="" /><strong class="si-name"></strong></div>
+      <div class="si-coords"></div>
+      <div class="si-details"></div>
+    `;
+    this.infoIcon = this.info.querySelector('.si-icon')!;
+    this.infoName = this.info.querySelector('.si-name')!;
+    this.infoCoords = this.info.querySelector('.si-coords')!;
+    this.infoDetails = this.info.querySelector('.si-details')!;
     this.bind();
   }
 
   mountCanvas(stage: HTMLElement): void {
-    stage.append(this.canvas, this.readout);
+    stage.append(this.canvas, this.readout, this.info);
     const tools = document.createElement('div');
     tools.id = 'tools';
     tools.innerHTML = `<button type="button" id="zoom-in">+</button><button type="button" id="zoom-out">−</button>`;
@@ -307,6 +351,7 @@ export class MapView {
   }
 
   jumpTo(options: JumpOptions): void {
+    this.clearSelection();
     const previous = {
       seed: this.seed.value.trim(),
       version: this.version.value,
@@ -361,7 +406,9 @@ export class MapView {
     this.persistSession();
     // Panning keeps the current tiles on screen. Only a seed/Y/version/dimension change drops the cache.
     this.schedule(worldChanged);
-    this.spawnOverlay = options.spawnCircles ? { x: options.x, z: options.z } : null;
+    this.spawnOverlay = options.spawnCircles
+      ? { x: options.x, z: options.z, radii: options.spawnRadii }
+      : null;
     this.queueFeatures();
     requestAnimationFrame(() => {
       this.resize();
@@ -414,6 +461,7 @@ export class MapView {
     this.dimension.querySelectorAll('option').forEach((option) => {
       option.textContent = t(`common.map.${option.dataset.key}`);
     });
+    this.renderSelectedInfo();
   }
 
   private bind(): void {
@@ -451,21 +499,27 @@ export class MapView {
       this.queueDraw();
     });
     this.canvas.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
       this.dragging = true;
+      this.press = { x: event.clientX, y: event.clientY, moved: false };
       this.canvas.classList.add('dragging');
       this.lastX = event.clientX;
       this.lastZ = event.clientY;
       this.canvas.setPointerCapture(event.pointerId);
     });
-    this.canvas.addEventListener('pointerup', () => {
+    this.canvas.addEventListener('pointerup', (event) => {
+      const press = this.press;
+      this.press = null;
       this.dragging = false;
       this.canvas.classList.remove('dragging');
       this.pruneTilePipeline();
+      if (press && !press.moved) this.selectAt(event.offsetX, event.offsetY);
       this.queueDraw();
       this.kickFlush();
       this.queueFeatures();
     });
     this.canvas.addEventListener('pointercancel', () => {
+      this.press = null;
       this.dragging = false;
       this.canvas.classList.remove('dragging');
       this.pruneTilePipeline();
@@ -476,6 +530,11 @@ export class MapView {
     this.canvas.addEventListener('pointermove', (event) => {
       const world = this.screenToWorld(event.offsetX, event.offsetY);
       this.pointer = world;
+      if (this.press && !this.press.moved) {
+        const dx = event.clientX - this.press.x;
+        const dy = event.clientY - this.press.y;
+        if (dx * dx + dy * dy > 16) this.press.moved = true;
+      }
       if (this.dragging) {
         this.cx -= (event.clientX - this.lastX) / this.pixelsPerBlock;
         this.cz -= (event.clientY - this.lastZ) / this.pixelsPerBlock;
@@ -561,6 +620,7 @@ export class MapView {
         else {
           this.enabled.delete(id);
           this.placed = this.placed.filter((item) => item.type !== id);
+          if (this.selected?.type === id) this.clearSelection();
         }
         if (id === -2) this.slimeCanvas = null;
         this.persistSession();
@@ -568,6 +628,117 @@ export class MapView {
         this.queueFeatures();
       });
     });
+  }
+
+  private structureIconName(key: string, variant = 0): string {
+    if (key === 'end_city' && variant === 1) return 'end_ship';
+    if (key === 'abandoned_camp' && variant === 1) return 'camp_copper';
+    return ICONS[key] || '';
+  }
+
+  private boxSizeText(box: Bounds3): string {
+    return `${box.maxX - box.minX + 1}×${box.maxY - box.minY}×${box.maxZ - box.minZ + 1}`;
+  }
+
+  private clearSelection(): void {
+    this.selectGen += 1;
+    this.selected = null;
+    this.info.hidden = true;
+    this.queueDraw();
+  }
+
+  private selectStructure(item: Placed): void {
+    const feature = this.features.find((entry) => entry.id === item.type);
+    if (!feature) return;
+
+    const selected: SelectedStructure = {
+      type: item.type,
+      key: feature.key,
+      x: item.x,
+      z: item.z,
+      variant: item.variant ?? 0,
+      details: 'none',
+    };
+    this.selected = selected;
+    const token = ++this.selectGen;
+
+    if (feature.key === 'monument') {
+      selected.details = 'ready';
+    } else if (feature.key === 'fortress') {
+      if (item.large) {
+        selected.large = item.large;
+        selected.details = 'ready';
+      } else {
+        selected.details = 'pending';
+        void call<StructureBoundsData | null>('structureBounds', {
+          ...this.state(),
+          type: item.type,
+          x: item.x,
+          z: item.z,
+        }).then((bounds) => {
+          if (token !== this.selectGen || this.selected !== selected) return;
+          if (bounds) {
+            selected.large = bounds.large;
+            selected.details = 'ready';
+          } else {
+            selected.details = 'failed';
+          }
+          this.renderSelectedInfo();
+          this.queueDraw();
+        }).catch(() => {
+          if (token !== this.selectGen || this.selected !== selected) return;
+          selected.details = 'failed';
+          this.renderSelectedInfo();
+          this.queueDraw();
+        });
+      }
+    }
+
+    this.renderSelectedInfo();
+    this.queueDraw();
+  }
+
+  private renderSelectedInfo(): void {
+    const selected = this.selected;
+    if (!selected) {
+      this.info.hidden = true;
+      return;
+    }
+    this.info.hidden = false;
+    const icon = this.structureIconName(selected.key, selected.variant);
+    this.infoIcon.src = icon ? `/icons/${icon}.png` : '';
+    this.infoIcon.style.display = icon ? '' : 'none';
+    this.infoName.textContent = structureLabel(selected.key);
+    this.infoCoords.textContent = `(${selected.x}, ${selected.z})`;
+
+    const rows: string[] = [];
+    if (selected.large) {
+      rows.push(`<div>${this.boxSizeText(selected.large)}</div>`);
+    } else if (selected.details === 'pending') {
+      rows.push(`<div>${escapeText(t('common.map.calculating'))}</div>`);
+    } else if (selected.details === 'failed') {
+      rows.push(`<div>${escapeText(t('common.map.boundsFailed'))}</div>`);
+    }
+    this.infoDetails.innerHTML = rows.join('');
+  }
+
+  private selectAt(screenX: number, screenY: number): void {
+    const radius = ICON_SIZE / 2 + 6;
+    let best: Placed | null = null;
+    let bestDistance = radius * radius;
+    for (const item of this.placed) {
+      if (item.type === -2) continue;
+      const point = this.worldToScreen(item.x, item.z);
+      const dx = point.x - screenX;
+      const dy = point.y - screenY;
+      const distance = dx * dx + dy * dy;
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = item;
+      }
+    }
+    if (best) this.selectStructure(best);
+    else this.clearSelection();
   }
 
   private async loadSession(): Promise<MapSession | null> {
@@ -663,6 +834,7 @@ export class MapView {
       this.slimeCanvas = null;
       this.slimeFlight = false;
       this.placed = [];
+      this.clearSelection();
     }
     this.queueDraw();
   }
@@ -713,7 +885,9 @@ export class MapView {
       this.drawGrid(ctx, scale);
       this.drawSlime(ctx, state);
       this.drawSpawnCircles(ctx);
+      this.drawStructureFrames(ctx);
       this.drawPlaced(ctx);
+      this.drawSelection(ctx);
       this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`;
     } finally {
       this.drawing = false;
@@ -727,7 +901,7 @@ export class MapView {
     ctx.save();
     ctx.strokeStyle = 'rgba(110, 220, 120, 0.95)';
     ctx.lineWidth = 2;
-    for (const radius of [24, 128]) {
+    for (const radius of this.spawnOverlay.radii ?? [24, 128]) {
       const px = radius * this.pixelsPerBlock;
       ctx.beginPath();
       ctx.arc(center.x, center.y, px, 0, Math.PI * 2);
@@ -1111,12 +1285,90 @@ export class MapView {
   }
 
   private structureIcon(key: string, variant = 0): HTMLImageElement | null {
-    let name = ICONS[key];
-    if (key === 'end_city' && variant === 1) name = 'end_ship';
-    if (key === 'abandoned_camp' && variant === 1) name = 'camp_copper';
+    const name = this.structureIconName(key, variant);
     if (!name) return null;
     const image = this.loadIcon(name);
     return image.complete && image.naturalWidth > 0 ? image : null;
+  }
+
+  private drawSelection(ctx: CanvasRenderingContext2D): void {
+    const selected = this.selected;
+    if (!selected) return;
+    const point = this.worldToScreen(selected.x, selected.z);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, ICON_SIZE / 2 + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Monument frames are fixed 58x58 boxes. Fortress frames are drawn for every
+   * visible fortress: the full bounds always, and every generated piece once
+   * the zoom is high enough to make the piece outlines readable.
+   */
+  private drawStructureFrames(ctx: CanvasRenderingContext2D): void {
+    const byId = new Map(this.features.map((feature) => [feature.id, feature]));
+    for (const item of this.placed) {
+      if (item.type === -2) continue;
+      const feature = byId.get(item.type);
+      if (!feature) continue;
+      if (feature.key === 'monument') {
+        const half = Math.floor(MONUMENT_SIZE / 2);
+        this.drawWorldRect(ctx, item.x - half, item.z - half,
+          item.x + MONUMENT_SIZE - half - 1, item.z + MONUMENT_SIZE - half - 1,
+          '#4fd1c5');
+      } else if (feature.key === 'fortress' && item.large) {
+        this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ,
+          '#e06a4a');
+        const pieces = item.pieces ?? [];
+        if (!pieces.length) continue;
+        const frameTopLeft = this.worldToScreen(item.large.minX, item.large.minZ);
+        const frameBottomRight = this.worldToScreen(item.large.maxX + 1, item.large.maxZ + 1);
+        // At far zoom the individual pieces collapse into sub-pixel noise.
+        if (frameBottomRight.x - frameTopLeft.x < 16 || frameBottomRight.y - frameTopLeft.y < 16) continue;
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#ffd166';
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        for (const piece of pieces) {
+          const topLeft = this.worldToScreen(piece.minX, piece.minZ);
+          const bottomRight = this.worldToScreen(piece.maxX + 1, piece.maxZ + 1);
+          const width = bottomRight.x - topLeft.x;
+          const height = bottomRight.y - topLeft.y;
+          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
+          if (topLeft.x > this.canvas.width || topLeft.y > this.canvas.height
+            || topLeft.x + width < 0 || topLeft.y + height < 0) continue;
+          ctx.rect(topLeft.x, topLeft.y, width, height);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+  }
+
+  private drawWorldRect(ctx: CanvasRenderingContext2D, minX: number, minZ: number, maxX: number, maxZ: number,
+                        color: string): void {
+    // Cubiomes bb1 values are inclusive, so the drawn edge is one block past max.
+    const topLeft = this.worldToScreen(minX, minZ);
+    const bottomRight = this.worldToScreen(maxX + 1, maxZ + 1);
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+
+    const visible = topLeft.x < this.canvas.width && topLeft.y < this.canvas.height
+      && topLeft.x + width > 0 && topLeft.y + height > 0;
+    if (!visible) return;
+
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+    ctx.restore();
   }
 
   private drawPlaced(ctx: CanvasRenderingContext2D): void {
@@ -1145,7 +1397,7 @@ export class MapView {
         x: Math.round(this.pointer.x),
         z: Math.round(this.pointer.z),
       });
-      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}  ${t('common.map.biome')} ${biomeLabel(biome.name)}`;
+      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}  ${biomeLabel(biome.name)}`;
     } catch {
       this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`;
     }

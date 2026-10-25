@@ -348,7 +348,7 @@ export class SlimePanel {
         convert: this.currentConvert,
         seeds: this.seedMode === 'list' ? this.seedText : this.seed,
       });
-      this.results?.clearSlime(this.currentConvert, this.searchVersion);
+      this.results?.clearSlime(this.currentConvert, this.searchVersion, this.seedMode === 'list');
       this.running = true;
       this.paused = false;
       this.shownError = '';

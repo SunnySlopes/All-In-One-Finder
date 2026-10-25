@@ -83,6 +83,8 @@
       "badParse": "无法解析这段坐标文本。",
       "badSession": "无法读取这个 session 文件。",
       "biome": "群系",
+      "calculating": "计算中…",
+      "boundsFailed": "无法读取结构边界",
       "overworld": "主世界",
       "nether": "下界",
       "end": "末地",
@@ -102,7 +104,15 @@
       "river-start-failed": "河流搜索启动失败。",
       "search-start-failed": "搜索线程启动失败。",
       "unsupported-preset": "这个搜索不支持所选世界预设。",
-      "native": "原生引擎还没有连上。"
+      "native": "原生引擎还没有连上。",
+      "range-too-large": "搜索范围过大，结果可能过多，请缩小搜索面积或前往搜索多联神殿。",
+      "bad-span-edge": "大范围长/短边须在 0~260 之间。",
+      "bad-span-height": "大范围最矮高度须在 0~40 之间。",
+      "bad-monument-area": "最小可用面积须在 6728~13455 之间。",
+      "bad-level": "搜索条件无效。",
+      "fortress-start-failed": "下界要塞搜索启动失败。",
+      "multi-monument-start-failed": "多联神殿搜索启动失败。",
+      "double-monument-start-failed": "二联神殿搜索启动失败。"
     },
     "structure": {
       "desert_pyramid": "沙漠神殿",
@@ -218,6 +228,12 @@
       "dappled_forest": "斑驳森林",
       "eroded_badlands": "风蚀恶地",
       "desert_lakes": "沙漠湖泊"
+    },
+    "labelColon": "：",
+    "crossing": {
+      "2": "二联",
+      "3": "三联",
+      "4": "四联"
     }
   },
   "dripstonecave": {
@@ -249,7 +265,8 @@
       "3": "阶段3 精确检查潜在点位"
     },
     "caveLabel": "溶洞",
-    "riverLabel": "河流"
+    "riverLabel": "河流",
+    "ratio90": "当前搜索范围超过 20000001×20000001，溶洞占比必须至少 90%，已自动改为 90%。"
   },
   "slime": {
     "minArea": "最小史莱姆面积",
@@ -299,5 +316,46 @@
     "stayRiver": "继续搜索河流",
     "areaLabel": "河流面积",
     "caveLabel": "溶洞面积"
+  },
+  "fortress": {
+    "crossFilter": "十字路口最低要求",
+    "filter": {
+      "all": "二联",
+      "triple": "三联",
+      "quad": "四联"
+    },
+    "minLong": "大范围长边下限",
+    "minShort": "大范围短边下限",
+    "minHeight": "大范围最矮高度",
+    "border": "边境模式",
+    "borderState": {
+      "none": "无",
+      "nw": "西北(--)",
+      "sw": "西南(-+)",
+      "se": "东南(++)",
+      "ne": "东北(+-)"
+    },
+    "crossHelp": "搜索灵魂沙峡谷中的二联/三联/四联十字路口；实际按范围的外接正方形搜索。",
+    "spanHelp": "搜索要塞整体的长/短边与高度，结果 Y 固定 48；实际按范围的外接正方形搜索。",
+    "crossingsUnit": "联",
+    "areaLabel": "面积"
+  },
+  "monument": {
+    "level": "相邻神殿数",
+    "minArea": "最小可用面积",
+    "biomeCheck": "进行群系检查",
+    "help": "仅搜索 3/4 连；组内两两中心距 ≤336，共享挂机面积须大于阈值。",
+    "double": {
+      "help": "固定搜索二联；范围上限：单种子 262144、种子列表 131072。",
+      "lowHint": "低效配对会排在最后并优先被截断。"
+    },
+    "lowEfficiency": "效率会略微损失",
+    "areaLabel": "面积",
+    "groupUnit": "连",
+    "ocean": {
+      "cold": "冷水",
+      "frozen": "冰冻",
+      "others": "其他"
+    }
   }
 }

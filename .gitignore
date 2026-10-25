@@ -19,13 +19,18 @@ compile_commands.json
 
 # Electron packaging output
 release/
+release-slim/
 *.exe
+*.nsis.7z
 *.AppImage
 *.dmg
 *.blockmap
 *.snap
 builder-effective-config.yaml
 builder-debug.yml
+
+# Temporary build/probe scripts and captures
+scripts/tmp-*
 
 # Runtime data (portable userdata / sessions next to exe or in project)
 userdata/

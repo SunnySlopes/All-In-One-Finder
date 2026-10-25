@@ -17,11 +17,30 @@ struct FeatureEntry {
     int dim;
 };
 
+struct Box3i {
+    int minX = 0;
+    int minY = 0;
+    int minZ = 0;
+    int maxX = 0;
+    int maxY = 0;
+    int maxZ = 0;
+};
+
 struct PlacedFeature {
     int type;
     int x;
     int z;
     int variant; // 0 default; 1 end-city ship / abandoned-camp copper chest
+    bool hasFrame = false;
+    Box3i large;
+    std::vector<Box3i> pieces;
+};
+
+/** Nether fortress bounds used by the map's structure frames and inspector. */
+struct FortressBounds {
+    Box3i large;
+    Box3i start;
+    std::vector<Box3i> pieces;
 };
 
 struct TileSpec {
@@ -55,3 +74,5 @@ int biomeAt(int mc, uint64_t seed, int dim, uint32_t flags, int blockX, int bloc
 std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32_t flags,
                                           int x0, int z0, int x1, int z1,
                                           const std::vector<int> &types);
+
+bool fortressBounds(int mc, uint64_t seed, int blockX, int blockZ, FortressBounds &out);

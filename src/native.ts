@@ -14,6 +14,25 @@ export interface Placed {
   x: number;
   z: number;
   variant?: number;
+  /** Nether fortress full bounds and every generated piece (only for fortresses). */
+  large?: Bounds3;
+  pieces?: Bounds3[];
+}
+
+export interface Bounds3 {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+}
+
+export interface StructureBoundsData {
+  large: Bounds3;
+  start?: Bounds3;
+  small?: Bounds3;
+  pieces?: Bounds3[];
 }
 
 export interface SearchHit {
@@ -112,6 +131,54 @@ export interface RiverStatus {
   hits: RiverHit[];
 }
 
+export interface MonumentHit {
+  seed: string;
+  x: number;
+  z: number;
+  dx: number;
+  dz: number;
+  count: number;
+  area: number;
+  lowEfficiency: number;
+  oceanType: number;
+}
+
+export interface MonumentStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  current: number;
+  total: number;
+  seedIndex: number;
+  seedCount: number;
+  error: string;
+  hits: MonumentHit[];
+}
+
+export interface FortressHit {
+  seed: string;
+  x: number;
+  y: number;
+  z: number;
+  crossings: number;
+  spanX: number;
+  spanY: number;
+  spanZ: number;
+  area: number;
+}
+
+export interface FortressStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  current: number;
+  total: number;
+  seedIndex: number;
+  seedCount: number;
+  error: string;
+  hits: FortressHit[];
+}
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -125,7 +192,15 @@ function seedText(value: bigint | number | string): string {
   return typeof value === 'bigint' ? value.toString() : String(value);
 }
 
-const HIT_POLL_OPS = new Set(['searchPoll', 'slimeFarmPoll', 'witchSearchPoll', 'riverSearchPoll']);
+const HIT_POLL_OPS = new Set([
+  'searchPoll',
+  'slimeFarmPoll',
+  'witchSearchPoll',
+  'riverSearchPoll',
+  'fortressSearchPoll',
+  'multiMonumentSearchPoll',
+  'doubleMonumentSearchPoll',
+]);
 
 function normalize(op: string, value: unknown): unknown {
   if (!HIT_POLL_OPS.has(op) || !value || typeof value !== 'object') return value;

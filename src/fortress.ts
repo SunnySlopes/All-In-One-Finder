@@ -1,0 +1,426 @@
+import { showNotice } from './dialog';
+import { applyI18n, t } from './i18n';
+import { call, type FortressStatus, type McVersion } from './native';
+import { escapeAttr, formatDuration, messageOf } from './panel-utils';
+import type { ResultsColumn } from './results';
+import type { SearcherId } from './searchers';
+
+export type FortressMode = 'cross' | 'span';
+
+type SeedMode = 'single' | 'list';
+type BorderState = 'none' | 'nw' | 'sw' | 'se' | 'ne';
+
+const DEFAULT_SIDE = 32768;
+const DEFAULT_LIST_SIDE = 2048;
+const BOUNDARY_SIDE = 7500001;
+const WORLD_COORD = 30000000;
+const DEFAULT_SPAN_LONG = 240;
+const DEFAULT_SPAN_SHORT = 240;
+const DEFAULT_SPAN_HEIGHT = 0;
+
+const BORDER_SEQUENCE: BorderState[] = ['none', 'nw', 'sw', 'se', 'ne'];
+
+const BORDER_AREAS: Record<Exclude<BorderState, 'none'>, {
+  minX: number; maxX: number; minZ: number; maxZ: number;
+}> = {
+  nw: { minX: -4000000, maxX: -3750001, minZ: -4000000, maxZ: -3750001 },
+  sw: { minX: -4000000, maxX: -3750001, minZ: 3750001, maxZ: 4000000 },
+  se: { minX: 3750001, maxX: 4000000, minZ: 3750001, maxZ: 4000000 },
+  ne: { minX: 3750001, maxX: 4000000, minZ: -4000000, maxZ: -3750001 },
+};
+
+function resolveFortressMc(versions: McVersion[]): number | null {
+  const modern = versions.find((item) => item.name === '26.3');
+  if (modern) return modern.id;
+  const fallback = versions.find((item) => item.name === '26.2')
+    || versions[versions.length - 1];
+  return fallback ? fallback.id : null;
+}
+
+export class FortressPanel {
+  readonly root: HTMLElement;
+  readonly tab: SearcherId;
+  private readonly mode: FortressMode;
+  private footer!: HTMLElement;
+  private threads!: HTMLInputElement;
+  private minX!: HTMLInputElement;
+  private maxX!: HTMLInputElement;
+  private minZ!: HTMLInputElement;
+  private maxZ!: HTMLInputElement;
+  private square!: HTMLInputElement;
+  private side!: HTMLInputElement;
+  private seedModeSelect!: HTMLSelectElement;
+  private seedMode: SeedMode = 'single';
+  private versions: McVersion[] = [];
+  private results: ResultsColumn | null = null;
+  private seed = '';
+  private seedText = '';
+  private running = false;
+  private paused = false;
+  private pollTimer = 0;
+  private searchStartedAt = 0;
+  private border: BorderState = 'none';
+  private shownError = '';
+
+  constructor(mode: FortressMode) {
+    this.mode = mode;
+    this.tab = mode === 'cross' ? 'NetherFortressCross' : 'NetherFortressOverall';
+    this.root = document.createElement('div');
+    this.root.className = 'stack search-panel';
+    this.root.innerHTML = `
+      <div class="search-panel-body">
+        <div class="grid">
+          <label data-i18n="common.search.seedMode"></label>
+          <select id="f-seed-mode">
+            <option value="single" data-i18n="common.search.seedModeSingle"></option>
+            <option value="list" data-i18n="common.search.seedModeList"></option>
+          </select>
+        </div>
+        <div id="f-seed-block"></div>
+        <div class="grid">
+          <label data-i18n="common.search.version"></label>
+          <select id="f-version" disabled><option>1.18~26.3</option></select>
+          <label data-i18n="common.search.threads"></label><input id="f-threads" type="number" min="1" max="256" value="8" />
+          <label data-i18n="common.search.minX"></label><input id="f-minx" type="number" value="-16384" />
+          <label data-i18n="common.search.maxX"></label><input id="f-maxx" type="number" value="16383" />
+          <label data-i18n="common.search.minZ"></label><input id="f-minz" type="number" value="-16384" />
+          <label data-i18n="common.search.maxZ"></label><input id="f-maxz" type="number" value="16383" />
+        </div>
+        <div class="square-row">
+          <label class="feature"><input id="f-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <input id="f-side" type="number" value="${DEFAULT_SIDE}" />
+        </div>
+        <div class="row">
+          <button id="f-reset" type="button" data-i18n="common.search.reset"></button>
+          <button id="f-border" type="button" data-i18n="common.search.border"></button>
+          <button id="f-bordermode" type="button" hidden></button>
+        </div>
+        <div id="f-params"></div>
+      </div>
+      <div class="search-panel-footer" id="f-footer"></div>
+    `;
+    this.footer = this.root.querySelector('#f-footer')!;
+    this.threads = this.root.querySelector('#f-threads')!;
+    this.minX = this.root.querySelector('#f-minx')!;
+    this.maxX = this.root.querySelector('#f-maxx')!;
+    this.minZ = this.root.querySelector('#f-minz')!;
+    this.maxZ = this.root.querySelector('#f-maxz')!;
+    this.square = this.root.querySelector('#f-square')!;
+    this.side = this.root.querySelector('#f-side')!;
+    this.seedModeSelect = this.root.querySelector('#f-seed-mode')!;
+    this.threads.value = String(Math.min(32, navigator.hardwareConcurrency || 8));
+    this.square.addEventListener('change', () => this.applySquare());
+    this.side.addEventListener('input', () => this.applySquare());
+    this.root.querySelector('#f-reset')!.addEventListener('click', () => this.resetDefaultArea());
+    this.root.querySelector('#f-border')!.addEventListener('click', () => this.resetWorldBorder());
+    this.root.querySelector('#f-bordermode')!.addEventListener('click', () => this.advanceBorder());
+    this.seedModeSelect.addEventListener('change', () => {
+      this.seedMode = this.seedModeSelect.value as SeedMode;
+      this.resetDefaultArea();
+    });
+    this.applySquare();
+    this.render();
+  }
+
+  bindResults(results: ResultsColumn): void {
+    this.results = results;
+  }
+
+  setSeedFromMap(seed: string): void {
+    if (!seed.trim()) return;
+    this.seed = seed.trim();
+    const input = this.root.querySelector<HTMLInputElement>('#f-seed');
+    if (input) input.value = this.seed;
+  }
+
+  load(versions: McVersion[]): void {
+    this.versions = versions;
+    this.render();
+  }
+
+  refresh(): void {
+    this.render();
+  }
+
+  private defaultSide(): number {
+    return this.seedMode === 'list' ? DEFAULT_LIST_SIDE : DEFAULT_SIDE;
+  }
+
+  private resetDefaultArea(): void {
+    this.border = 'none';
+    this.square.checked = true;
+    this.side.value = String(this.defaultSide());
+    this.applySquare();
+    this.render();
+  }
+
+  private resetWorldBorder(): void {
+    this.border = 'none';
+    this.square.checked = true;
+    this.side.value = String(BOUNDARY_SIDE);
+    this.applySquare();
+    this.render();
+  }
+
+  private advanceBorder(): void {
+    const index = BORDER_SEQUENCE.indexOf(this.border);
+    this.border = BORDER_SEQUENCE[(index + 1) % BORDER_SEQUENCE.length];
+    if (this.border === 'none') {
+      this.resetDefaultArea();
+      return;
+    }
+    const area = BORDER_AREAS[this.border];
+    this.square.checked = false;
+    this.applySquare();
+    this.minX.value = String(area.minX);
+    this.maxX.value = String(area.maxX);
+    this.minZ.value = String(area.minZ);
+    this.maxZ.value = String(area.maxZ);
+    this.render();
+  }
+
+  private applySquare(): void {
+    const locked = this.square.checked;
+    this.side.disabled = !locked;
+    for (const input of [this.minX, this.maxX, this.minZ, this.maxZ]) input.disabled = locked;
+    if (!locked) return;
+    const side = Math.max(1, Math.floor(Number(this.side.value) || 1));
+    const min = -Math.floor(side / 2);
+    const max = min + side - 1;
+    this.minX.value = String(min);
+    this.maxX.value = String(max);
+    this.minZ.value = String(min);
+    this.maxZ.value = String(max);
+  }
+
+  private renderSeedBlock(): void {
+    const host = this.root.querySelector('#f-seed-block')!;
+    if (this.seedMode === 'single') {
+      host.innerHTML = `<div class="grid">
+        <label data-i18n="common.search.seed"></label><input id="f-seed" value="${escapeAttr(this.seed)}" />
+      </div>`;
+    } else {
+      host.innerHTML = `<div class="grid">
+        <label data-i18n="common.search.seeds"></label><button id="f-file" type="button" data-i18n="common.search.pickFile"></button>
+      </div><div class="hint" id="f-file-name"></div>`;
+      const fileName = host.querySelector('#f-file-name');
+      if (fileName && this.seedText) {
+        fileName.textContent = String(this.seedText.split(/\r?\n/).filter((line) => line.trim()).length);
+      }
+      host.querySelector('#f-file')?.addEventListener('click', () => void this.pickFile());
+    }
+    applyI18n(host);
+  }
+
+  private render(): void {
+    this.seedModeSelect.value = this.seedMode;
+    this.renderSeedBlock();
+
+    const params = this.root.querySelector('#f-params')!;
+    if (this.mode === 'cross') {
+      params.innerHTML = `
+        <div class="grid">
+          <label data-i18n="fortress.crossFilter"></label>
+          <select id="f-filter">
+            <option value="2" data-i18n="fortress.filter.all"></option>
+            <option value="3" data-i18n="fortress.filter.triple"></option>
+            <option value="4" data-i18n="fortress.filter.quad"></option>
+          </select>
+        </div>
+        <div class="hint" data-i18n="fortress.crossHelp"></div>`;
+    } else {
+      params.innerHTML = `
+        <div class="grid">
+          <label data-i18n="fortress.minLong"></label><input id="f-long" type="number" min="0" max="260" value="${DEFAULT_SPAN_LONG}" />
+          <label data-i18n="fortress.minShort"></label><input id="f-short" type="number" min="0" max="260" value="${DEFAULT_SPAN_SHORT}" />
+          <label data-i18n="fortress.minHeight"></label><input id="f-height" type="number" min="0" max="40" value="${DEFAULT_SPAN_HEIGHT}" />
+        </div>
+        <div class="hint" data-i18n="fortress.spanHelp"></div>`;
+    }
+
+    const borderModeButton = this.root.querySelector<HTMLButtonElement>('#f-bordermode');
+    if (borderModeButton) {
+      borderModeButton.hidden = this.mode !== 'span';
+      if (this.mode === 'span') {
+        borderModeButton.textContent = `${t('fortress.border')}${t('common.labelColon')}${t(`fortress.borderState.${this.border}`)}`;
+      }
+    }
+
+    this.footer.innerHTML = `
+      <div class="row">
+        <button id="f-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="f-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="f-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="f-bar"></div></div>
+      <div id="f-progress" class="hint"></div>
+      <div id="f-elapsed" class="hint"></div>
+      <div id="f-eta" class="hint"></div>
+    `;
+    this.footer.querySelector('#f-start')?.addEventListener('click', () => void this.start());
+    this.footer.querySelector('#f-pause')?.addEventListener('click', () => void this.togglePause());
+    this.footer.querySelector('#f-stop')?.addEventListener('click', () => void call('fortressSearchStop'));
+    applyI18n(this.root);
+  }
+
+  private readFields(): void {
+    const seed = this.root.querySelector<HTMLInputElement>('#f-seed');
+    if (seed) this.seed = seed.value.trim();
+  }
+
+  private async pickFile(): Promise<void> {
+    const text = await window.aio.openFile();
+    if (text == null) return;
+    this.seedText = text;
+    const count = text.split(/\r?\n/).filter((line) => line.trim()).length;
+    const node = this.root.querySelector('#f-file-name');
+    if (node) node.textContent = String(count);
+  }
+
+  private async start(): Promise<void> {
+    this.readFields();
+    const listMode = this.seedMode === 'list';
+
+    if (this.square.checked) {
+      const side = Math.floor(Number(this.side.value) || 0);
+      if (side < 1 || side > 60000001) {
+        await showNotice(t('common.error.bad-bounds'));
+        return;
+      }
+      this.applySquare();
+    }
+
+    const minX = Number(this.minX.value);
+    const maxX = Number(this.maxX.value);
+    const minZ = Number(this.minZ.value);
+    const maxZ = Number(this.maxZ.value);
+    if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ
+      || minX < -WORLD_COORD || maxX > WORLD_COORD
+      || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
+      await showNotice(t('common.error.bad-bounds'));
+      return;
+    }
+
+    const seeds = listMode ? this.seedText : this.seed;
+    if (!seeds.trim()) {
+      await showNotice(t('common.error.bad-seed'));
+      return;
+    }
+
+    const mc = resolveFortressMc(this.versions);
+    if (mc == null) {
+      await showNotice(t('common.error.unsupported-version'));
+      return;
+    }
+
+    const threads = Math.max(1, Math.min(256, Number(this.threads.value) || 1));
+    const payload: Record<string, unknown> = {
+      mc,
+      threads,
+      mode: this.mode === 'cross' ? 0 : 1,
+      minX,
+      maxX,
+      minZ,
+      maxZ,
+      seeds,
+    };
+
+    if (this.mode === 'cross') {
+      payload.crossFilter = Number(this.root.querySelector<HTMLSelectElement>('#f-filter')?.value || 2);
+    } else {
+      const minLong = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-long')?.value || 0));
+      const minShort = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-short')?.value || 0));
+      const minHeight = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-height')?.value || 0));
+      if (!Number.isFinite(minLong) || minLong < 0 || minLong > 260
+        || !Number.isFinite(minShort) || minShort < 0 || minShort > 260) {
+        await showNotice(t('common.error.bad-span-edge'));
+        return;
+      }
+      if (!Number.isFinite(minHeight) || minHeight < 0 || minHeight > 40) {
+        await showNotice(t('common.error.bad-span-height'));
+        return;
+      }
+      payload.minLong = minLong;
+      payload.minShort = minShort;
+      payload.minHeight = minHeight;
+    }
+
+    try {
+      await call('fortressSearchStart', payload);
+      this.results?.clearFortress(this.tab, listMode);
+      this.running = true;
+      this.paused = false;
+      this.shownError = '';
+      this.searchStartedAt = Date.now();
+      this.render();
+      this.poll();
+    } catch (error) {
+      await showNotice(messageOf(error));
+    }
+  }
+
+  private async togglePause(): Promise<void> {
+    if (this.paused) {
+      await call('fortressSearchResume');
+      this.paused = false;
+    } else {
+      await call('fortressSearchPause');
+      this.paused = true;
+    }
+    this.render();
+  }
+
+  private poll(): void {
+    window.clearInterval(this.pollTimer);
+    this.pollTimer = window.setInterval(async () => {
+      try {
+        const status = await call<FortressStatus>('fortressSearchPoll');
+        this.running = status.running;
+        this.paused = status.paused;
+        const progress = this.footer.querySelector('#f-progress');
+        const eta = this.footer.querySelector('#f-eta');
+        const elapsed = this.footer.querySelector('#f-elapsed');
+        const bar = this.footer.querySelector<HTMLElement>('#f-bar');
+        if (progress) progress.textContent = this.progressText(status);
+        if (eta) eta.textContent = this.etaText(status);
+        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
+        if (bar) {
+          const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+          bar.style.width = `${pct}%`;
+        }
+        this.results?.setFortressHits(status.hits, this.tab);
+        if (status.done) {
+          window.clearInterval(this.pollTimer);
+          this.running = false;
+          if (status.error && status.error !== this.shownError) {
+            this.shownError = status.error;
+            await showNotice(messageOf(status.error));
+          }
+          this.render();
+        }
+      } catch {
+        window.clearInterval(this.pollTimer);
+        this.running = false;
+      }
+    }, 100);
+  }
+
+  private progressText(status: FortressStatus): string {
+    const seeds = status.seedCount > 1
+      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+      : '';
+    const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
+    const error = status.error ? ` ${messageOf(status.error)}` : '';
+    return `${seeds}${t('common.search.working')} ${status.current}/${status.total} (${pct}%)${error}`;
+  }
+
+  private etaText(status: FortressStatus): string {
+    if (status.done) return t('common.search.eta.completed');
+    if (status.paused) return t('common.search.eta.paused');
+    if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
+    const elapsed = Date.now() - this.searchStartedAt;
+    const remaining = elapsed * ((status.total - status.current) / status.current);
+    if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
+    return t('common.search.eta.remaining', { time: formatDuration(remaining) });
+  }
+}

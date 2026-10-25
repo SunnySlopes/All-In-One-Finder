@@ -2,7 +2,7 @@ import { parseCoords } from './coords';
 import { escapeText } from './dialog';
 import { applyI18n, t } from './i18n';
 import type { MapView } from './map';
-import type { RiverHit, SearchHit, SlimeHit, WitchHit } from './native';
+import type { FortressHit, MonumentHit, RiverHit, SearchHit, SlimeHit, WitchHit } from './native';
 import { RIVER_MAP_VERSION } from './river';
 import { isDripstoneTab, type SearcherId } from './searchers';
 import { slimeMapVersion, type SlimeVersionGroup } from './slime';
@@ -12,13 +12,15 @@ import { witchMapVersion, type WitchVersionGroup } from './witch';
 const FULL_RING_AREA = 49640;
 const RIVER_FULL_RING = 49640;
 
-type Display = 'lowy' | 'slime' | 'witch' | 'river';
+type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress';
 export type WitchSortMode = 'height' | 'distance';
 
 function displayFor(tab: SearcherId): Display | null {
   if (tab === 'LowYSwampHut') return 'witch';
   if (tab === 'River') return 'river';
   if (tab === 'SlimeChunk') return 'slime';
+  if (tab === 'DoubleMonument' || tab === 'MultiMonument') return 'monument';
+  if (tab === 'NetherFortressCross' || tab === 'NetherFortressOverall') return 'fortress';
   if (isDripstoneTab(tab)) return 'lowy';
   return null;
 }
@@ -38,6 +40,10 @@ export class ResultsColumn {
   private slimeHits: SlimeHit[] = [];
   private witchHits: WitchHit[] = [];
   private riverHits: RiverHit[] = [];
+  private monumentHits: MonumentHit[] = [];
+  private fortressHits: FortressHit[] = [];
+  private monumentTab: SearcherId | null = null;
+  private fortressTab: SearcherId | null = null;
   private slimeConvert = true;
   private slimeVersion: SlimeVersionGroup = 'modern';
   private witchVersion: WitchVersionGroup = 2;
@@ -130,10 +136,11 @@ export class ResultsColumn {
     this.paint();
   }
 
-  clearSlime(convert: boolean, version: SlimeVersionGroup): void {
+  clearSlime(convert: boolean, version: SlimeVersionGroup, listMode = false): void {
     this.slimeHits = [];
     this.slimeConvert = convert;
     this.slimeVersion = version;
+    this.listMode = listMode;
     if (this.viewTab === 'SlimeChunk' || this.viewTab === 'map') this.display = 'slime';
     this.map.clearSpawnCircles();
     this.updateSpawnUi();
@@ -215,6 +222,46 @@ export class ResultsColumn {
     } else {
       this.updateExportButtons();
     }
+  }
+
+  clearMonument(tab: SearcherId, listMode = false): void {
+    this.monumentHits = [];
+    this.monumentTab = tab;
+    this.listMode = listMode;
+    if (displayFor(this.viewTab) === 'monument' || this.viewTab === 'map') this.display = 'monument';
+    this.map.clearSpawnCircles();
+    this.paint();
+  }
+
+  setMonumentHits(hits: MonumentHit[], tab: SearcherId): void {
+    this.monumentTab = tab;
+    if (displayFor(this.viewTab) === 'monument' || this.viewTab === 'map') this.display = 'monument';
+    if (this.display !== 'monument') {
+      this.monumentHits = hits;
+      return;
+    }
+    this.monumentHits = hits;
+    this.renderMonument();
+  }
+
+  clearFortress(tab: SearcherId, listMode = false): void {
+    this.fortressHits = [];
+    this.fortressTab = tab;
+    this.listMode = listMode;
+    if (displayFor(this.viewTab) === 'fortress' || this.viewTab === 'map') this.display = 'fortress';
+    this.map.clearSpawnCircles();
+    this.paint();
+  }
+
+  setFortressHits(hits: FortressHit[], tab: SearcherId): void {
+    this.fortressTab = tab;
+    if (displayFor(this.viewTab) === 'fortress' || this.viewTab === 'map') this.display = 'fortress';
+    if (this.display !== 'fortress') {
+      this.fortressHits = hits;
+      return;
+    }
+    this.fortressHits = hits;
+    this.renderFortress();
   }
 
   /** 女巫小屋列表模式的排序按钮入口：只重排当前结果，不触发重新搜索。 */
@@ -303,6 +350,16 @@ export class ResultsColumn {
       this.exportAllBtn.disabled = source.length === 0;
       return;
     }
+    if (this.display === 'monument') {
+      this.exportSeedsBtn.disabled = !(this.listMode && this.monumentHits.length > 0);
+      this.exportAllBtn.disabled = this.monumentHits.length === 0;
+      return;
+    }
+    if (this.display === 'fortress') {
+      this.exportSeedsBtn.disabled = !(this.listMode && this.fortressHits.length > 0);
+      this.exportAllBtn.disabled = this.fortressHits.length === 0;
+      return;
+    }
     if (this.display === 'slime') {
       this.exportSeedsBtn.disabled = this.slimeHits.length === 0;
       this.exportAllBtn.disabled = this.slimeHits.length === 0;
@@ -350,6 +407,137 @@ export class ResultsColumn {
     requestAnimationFrame(jump);
   }
 
+  private performMonumentJump(hit: MonumentHit): void {
+    this.spawnCheck.checked = true;
+    this.onShowMap();
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.jumpTo({
+        x: hit.x,
+        z: hit.z,
+        seed: hit.seed,
+        y: 64,
+        dimension: 0,
+        mcVersion: '26.3',
+        features: ['monument'],
+        spawnCircles: true,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
+  private performFortressJump(hit: FortressHit): void {
+    this.spawnCheck.checked = true;
+    this.onShowMap();
+    const radii = this.fortressTab === 'NetherFortressOverall' ? [128] : [64];
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.jumpTo({
+        x: hit.x,
+        z: hit.z,
+        seed: hit.seed,
+        y: 64,
+        dimension: -1,
+        mcVersion: '26.3',
+        features: ['fortress'],
+        spawnCircles: true,
+        spawnRadii: radii,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
+  private renderMonument(): void {
+    this.updateExportButtons();
+    if (!this.monumentHits.length) {
+      this.list.innerHTML = `<div class="hint results-empty" data-i18n="common.results.empty"></div>`;
+      applyI18n(this.list);
+      return;
+    }
+    const multi = this.monumentTab === 'MultiMonument';
+    this.list.innerHTML = this.monumentHits.map((hit, index) => {
+      const low = hit.lowEfficiency ? `<span>${escapeText(t('monument.lowEfficiency'))}</span>` : '';
+      const detail = multi
+        ? `<span>${escapeText(crossingLabel(hit.count))}</span><span>S=${hit.area}</span>`
+        : `<span>dx=${hit.dx} dz=${hit.dz}</span>`;
+      return `<article class="result-card result-monument" data-index="${index}">
+        <div class="result-seed">${escapeText(hit.seed)}</div>
+        <div class="result-coords">
+          <span>(${hit.x}, ${hit.z})</span>
+          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+        </div>
+        <div class="result-stats">
+          ${detail}
+          <span>${escapeText(oceanLabel(hit.oceanType))}</span>
+          ${low}
+        </div>
+      </article>`;
+    }).join('');
+    this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('.result-copy')) return;
+        const hit = this.monumentHits[Number(card.dataset.index)];
+        if (!hit) return;
+        this.jumpX.value = String(hit.x);
+        this.jumpZ.value = String(hit.z);
+        this.performMonumentJump(hit);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-copy').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.monumentHits[Number(button.dataset.index)];
+        if (!hit) return;
+        void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
+      });
+    });
+    applyI18n(this.list);
+  }
+
+  private renderFortress(): void {
+    this.updateExportButtons();
+    if (!this.fortressHits.length) {
+      this.list.innerHTML = `<div class="hint results-empty" data-i18n="common.results.empty"></div>`;
+      applyI18n(this.list);
+      return;
+    }
+    const span = this.fortressTab === 'NetherFortressOverall';
+    this.list.innerHTML = this.fortressHits.map((hit, index) => {
+      const detail = span
+        ? `<span>span=${hit.spanX}*${hit.spanY}*${hit.spanZ}</span><span>S=${hit.area}</span>`
+        : `<span>${escapeText(crossingLabel(hit.crossings))}</span>`;
+      return `<article class="result-card result-fortress" data-index="${index}">
+        <div class="result-seed">${escapeText(hit.seed)}</div>
+        <div class="result-coords">
+          <span>(${hit.x}, ${hit.y}, ${hit.z})</span>
+          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+        </div>
+        <div class="result-stats">${detail}</div>
+      </article>`;
+    }).join('');
+    this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('.result-copy')) return;
+        const hit = this.fortressHits[Number(card.dataset.index)];
+        if (!hit) return;
+        this.jumpX.value = String(hit.x);
+        this.jumpZ.value = String(hit.z);
+        this.performFortressJump(hit);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-copy').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.fortressHits[Number(button.dataset.index)];
+        if (!hit) return;
+        void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
+      });
+    });
+    applyI18n(this.list);
+  }
+
   private paint(): void {
     if (this.display === 'slime') {
       this.paintSlime();
@@ -361,6 +549,14 @@ export class ResultsColumn {
     }
     if (this.display === 'river') {
       this.renderRiver(true);
+      return;
+    }
+    if (this.display === 'monument') {
+      this.renderMonument();
+      return;
+    }
+    if (this.display === 'fortress') {
+      this.renderFortress();
       return;
     }
     this.updateExportButtons();
@@ -549,49 +745,114 @@ export class ResultsColumn {
 
   private exportAll(): void {
     if (this.display === 'witch') {
-      const text = this.witchHits.map((hit) =>
-        `/tp ${hit.x} ${hit.y} ${hit.z} dir=${hit.dir} size=${hit.sizeX}x${hit.sizeZ} wet=${hit.wet}`).join('\n');
-      void window.aio.saveFile('witch-results.txt', text);
+      this.saveGrouped(this.witchHits, 'witch-results.txt',
+        (hit) => `/tp ${hit.x} ${hit.y} ${hit.z} dist=${dist2(hit.x, hit.z)}`);
       return;
     }
     if (this.display === 'river') {
-      const text = this.riverHits.map((hit) =>
-        `/tp ${hit.x} 64 ${hit.z} ${hit.score}/${RIVER_FULL_RING} (${(hit.score / RIVER_FULL_RING * 100).toFixed(2)}%) cave=${hit.cave} river=${hit.river}`).join('\n');
-      void window.aio.saveFile('river-results.txt', text);
+      this.saveGrouped(this.riverHits, 'river-results.txt',
+        (hit) => `/tp ${hit.x} 64 ${hit.z} score=${hit.score} river=${hit.river} cave=${hit.cave} dist=${dist2(hit.x, hit.z)}`);
       return;
     }
     if (this.display === 'slime') {
-      const text = this.slimeHits.map((hit) => {
-        const equiv = this.slimeConvert ? ` equiv=${formatArea(hit.areaEquiv)}` : '';
-        return `/tp ${hit.x} -64 ${hit.z}${equiv} area=${hit.area} chunks=${hit.chunks}`;
-      }).join('\n');
-      void window.aio.saveFile('slime-results.txt', text);
+      this.saveGrouped(this.slimeHits, 'slime-results.txt',
+        (hit) => `/tp ${hit.x} -64 ${hit.z} equiv=${formatArea(hit.areaEquiv)} area=${hit.area} chunks=${hit.chunks} dist=${dist2(hit.x, hit.z)}`);
+      return;
+    }
+    if (this.display === 'monument') {
+      const multi = this.monumentTab === 'MultiMonument';
+      this.saveGrouped(this.monumentHits, 'monument-results.txt', (hit) => {
+        const detail = multi
+          ? `${crossingLabel(hit.count)} S=${hit.area}`
+          : `dx=${hit.dx} dz=${hit.dz}`;
+        const low = hit.lowEfficiency ? ' low' : '';
+        return `/tp ${hit.x} 50 ${hit.z} ${detail} dist=${dist2(hit.x, hit.z)} type=${oceanTypeName(hit.oceanType)}${low}`;
+      });
+      return;
+    }
+    if (this.display === 'fortress') {
+      const span = this.fortressTab === 'NetherFortressOverall';
+      this.saveGrouped(this.fortressHits, 'fortress-results.txt', (hit) => {
+        if (span) {
+          return `/tp ${hit.x} 48 ${hit.z} span=${hit.spanX}*${hit.spanY}*${hit.spanZ} S=${hit.area} dist=${dist2(hit.x, hit.z)}`;
+        }
+        return `/tp ${hit.x} ${hit.y} ${hit.z} ${crossingLabel(hit.crossings)} dist=${dist2(hit.x, hit.z)}`;
+      });
       return;
     }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
-    const text = this.hits.map((hit) => line(hit, showDetail)).join('\n');
-    void window.aio.saveFile('results.txt', text);
+    this.saveGrouped(this.hits, 'results.txt', (hit) => {
+      const detail = showDetail
+        ? ` area=${hit.total} cave=${hit.cave} river=${hit.river}`
+        : ` area=${hit.total}`;
+      return `/tp ${hit.x} 64 ${hit.z}${detail} dist=${dist2(hit.x, hit.z)}`;
+    });
+  }
+
+  private saveGrouped<T extends { seed: string }>(
+    hits: T[],
+    fileName: string,
+    line: (hit: T) => string,
+  ): void {
+    if (this.listMode) {
+      const groups = groupBySeed(hits);
+      const text = groups
+        .map((group) => `${group.seed}\n${group.hits.map(line).join('\n')}`)
+        .join('\n\n');
+      void window.aio.saveFile(fileName, text);
+      return;
+    }
+    void window.aio.saveFile(fileName, hits.map(line).join('\n'));
   }
 
   private exportSeeds(): void {
     const seedSource = this.display === 'slime' ? this.slimeHits
       : this.display === 'witch' ? this.witchHits
         : this.display === 'river' ? this.riverHits
-          : this.hits;
+          : this.display === 'monument' ? this.monumentHits
+            : this.display === 'fortress' ? this.fortressHits
+              : this.hits;
     const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
     void window.aio.saveFile('seeds.txt', seeds.join('\n'));
   }
 }
 
+function dist2(x: number, z: number): number {
+  return x * x + z * z;
+}
+
+function oceanTypeName(value: number): string {
+  if (value === 1) return 'cold';
+  if (value === 2) return 'frozen';
+  return 'others';
+}
+
+function oceanLabel(value: number): string {
+  const key = `monument.ocean.${oceanTypeName(value)}`;
+  const text = t(key);
+  return text === key ? oceanTypeName(value) : text;
+}
+
+/** 2/3/4 → 二联/三联/四联（英文 Double/Triple/Quadruple）。 */
+function crossingLabel(count: number): string {
+  const key = `common.crossing.${count}`;
+  const text = t(key);
+  return text === key ? String(count) : text;
+}
+
+function groupBySeed<T extends { seed: string }>(hits: T[]): Array<{ seed: string; hits: T[] }> {
+  const groups = new Map<string, T[]>();
+  for (const hit of hits) {
+    const list = groups.get(hit.seed);
+    if (list) list.push(hit);
+    else groups.set(hit.seed, [hit]);
+  }
+  return [...groups.entries()].map(([seed, items]) => ({ seed, hits: items }));
+}
+
 function formatArea(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}
-
-function line(hit: SearchHit, showRiver: boolean): string {
-  const full = FULL_RING_AREA;
-  const base = `/tp ${hit.x} 64 ${hit.z} ${hit.total}/${full} (${hit.ratio.toFixed(2)}%)`;
-  return showRiver ? `${base} cave=${hit.cave} river=${hit.river}` : base;
 }
 
 function witchCard(hit: WitchHit, index: number): string {

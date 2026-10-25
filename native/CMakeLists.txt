@@ -20,6 +20,11 @@ set(SLIMERADAR "${SLIME}/slimeradar/src")
 set(SLIMEOPT "${SLIME}/slimeoptimizer")
 set(RIVER "${CMAKE_SOURCE_DIR}/../tools/river")
 set(LYSH "${CMAKE_SOURCE_DIR}/../tools/lowyswamphut/lysh-c")
+set(FORTRESS "${CMAKE_SOURCE_DIR}/../tools/fortress")
+set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
+set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
+
+option(AIO_DOUBLE_MONUMENT_REFACTORED "doublemonument branch already renamed for AIO" ON)
 
 set(CUBI_ROOT_SOURCES
   finders.c carver.c generator.c layers.c biomenoise.c biomes.c noise.c
@@ -30,20 +35,16 @@ foreach(src ${CUBI_ROOT_SOURCES})
   list(APPEND CUBI_SOURCES "${CUBI}/${src}")
 endforeach()
 file(GLOB CUBI_FEATURES "${CUBI}/features/*.c")
-file(GLOB CUBI_LOOT
-  "${CUBI}/loot/*.c"
-  "${CUBI}/loot/cjson/*.c"
-  "${CUBI}/loot/loot_tables/barrels/*.c"
-  "${CUBI}/loot/loot_tables/chests/*.c"
-  "${CUBI}/loot/loot_tables/chests/trial_chambers/*.c"
-)
-list(APPEND CUBI_SOURCES ${CUBI_FEATURES} ${CUBI_LOOT})
+# AIO never calls the loot generation API; keep the headers but do not compile
+# loot/** (it is ~1.5 MB of object code and none of it is reachable).
+list(APPEND CUBI_SOURCES ${CUBI_FEATURES})
 
 add_library(cubiomes_objs OBJECT ${CUBI_SOURCES})
 set_target_properties(cubiomes_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(cubiomes_objs PUBLIC "${CUBI}")
 target_compile_options(cubiomes_objs PRIVATE
   -O3 -DNDEBUG -fwrapv -fno-semantic-interposition -mpopcnt -flto -D_WIN32
+  -ffunction-sections -fdata-sections
 )
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,9 @@ set(HOT_CXX
   slime_host.cpp
   witch_host.cpp
   river_host.cpp
+  fortress_host.cpp
+  multi_monument_host.cpp
+  double_monument_host.cpp
   search_gate.cpp
   "${SLIME}/slime_search.cpp"
   "${SLIMEOPT}/src/geometry.cpp"
@@ -94,13 +98,37 @@ set(HOT_CXX
   "${LOWY}/BiomeSampler.cpp"
   "${LOWY}/OctaveFieldCache.cpp"
 )
+if (AIO_DOUBLE_MONUMENT_REFACTORED)
+  list(APPEND HOT_CXX "${DOUBLE}/monument_search.cpp")
+endif()
+
+set(MONUMENT_C
+  "${MULTI}/monument_search_core.c"
+  "${DOUBLE}/monument_search_core.c"
+)
+if (NOT AIO_DOUBLE_MONUMENT_REFACTORED)
+  # 旧子模块：把 C 核心符号映射到计划中的 dm_* 名字。
+  set(DOUBLE_CORE_DEFS
+    "monument_generator_alloc=dm_monument_generator_alloc"
+    "monument_generator_free=dm_monument_generator_free"
+    "monument_init_generator=dm_monument_init_generator"
+    "monument_try_region=dm_monument_try_region"
+    "monument_try_region_g=dm_monument_try_region_g"
+    "monument_exists_at_block=dm_monument_exists_at_block"
+    "monument_exists_at_block_g=dm_monument_exists_at_block_g"
+    "monument_classify_ocean_type=dm_monument_classify_ocean_type"
+    "monument_classify_ocean_type_g=dm_monument_classify_ocean_type_g"
+  )
+  set_source_files_properties("${DOUBLE}/monument_search_core.c"
+    PROPERTIES COMPILE_DEFINITIONS "${DOUBLE_CORE_DEFS}")
+endif()
 # tools/river 的 river_finder.cpp 由 river_host.cpp include（唯一 TU），不在这里
 # 再列一次：上游 riverFinderLib.cpp / JNI 桥也是直接 include 它，同时编译会重复符号。
 set(SLIME_C
   "${SLIMERADAR}/cpu_search.c"
   "${SLIMERADAR}/cpu_simd_avx2.c"
 )
-add_library(allinone SHARED ${HOT_CXX} ${SLIME_C} "${CMAKE_BINARY_DIR}/napi_bind.cpp")
+add_library(allinone SHARED ${HOT_CXX} ${SLIME_C} ${MONUMENT_C} "${CMAKE_BINARY_DIR}/napi_bind.cpp")
 set_target_properties(allinone PROPERTIES
   PREFIX ""
   SUFFIX ".node"
@@ -121,8 +149,14 @@ target_compile_definitions(allinone PRIVATE
   DRIPSTONECAVE_FINDER_JNI_LIB
   _WIN32
 )
+if (AIO_DOUBLE_MONUMENT_REFACTORED)
+  target_compile_definitions(allinone PRIVATE AIO_DOUBLE_MONUMENT_REFACTORED=1)
+else()
+  target_compile_definitions(allinone PRIVATE AIO_DOUBLE_MONUMENT_REFACTORED=0)
+endif()
 target_compile_options(allinone PRIVATE
   -O3 -DNDEBUG -fwrapv -fexceptions -flto -mpopcnt
+  -ffunction-sections -fdata-sections
   -include "${LOWY}/cxx_compat/pre_cubiomes.h"
 )
 # SlimeRadar 的 AVX2 判定文件需要单独开 -mavx2；运行时仍由 CPUID 分派。
@@ -137,6 +171,8 @@ set_source_files_properties("${SLIMERADAR}/cpu_search.c"
 target_link_libraries(allinone PRIVATE cubiomes_objs lysh_core "${CMAKE_BINARY_DIR}/napi_proxy.o" -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
 target_link_options(allinone PRIVATE
   -flto
+  -Wl,--gc-sections
+  -s
   -static-libgcc
   -static-libstdc++
 )

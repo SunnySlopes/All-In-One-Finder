@@ -13,6 +13,7 @@ extern "C" {
 #include "../tools/lowyswamphut/lysh-c/src/search.h"
 }
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -34,6 +35,7 @@ constexpr int kMaxThreads = 256;
 std::mutex gMu;
 std::thread gThread;
 WitchStatus gStatus;
+std::vector<WitchHit> gCollected;
 std::atomic<bool> gPause{false};
 std::atomic<bool> gStop{false};
 
@@ -111,9 +113,9 @@ int witchHook(void *user, lysh_search_ctx *ctx, int rx, int rz, int hutX, int hu
     hit.flooded = result.flooded;
     hit.reject = result.reject;
 
-    /* 搜到即输出：不缓冲、不排序、不截断。 */
+    /* 收集后统一排序截断（Y 升序 → 原点距离升序），不在扫描中发布。 */
     std::lock_guard<std::mutex> lock(gMu);
-    gStatus.hits.push_back(hit);
+    gCollected.push_back(hit);
     return 1;
 }
 
@@ -128,6 +130,20 @@ void publishProgress(int64_t current, int64_t total)
 void publishDone(const std::string &error)
 {
     std::lock_guard<std::mutex> lock(gMu);
+    if (!gStop.load()) {
+        std::sort(gCollected.begin(), gCollected.end(), [](const WitchHit &a, const WitchHit &b) {
+            if (a.y != b.y) return a.y < b.y;
+            const int64_t da = static_cast<int64_t>(a.x) * a.x + static_cast<int64_t>(a.z) * a.z;
+            const int64_t db = static_cast<int64_t>(b.x) * b.x + static_cast<int64_t>(b.z) * b.z;
+            if (da != db) return da < db;
+            if (a.x != b.x) return a.x < b.x;
+            return a.z < b.z;
+        });
+        if (gCollected.size() > 1000) gCollected.resize(1000);
+        gStatus.hits = std::move(gCollected);
+    } else {
+        gCollected.clear();
+    }
     gStatus.running = false;
     gStatus.done = true;
     gStatus.error = error;
@@ -288,6 +304,7 @@ std::string witchStart(const WitchRequest &request)
     {
         std::lock_guard<std::mutex> lock(gMu);
         gStatus = {};
+        gCollected.clear();
         gStatus.running = true;
         gStatus.total = spanX * spanZ;
         gStatus.seedCount = static_cast<int>(request.seeds.size());

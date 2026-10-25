@@ -193,7 +193,6 @@ void job(RiverRequest request)
                 seedHits.push_back(item);
             }
             all.insert(all.end(), seedHits.begin(), seedHits.end());
-            publish(all, true, false, "");
             if (gProgress.try_stop.load()) break;
         }
     } catch (const std::bad_alloc &) {
@@ -203,6 +202,19 @@ void job(RiverRequest request)
     }
 
     setStage(-1, 0, 0);
+    if (gProgress.try_stop.load()) {
+        all.clear();
+    } else {
+        std::ranges::sort(all, [](const RiverHit &a, const RiverHit &b) {
+            if (a.score != b.score) return a.score > b.score;
+            const int64_t da = static_cast<int64_t>(a.x) * a.x + static_cast<int64_t>(a.z) * a.z;
+            const int64_t db = static_cast<int64_t>(b.x) * b.x + static_cast<int64_t>(b.z) * b.z;
+            if (da != db) return da < db;
+            if (a.x != b.x) return a.x < b.x;
+            return a.z < b.z;
+        });
+        if (all.size() > static_cast<size_t>(kOutputLimit)) all.resize(kOutputLimit);
+    }
     publish(all, false, true, error);
     searchGateRelease(SearchOwner::River);
 }

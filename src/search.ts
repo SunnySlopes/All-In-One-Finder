@@ -371,8 +371,18 @@ export class SearchPanel {
     const fastPage = this.searcher === 'LowYPitDripstoneCave';
     this.searchPit = fastPage;
     const listMode = !fastPage && this.seedMode === 'list';
-    const ratio = Number(fastPage ? this.fastRatio : this.ratio);
-    const min = fastPage ? 80 : this.fastMode ? 60 : 40;
+    const boxArea = Math.max(0, box.maxX - box.minX + 1) * Math.max(0, box.maxZ - box.minZ + 1);
+    /* 超大范围（> 20000001²）时，溶洞占比至少 90%；大坑不受此限制。 */
+    const hugeArea = !fastPage && boxArea > 20000001 * 20000001;
+    let ratio = Number(fastPage ? this.fastRatio : this.ratio);
+    if (hugeArea && ratio < 90) {
+      await ask(t('dripstonecave.ratio90'), [{ id: 'dismiss', key: 'common.dialog.close' }]);
+      this.ratio = '90';
+      ratio = 90;
+      const ratioField = this.root.querySelector<HTMLInputElement>('#p-ratio');
+      if (ratioField) ratioField.value = '90';
+    }
+    const min = fastPage ? 80 : hugeArea ? 90 : this.fastMode ? 60 : 40;
     if (!(ratio >= min && ratio <= 95)) {
       await ask(t('common.error.bad-ratio'), [{ id: 'dismiss', key: 'common.dialog.close' }]);
       return;

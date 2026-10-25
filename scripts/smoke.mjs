@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 buildNative();
 const env = { ...process.env, AIO_SMOKE: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
-const run = spawnSync('npm', ['exec', 'electron', '--', '.'], {
+const run = spawnSync('npm', ['exec', 'electron', '--', '--no-sandbox', '.'], {
   cwd: root,
   stdio: 'inherit',
   shell: true,

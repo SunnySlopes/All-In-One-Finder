@@ -16,7 +16,7 @@
 
 namespace {
 
-constexpr int kOutputLimit = 50;
+constexpr int kOutputLimit = 1000;
 /** 第二道去重的邻域半径：后一个结果与已保留结果的 |dx|、|dz| 都小于 64 时跳过。 */
 constexpr int64_t kNearDedupRange = 64;
 
@@ -92,6 +92,9 @@ void sortAndTrim(std::vector<SlimeHit> &hits)
         if (a.areaEquiv != b.areaEquiv) return a.areaEquiv > b.areaEquiv;
         if (a.area != b.area) return a.area > b.area;
         if (a.chunks != b.chunks) return a.chunks > b.chunks;
+        const int64_t da = static_cast<int64_t>(a.x) * a.x + static_cast<int64_t>(a.z) * a.z;
+        const int64_t db = static_cast<int64_t>(b.x) * b.x + static_cast<int64_t>(b.z) * b.z;
+        if (da != db) return da < db;
         if (a.x != b.x) return a.x < b.x;
         return a.z < b.z;
     });
@@ -133,7 +136,7 @@ void job(SlimeRequest request)
             p.min_slime_chunks = 0; /* 由 min_slime_area 自动决定 */
             p.min_slime_area = request.minSlimeArea;
             p.threads = request.threads;
-            p.max_results = request.convert ? 100 : kOutputLimit;
+            p.max_results = kOutputLimit;
             p.convert_biomes = request.convert ? 1 : 0;
             p.version_rule = request.versionRule;
             p.biome_at = &biomeAtCb;
@@ -158,7 +161,7 @@ void job(SlimeRequest request)
                 tiles_total = progress.tiles_total;
                 publishProgress(progress.stage, progress.stage_current,
                                 progress.stage_total, progress.tiles_done,
-                                progress.tiles_total, all);
+                                progress.tiles_total, {});
 
                 if (gStop.load()) slime_farm_cancel();
                 if (gPause.load() && !progress.paused) slime_farm_pause();
@@ -185,9 +188,6 @@ void job(SlimeRequest request)
                 item.chunks = hit.chunks;
                 all.push_back(item);
             }
-            sortAndTrim(all);
-            publishProgress(SLIME_FARM_STAGE_FINALIZE, 1, 1,
-                            tiles_done, tiles_total, all);
 
             if (gStop.load()) break;
         }
@@ -198,6 +198,8 @@ void job(SlimeRequest request)
     }
 
     slime_farm_shutdown();
+    if (gStop.load()) all.clear();
+    else sortAndTrim(all);
     {
         std::lock_guard<std::mutex> lock(gMu);
         gStatus.stage = !error.empty()

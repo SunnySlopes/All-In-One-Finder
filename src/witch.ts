@@ -106,7 +106,7 @@ export class WitchPanel {
             ${MAX_Y_OPTIONS.map((value) => `<option value="${value}" ${value === -40 ? 'selected' : ''}>${value}</option>`).join('')}
           </select>
         </div>
-        <div class="row" id="w-sort-row">
+        <div class="row" id="w-sort-row" hidden>
           <button id="w-sort-distance" type="button" data-i18n="lowyswamphut.sortByDistance" disabled></button>
           <button id="w-sort-y" type="button" data-i18n="lowyswamphut.sortByY" disabled></button>
         </div>

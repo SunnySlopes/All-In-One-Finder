@@ -2,6 +2,8 @@ import './style.css';
 import { escapeText, showNotice } from './dialog';
 import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n';
 import { MapView } from './map';
+import { FortressPanel } from './fortress';
+import { MonumentPanel } from './monument';
 import { call, type FeatureInfo, type McVersion } from './native';
 import { ResultsColumn } from './results';
 import { RiverPanel } from './river';
@@ -42,12 +44,20 @@ const search = new SearchPanel();
 const slime = new SlimePanel();
 const witch = new WitchPanel();
 const river = new RiverPanel();
+const fortressCross = new FortressPanel('cross');
+const fortressSpan = new FortressPanel('span');
+const monumentDouble = new MonumentPanel('double');
+const monumentMulti = new MonumentPanel('multi');
 const results = new ResultsColumn(map);
 resultsHost.append(results.root);
 search.bindResults(results);
 slime.bindResults(results);
 witch.bindResults(results);
 river.bindResults(results);
+fortressCross.bindResults(results);
+fortressSpan.bindResults(results);
+monumentDouble.bindResults(results);
+monumentMulti.bindResults(results);
 map.mountCanvas(document.querySelector('#stage')!);
 search.onNavigate = (id) => show(id);
 river.onNavigate = (id) => show(id);
@@ -58,6 +68,10 @@ map.onSeedChange = (seed) => {
   slime.setSeedFromMap(seed);
   witch.setSeedFromMap(seed);
   river.setSeedFromMap(seed);
+  fortressCross.setSeedFromMap(seed);
+  fortressSpan.setSeedFromMap(seed);
+  monumentDouble.setSeedFromMap(seed);
+  monumentMulti.setSeedFromMap(seed);
 };
 
 let current: SearcherId = 'map';
@@ -131,6 +145,18 @@ function show(which: SearcherId): void {
   } else if (which === 'River') {
     river.setSeedFromMap(map.getSeed());
     panel.replaceChildren(river.root);
+  } else if (which === 'NetherFortressCross') {
+    fortressCross.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(fortressCross.root);
+  } else if (which === 'NetherFortressOverall') {
+    fortressSpan.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(fortressSpan.root);
+  } else if (which === 'DoubleMonument') {
+    monumentDouble.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(monumentDouble.root);
+  } else if (which === 'MultiMonument') {
+    monumentMulti.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(monumentMulti.root);
   } else {
     return;
   }
@@ -142,6 +168,10 @@ function show(which: SearcherId): void {
   else if (which === 'SlimeChunk') slime.refresh();
   else if (which === 'LowYSwampHut') witch.refresh();
   else if (which === 'River') river.refresh();
+  else if (which === 'NetherFortressCross') fortressCross.refresh();
+  else if (which === 'NetherFortressOverall') fortressSpan.refresh();
+  else if (which === 'DoubleMonument') monumentDouble.refresh();
+  else if (which === 'MultiMonument') monumentMulti.refresh();
   else search.refresh();
 }
 
@@ -210,6 +240,10 @@ onLocale(() => {
   slime.refresh();
   witch.refresh();
   river.refresh();
+  fortressCross.refresh();
+  fortressSpan.refresh();
+  monumentDouble.refresh();
+  monumentMulti.refresh();
   results.refresh();
   paintSearcherBar();
   setWindowTitle();
@@ -230,6 +264,10 @@ window.aio?.onSessionImport?.((text) => {
   slime.setSeedFromMap(data.seed);
   witch.setSeedFromMap(data.seed);
   river.setSeedFromMap(data.seed);
+  fortressCross.setSeedFromMap(data.seed);
+  fortressSpan.setSeedFromMap(data.seed);
+  monumentDouble.setSeedFromMap(data.seed);
+  monumentMulti.setSeedFromMap(data.seed);
   show('map');
 });
 
@@ -249,11 +287,19 @@ void Promise.all([
     slime.setSeedFromMap(map.getSeed());
     witch.setSeedFromMap(map.getSeed());
     river.setSeedFromMap(map.getSeed());
+    fortressCross.setSeedFromMap(map.getSeed());
+    fortressSpan.setSeedFromMap(map.getSeed());
+    monumentDouble.setSeedFromMap(map.getSeed());
+    monumentMulti.setSeedFromMap(map.getSeed());
   });
   search.load(versions);
   slime.load(versions);
   witch.load(versions);
   river.load(versions);
+  fortressCross.load(versions);
+  fortressSpan.load(versions);
+  monumentDouble.load(versions);
+  monumentMulti.load(versions);
   applyI18n();
   map.refreshText();
   results.refresh();

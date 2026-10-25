@@ -1,9 +1,13 @@
+#include "double_monument_host.h"
+#include "fortress_host.h"
 #include "lowy_host.h"
 #include "map_service.h"
+#include "multi_monument_host.h"
 #include "river_host.h"
 #include "slime_host.h"
 #include "witch_host.h"
 
+#include "cubiomes/finders.h"
 #include "cubiomes/generator.h"
 #include "cubiomes/util.h"
 
@@ -154,6 +158,25 @@ Napi::Value BiomeAt(const Napi::CallbackInfo &info)
     return out;
 }
 
+Napi::Object BoxToObject(Napi::Env env, const Box3i &box)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("minX", box.minX);
+    out.Set("minY", box.minY);
+    out.Set("minZ", box.minZ);
+    out.Set("maxX", box.maxX);
+    out.Set("maxY", box.maxY);
+    out.Set("maxZ", box.maxZ);
+    return out;
+}
+
+Napi::Array BoxesToArray(Napi::Env env, const std::vector<Box3i> &boxes)
+{
+    Napi::Array out = Napi::Array::New(env, boxes.size());
+    for (size_t i = 0; i < boxes.size(); i++) out.Set(i, BoxToObject(env, boxes[i]));
+    return out;
+}
+
 Napi::Value Structures(const Napi::CallbackInfo &info)
 {
     Napi::Object args = info[0].As<Napi::Object>();
@@ -177,8 +200,33 @@ Napi::Value Structures(const Napi::CallbackInfo &info)
         item.Set("x", found[i].x);
         item.Set("z", found[i].z);
         item.Set("variant", found[i].variant);
+        if (found[i].hasFrame) {
+            item.Set("large", BoxToObject(info.Env(), found[i].large));
+            item.Set("pieces", BoxesToArray(info.Env(), found[i].pieces));
+        }
         out.Set(i, item);
     }
+    return out;
+}
+
+Napi::Value StructureBounds(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    int type = args.Get("type").As<Napi::Number>().Int32Value();
+    int x = args.Get("x").As<Napi::Number>().Int32Value();
+    int z = args.Get("z").As<Napi::Number>().Int32Value();
+    int64_t seed = readSeed(args.Get("seed"), true);
+    if (type != Fortress) return info.Env().Null();
+
+    FortressBounds bounds;
+    if (!fortressBounds(mc, static_cast<uint64_t>(seed), x, z, bounds)) return info.Env().Null();
+
+    Napi::Object out = Napi::Object::New(info.Env());
+    out.Set("large", BoxToObject(info.Env(), bounds.large));
+    out.Set("start", BoxToObject(info.Env(), bounds.start));
+    out.Set("small", BoxToObject(info.Env(), bounds.start));
+    out.Set("pieces", BoxesToArray(info.Env(), bounds.pieces));
     return out;
 }
 
@@ -513,6 +561,191 @@ Napi::Value RiverSearchStop(const Napi::CallbackInfo &info)
     return info.Env().Undefined();
 }
 
+Napi::Value FortressSearchStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    FortressRequest request;
+    request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.mode = args.Get("mode").As<Napi::Number>().Int32Value();
+    request.crossFilter = args.Has("crossFilter") ? args.Get("crossFilter").As<Napi::Number>().Int32Value() : 2;
+    request.minLong = args.Has("minLong") ? args.Get("minLong").As<Napi::Number>().Int32Value() : 0;
+    request.minShort = args.Has("minShort") ? args.Get("minShort").As<Napi::Number>().Int32Value() : 0;
+    request.minHeight = args.Has("minHeight") ? args.Get("minHeight").As<Napi::Number>().Int32Value() : 16;
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = fortressStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object fortressStatusToObject(Napi::Env env, const FortressStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("y", hit.y);
+        item.Set("z", hit.z);
+        item.Set("crossings", hit.crossings);
+        item.Set("spanX", hit.spanX);
+        item.Set("spanY", hit.spanY);
+        item.Set("spanZ", hit.spanZ);
+        item.Set("area", hit.area);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value FortressSearchPoll(const Napi::CallbackInfo &info)
+{
+    return fortressStatusToObject(info.Env(), fortressPoll());
+}
+
+Napi::Value FortressSearchPause(const Napi::CallbackInfo &info)
+{
+    fortressPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value FortressSearchResume(const Napi::CallbackInfo &info)
+{
+    fortressResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value FortressSearchStop(const Napi::CallbackInfo &info)
+{
+    fortressStop();
+    return info.Env().Undefined();
+}
+
+Napi::Object monumentStatusToObject(Napi::Env env, const MonumentStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("z", hit.z);
+        item.Set("dx", hit.dx);
+        item.Set("dz", hit.dz);
+        item.Set("count", hit.count);
+        item.Set("area", hit.area);
+        item.Set("lowEfficiency", hit.lowEfficiency);
+        item.Set("oceanType", hit.oceanType);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value MultiMonumentSearchStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    MultiMonumentRequest request;
+    request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.level = args.Get("level").As<Napi::Number>().Int32Value();
+    request.biomeCheck = readBool(args, "biomeCheck");
+    request.minGroupArea = args.Has("minGroupArea") ? args.Get("minGroupArea").As<Napi::Number>().Int32Value() : 6728;
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = multiMonumentStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Value MultiMonumentSearchPoll(const Napi::CallbackInfo &info)
+{
+    return monumentStatusToObject(info.Env(), multiMonumentPoll());
+}
+
+Napi::Value MultiMonumentSearchPause(const Napi::CallbackInfo &info)
+{
+    multiMonumentPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value MultiMonumentSearchResume(const Napi::CallbackInfo &info)
+{
+    multiMonumentResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value MultiMonumentSearchStop(const Napi::CallbackInfo &info)
+{
+    multiMonumentStop();
+    return info.Env().Undefined();
+}
+
+Napi::Value DoubleMonumentSearchStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    DoubleMonumentRequest request;
+    request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = doubleMonumentStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Value DoubleMonumentSearchPoll(const Napi::CallbackInfo &info)
+{
+    return monumentStatusToObject(info.Env(), doubleMonumentPoll());
+}
+
+Napi::Value DoubleMonumentSearchPause(const Napi::CallbackInfo &info)
+{
+    doubleMonumentPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value DoubleMonumentSearchResume(const Napi::CallbackInfo &info)
+{
+    doubleMonumentResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value DoubleMonumentSearchStop(const Napi::CallbackInfo &info)
+{
+    doubleMonumentStop();
+    return info.Env().Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set("versions", Napi::Function::New(env, Versions));
@@ -522,6 +755,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("slimeMask", Napi::Function::New(env, SlimeMask));
     exports.Set("biomeAt", Napi::Function::New(env, BiomeAt));
     exports.Set("structures", Napi::Function::New(env, Structures));
+    exports.Set("structureBounds", Napi::Function::New(env, StructureBounds));
     exports.Set("weirdness", Napi::Function::New(env, Weirdness));
     exports.Set("lowySupports", Napi::Function::New(env, Supports));
     exports.Set("searchStart", Napi::Function::New(env, SearchStart));
@@ -544,6 +778,21 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("riverSearchPause", Napi::Function::New(env, RiverSearchPause));
     exports.Set("riverSearchResume", Napi::Function::New(env, RiverSearchResume));
     exports.Set("riverSearchStop", Napi::Function::New(env, RiverSearchStop));
+    exports.Set("fortressSearchStart", Napi::Function::New(env, FortressSearchStart));
+    exports.Set("fortressSearchPoll", Napi::Function::New(env, FortressSearchPoll));
+    exports.Set("fortressSearchPause", Napi::Function::New(env, FortressSearchPause));
+    exports.Set("fortressSearchResume", Napi::Function::New(env, FortressSearchResume));
+    exports.Set("fortressSearchStop", Napi::Function::New(env, FortressSearchStop));
+    exports.Set("multiMonumentSearchStart", Napi::Function::New(env, MultiMonumentSearchStart));
+    exports.Set("multiMonumentSearchPoll", Napi::Function::New(env, MultiMonumentSearchPoll));
+    exports.Set("multiMonumentSearchPause", Napi::Function::New(env, MultiMonumentSearchPause));
+    exports.Set("multiMonumentSearchResume", Napi::Function::New(env, MultiMonumentSearchResume));
+    exports.Set("multiMonumentSearchStop", Napi::Function::New(env, MultiMonumentSearchStop));
+    exports.Set("doubleMonumentSearchStart", Napi::Function::New(env, DoubleMonumentSearchStart));
+    exports.Set("doubleMonumentSearchPoll", Napi::Function::New(env, DoubleMonumentSearchPoll));
+    exports.Set("doubleMonumentSearchPause", Napi::Function::New(env, DoubleMonumentSearchPause));
+    exports.Set("doubleMonumentSearchResume", Napi::Function::New(env, DoubleMonumentSearchResume));
+    exports.Set("doubleMonumentSearchStop", Napi::Function::New(env, DoubleMonumentSearchStop));
     return exports;
 }
 

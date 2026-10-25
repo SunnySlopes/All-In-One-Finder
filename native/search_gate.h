@@ -16,6 +16,9 @@ enum class SearchOwner {
     Slime,
     Witch,
     River,
+    Fortress,
+    MultiMonument,
+    DoubleMonument,
 };
 
 /** true = 拿到闸门；false = 已有搜索正在运行。 */

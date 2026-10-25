@@ -293,7 +293,6 @@ void job(LowyRequest request)
             auto found = runOnce(request, request.seeds[i]);
             auto filtered = filterHits(found, request.seeds[i]);
             all.insert(all.end(), filtered.begin(), filtered.end());
-            publish(all, true, false, "");
         }
     } catch (const std::bad_alloc &) {
         error = "out-of-memory";
@@ -301,6 +300,20 @@ void job(LowyRequest request)
         error = ex.what();
     }
     setActiveOctaveACache(nullptr);
+
+    if (gProgress.try_stop.load()) {
+        all.clear();
+    } else {
+        std::sort(all.begin(), all.end(), [](const LowyHit &a, const LowyHit &b) {
+            if (a.total != b.total) return a.total > b.total;
+            const int64_t da = static_cast<int64_t>(a.x) * a.x + static_cast<int64_t>(a.z) * a.z;
+            const int64_t db = static_cast<int64_t>(b.x) * b.x + static_cast<int64_t>(b.z) * b.z;
+            if (da != db) return da < db;
+            if (a.x != b.x) return a.x < b.x;
+            return a.z < b.z;
+        });
+        if (all.size() > 1000) all.resize(1000);
+    }
     publish(all, false, true, error);
     searchGateRelease(SearchOwner::Cave);
 }
@@ -348,6 +361,10 @@ std::string lowyStart(const LowyRequest &request)
     const long long height = (long long)request.maxZ - request.minZ + 1;
     if (width <= 0 || height <= 0) return "bad-bounds";
     if (width > 60000001LL || height > 60000001LL) return "area-too-large";
+    /* 超大范围（> 20000001²）时，溶洞面积占比至少 90%；大坑模式不受此限制。 */
+    if (request.mode != 2 && width * height > 20000001LL * 20000001LL && request.ratioPercent < 90.0f) {
+        return "bad-ratio";
+    }
     {
         std::lock_guard<std::mutex> lock(gMu);
         if (gStatus.running) return "busy";

@@ -273,6 +273,77 @@ async function runSmoke() {
   } catch (error) {
     riverError = error && error.message ? error.message : String(error);
   }
+  let fortress = null;
+  let fortressError = '';
+  try {
+    addon.fortressSearchStart({
+      mc: newest.id,
+      threads: 2,
+      mode: 0,
+      crossFilter: 2,
+      minX: -2048,
+      maxX: 2047,
+      minZ: -2048,
+      maxZ: 2047,
+      seeds: ['0'],
+    });
+    const started = Date.now();
+    while (Date.now() - started < 60000) {
+      fortress = addon.fortressSearchPoll();
+      if (fortress.done) break;
+      await sleep(100);
+    }
+    if (fortress && !fortress.done) addon.fortressSearchStop();
+  } catch (error) {
+    fortressError = error && error.message ? error.message : String(error);
+  }
+  let multiMonument = null;
+  let multiMonumentError = '';
+  try {
+    addon.multiMonumentSearchStart({
+      mc: newest.id,
+      threads: 2,
+      level: 3,
+      biomeCheck: true,
+      minGroupArea: 6728,
+      minX: -512,
+      maxX: 511,
+      minZ: -512,
+      maxZ: 511,
+      seeds: ['0'],
+    });
+    const started = Date.now();
+    while (Date.now() - started < 60000) {
+      multiMonument = addon.multiMonumentSearchPoll();
+      if (multiMonument.done) break;
+      await sleep(100);
+    }
+    if (multiMonument && !multiMonument.done) addon.multiMonumentSearchStop();
+  } catch (error) {
+    multiMonumentError = error && error.message ? error.message : String(error);
+  }
+  let doubleMonument = null;
+  let doubleMonumentError = '';
+  try {
+    addon.doubleMonumentSearchStart({
+      mc: newest.id,
+      threads: 2,
+      minX: -512,
+      maxX: 511,
+      minZ: -512,
+      maxZ: 511,
+      seeds: ['0'],
+    });
+    const started = Date.now();
+    while (Date.now() - started < 60000) {
+      doubleMonument = addon.doubleMonumentSearchPoll();
+      if (doubleMonument.done) break;
+      await sleep(100);
+    }
+    if (doubleMonument && !doubleMonument.done) addon.doubleMonumentSearchStop();
+  } catch (error) {
+    doubleMonumentError = error && error.message ? error.message : String(error);
+  }
   const colored = Buffer.isBuffer(tile) && tile.some((byte) => byte !== 0 && byte !== 255);
   const fineColored = Buffer.isBuffer(fineTile) && fineTile.length === 64 * 64 * 4
     && fineTile.some((byte) => byte !== 0 && byte !== 255);
@@ -334,6 +405,30 @@ async function runSmoke() {
       } : null,
     } : null,
     riverError,
+    fortress: fortress ? {
+      done: fortress.done,
+      error: fortress.error,
+      hits: fortress.hits.length,
+      first: fortress.hits[0] ? {
+        x: fortress.hits[0].x,
+        y: fortress.hits[0].y,
+        z: fortress.hits[0].z,
+        crossings: fortress.hits[0].crossings,
+      } : null,
+    } : null,
+    fortressError,
+    multiMonument: multiMonument ? {
+      done: multiMonument.done,
+      error: multiMonument.error,
+      hits: multiMonument.hits.length,
+    } : null,
+    multiMonumentError,
+    doubleMonument: doubleMonument ? {
+      done: doubleMonument.done,
+      error: doubleMonument.error,
+      hits: doubleMonument.hits.length,
+    } : null,
+    doubleMonumentError,
   };
   const checks = {
     versions: versions.length > 10,
@@ -351,6 +446,12 @@ async function runSmoke() {
     witchHits: !!(witch && witch.hits.length > 0),
     riverDone: !!(river && river.done),
     riverError: !!river && !river.error && !riverError,
+    fortressDone: !!(fortress && fortress.done),
+    fortressError: !!fortress && !fortress.error && !fortressError,
+    multiMonumentDone: !!(multiMonument && multiMonument.done),
+    multiMonumentError: !!multiMonument && !multiMonument.error && !multiMonumentError,
+    doubleMonumentDone: !!(doubleMonument && doubleMonument.done),
+    doubleMonumentError: !!doubleMonument && !doubleMonument.error && !doubleMonumentError,
   };
   const ok = Object.values(checks).every(Boolean);
   report.checks = checks;

@@ -10,6 +10,7 @@
 [submodule "tools/doublemonument"]
 	path = tools/doublemonument
 	url = https://github.com/SunnySlopes/DoubleMonumentForFixedSeed.git
+	branch = all-in-one-base
 [submodule "tools/multimonument"]
 	path = tools/multimonument
 	url = https://github.com/Whisperlyric/MultiMonumentFinder.git
@@ -20,12 +21,6 @@
 [submodule "tools/fortress"]
 	path = tools/fortress
 	url = https://github.com/SunnySlopes/FortressFinderGUI.git
-[submodule "tools/trialspawner"]
-	path = tools/trialspawner
-	url = https://github.com/ZCXEDTA/TrialSpawnerFinder.git
-[submodule "tools/geode"]
-	path = tools/geode
-	url = https://github.com/SunnySlopes/GeodeFinderGUI.git
 [submodule "tools/flower"]
 	path = tools/flower
 	url = https://github.com/SunnySlopes/FlowerFinderGUI.git

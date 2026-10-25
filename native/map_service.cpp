@@ -3,6 +3,7 @@
 #include "cubiomes/biomes.h"
 #include "cubiomes/biomenoise.h"
 #include "cubiomes/features/end_city.h"
+#include "cubiomes/features/fortress.h"
 #include "cubiomes/finders.h"
 #include "cubiomes/generator.h"
 #include "cubiomes/util.h"
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 namespace {
 
@@ -36,6 +38,58 @@ struct StrongholdCache {
 };
 
 StrongholdCache gStrongholds;
+
+/** Piece-level fortress frames are reused while the seed/version stays unchanged. */
+std::mutex gFrameMu;
+std::unordered_map<uint64_t, FortressBounds> gFrameCache;
+int gFrameMc = -1;
+uint64_t gFrameSeed = 0;
+uint32_t gFrameFlags = 0;
+
+uint64_t frameKey(int x, int z)
+{
+    return (static_cast<uint64_t>(static_cast<uint32_t>(x)) << 32)
+        | static_cast<uint32_t>(z);
+}
+
+bool cachedFortressBounds(int mc, uint64_t seed, uint32_t flags, int blockX, int blockZ,
+                          FortressBounds &out)
+{
+    const uint64_t key = frameKey(blockX, blockZ);
+    {
+        std::lock_guard<std::mutex> lock(gFrameMu);
+        if (gFrameMc != mc || gFrameSeed != seed || gFrameFlags != flags) {
+            gFrameCache.clear();
+            gFrameMc = mc;
+            gFrameSeed = seed;
+            gFrameFlags = flags;
+        } else {
+            auto found = gFrameCache.find(key);
+            if (found != gFrameCache.end()) {
+                out = found->second;
+                return true;
+            }
+        }
+    }
+
+    FortressBounds computed;
+    if (!fortressBounds(mc, seed, blockX, blockZ, computed)) return false;
+
+    {
+        std::lock_guard<std::mutex> lock(gFrameMu);
+        if (gFrameMc != mc || gFrameSeed != seed || gFrameFlags != flags) {
+            gFrameCache.clear();
+            gFrameMc = mc;
+            gFrameSeed = seed;
+            gFrameFlags = flags;
+        }
+        if (gFrameCache.size() > 2048) gFrameCache.clear();
+        auto inserted = gFrameCache.emplace(key, std::move(computed));
+        out = inserted.first->second;
+    }
+    return true;
+}
+
 Pos gSpawn{};
 int gSpawnMc = -1;
 uint64_t gSpawnSeed = 0;
@@ -162,8 +216,11 @@ void ensureStrongholds(int mc, uint64_t seed, uint32_t flags)
     ensureGenerator(mc, seed, DIM_OVERWORLD, flags);
     gStrongholds.points.clear();
     StrongholdIter iter;
-    Pos first = initFirstStronghold(&iter, mc, seed);
-    if (first.x != 0 || first.z != 0) gStrongholds.points.push_back(first);
+    // initFirstStronghold() only provides an approximate first-stronghold
+    // position (+/-112 blocks). It is not a real structure location, so keep
+    // it out of the map overlay; nextStronghold() below yields the accurate
+    // first stronghold (and every following one).
+    initFirstStronghold(&iter, mc, seed);
     for (int i = 0; i < 128; i++) {
         if (nextStronghold(&iter, &gGen) <= 0) break;
         gStrongholds.points.push_back(iter.pos);
@@ -520,5 +577,52 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
             }
         }
     }
+
+    if (dim == DIM_NETHER && wanted(types, Fortress)) {
+        for (PlacedFeature &item : out) {
+            if (item.type != Fortress) continue;
+            FortressBounds bounds;
+            if (!cachedFortressBounds(mc, seed, flags, item.x, item.z, bounds)) continue;
+            item.hasFrame = true;
+            item.large = bounds.large;
+            item.pieces = std::move(bounds.pieces);
+        }
+    }
+
     return out;
+}
+
+bool fortressBounds(int mc, uint64_t seed, int blockX, int blockZ, FortressBounds &out)
+{
+    Piece pieces[400];
+    const int n = getFortressPieces(pieces, 400, mc, seed, blockX >> 4, blockZ >> 4);
+    if (n <= 0) return false;
+
+    out = {};
+    auto toBox = [](const Piece &piece) {
+        Box3i box;
+        box.minX = piece.bb0.x;
+        box.minY = piece.bb0.y;
+        box.minZ = piece.bb0.z;
+        box.maxX = piece.bb1.x;
+        box.maxY = piece.bb1.y;
+        box.maxZ = piece.bb1.z;
+        return box;
+    };
+
+    out.start = toBox(pieces[0]);
+    out.large = out.start;
+    out.pieces.reserve(static_cast<size_t>(n));
+    for (int i = 0; i < n; i++) {
+        const Piece &p = pieces[i];
+        Box3i box = toBox(p);
+        out.pieces.push_back(box);
+        out.large.minX = std::min(out.large.minX, box.minX);
+        out.large.minY = std::min(out.large.minY, box.minY);
+        out.large.minZ = std::min(out.large.minZ, box.minZ);
+        out.large.maxX = std::max(out.large.maxX, box.maxX);
+        out.large.maxY = std::max(out.large.maxY, box.maxY);
+        out.large.maxZ = std::max(out.large.maxZ, box.maxZ);
+    }
+    return true;
 }

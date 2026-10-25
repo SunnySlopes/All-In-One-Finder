@@ -35,7 +35,7 @@ const vite = spawn('npm', ['exec', 'vite', '--', '--port', '5173', '--strictPort
   env,
 });
 await waitForPort(5173);
-const electron = spawn('npm', ['exec', 'electron', '--', '.'], {
+const electron = spawn('npm', ['exec', 'electron', '--', '--no-sandbox', '.'], {
   cwd: root,
   stdio: 'inherit',
   shell: true,

@@ -177,6 +177,7 @@ export function buildNative() {
   if (exports.length < 20) throw new Error(`expected napi exports from electron.exe, found ${exports.length}`);
   writeNapiProxy(buildDir, exports);
   const env = { ...process.env, PATH: `${gccBin};${process.env.PATH || ''}` };
+  const doubleRefactored = process.env.AIO_DOUBLE_MONUMENT_REFACTORED === '0' ? 'OFF' : 'ON';
   const configure = spawnSync('cmake', [
     '-S', path.join(root, 'native'),
     '-B', buildDir,
@@ -184,6 +185,7 @@ export function buildNative() {
     '-DCMAKE_BUILD_TYPE=Release',
     `-DCMAKE_C_COMPILER=${gcc}`,
     `-DCMAKE_CXX_COMPILER=${gxx}`,
+    `-DAIO_DOUBLE_MONUMENT_REFACTORED=${doubleRefactored}`,
     `-DNODE_ADDON_API_DIR=${path.join(root, 'node_modules', 'node-addon-api').replaceAll('\\', '/')}`,
     `-DNODE_API_HEADERS_DIR=${path.join(root, 'node_modules', 'node-api-headers', 'include').replaceAll('\\', '/')}`,
   ], { stdio: 'inherit', env, cwd: root });
@@ -191,6 +193,15 @@ export function buildNative() {
   const built = spawnSync('cmake', ['--build', buildDir], { stdio: 'inherit', env, cwd: root });
   if (built.status !== 0) process.exit(built.status ?? 1);
   if (!fs.existsSync(nativeNodePath())) throw new Error('native build did not produce allinone.node');
+
+  // MinGW 的 winpthread 在部分链接组合下仍会留下 libwinpthread-1.dll 导入。
+  // 这台机器能跑是因为 PATH 里有 MSYS2；别的机器没有，会导致 .node 加载失败。
+  // 把运行库放到 native/build，由 electron-builder 一并复制到应用目录/资源目录。
+  const winpthread = path.join(gccBin, 'libwinpthread-1.dll');
+  if (!fs.existsSync(winpthread)) {
+    throw new Error(`libwinpthread-1.dll not found at ${winpthread}`);
+  }
+  fs.copyFileSync(winpthread, path.join(buildDir, 'libwinpthread-1.dll'));
 }
 
 const invoked = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
