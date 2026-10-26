@@ -10,6 +10,16 @@ import {
 } from './native';
 import { type MapSessionData } from './session';
 
+export interface MapAreaOverlay {
+  kind: 'rect' | 'circle';
+  x: number;
+  z: number;
+  width?: number;
+  height?: number;
+  radius?: number;
+  color?: string;
+}
+
 interface JumpOptions {
   x: number;
   z: number;
@@ -17,12 +27,15 @@ interface JumpOptions {
   y?: number;
   dimension?: number;
   mcVersion?: string;
+  largeBiomes?: boolean;
   slimeChunks?: boolean;
   /** 打开这些结构图标（例如女巫小屋结果跳转时的 swamp_hut）。 */
   features?: string[];
   spawnCircles?: boolean;
   /** 刷怪环半径；缺省 [24,128]。 */
   spawnRadii?: number[];
+  /** 结果区域覆盖层；缺省会清掉上一块。 */
+  areaOverlay?: MapAreaOverlay | null;
 }
 
 const COLORS: Record<string, string> = {
@@ -77,6 +90,20 @@ const DEFAULT_FEATURES = [
   'bastion',
   'end_city',
 ];
+
+/**
+ * 地图版本下拉只保留 1.18 及以上（本程序只支持 Java 1.18+），并按新到旧排列。
+ * 原生 `versions()` 仍返回完整列表供其他面板解析版本档位，这里只裁剪地图选择器。
+ */
+function mapVersions(versions: McVersion[]): McVersion[] {
+  return versions.filter((item) => {
+    const match = /^(\d+)\.(\d+)/.exec(item.name);
+    if (!match) return false;
+    const major = Number(match[1]);
+    const minor = Number(match[2]);
+    return major > 1 || (major === 1 && minor >= 18);
+  }).reverse();
+}
 
 interface MapSession {
   seed: string;
@@ -215,6 +242,7 @@ export class MapView {
   private slimeSpan = { w: 0, h: 0 };
   private slimeFlight = false;
   private spawnOverlay: { x: number; z: number; radii?: number[] } | null = null;
+  private areaOverlay: MapAreaOverlay | null = null;
   private saveTimer = 0;
   private drawing = false;
   private drawQueued = false;
@@ -276,13 +304,13 @@ export class MapView {
   }
 
   async load(versions: McVersion[], features: FeatureInfo[]): Promise<void> {
-    this.versions = versions;
+    this.versions = mapVersions(versions);
     this.features = features;
-    this.version.innerHTML = versions.map((item) => `<option value="${item.id}">${item.name}</option>`).join('');
+    this.version.innerHTML = this.versions.map((item) => `<option value="${item.id}">${item.name}</option>`).join('');
     const session = await this.loadSession();
-    const preferred = (session?.version && versions.find((item) => item.name === session.version))
-      || versions.find((item) => item.name === '26.3')
-      || versions[versions.length - 1];
+    const preferred = (session?.version && this.versions.find((item) => item.name === session.version))
+      || this.versions.find((item) => item.name === '26.3')
+      || this.versions[0];
     if (preferred) this.version.value = String(preferred.id);
     if (session) {
       this.seed.value = session.seed;
@@ -316,6 +344,17 @@ export class MapView {
     return this.large.checked && Number(this.dimension.value) === 0;
   }
 
+  /** 当前地图版本名（例如 1.21.3 / 26.3），用于结果跳转时选择地图版本。 */
+  getVersionName(): string {
+    const version = this.versions.find((item) => String(item.id) === this.version.value);
+    return version?.name ?? '';
+  }
+
+  clearAreaOverlay(): void {
+    this.areaOverlay = null;
+    this.queueDraw();
+  }
+
   center(x: number, z: number): void {
     this.cx = x;
     this.cz = z;
@@ -332,6 +371,7 @@ export class MapView {
     this.seed.value = seed.trim();
     this.persistSession();
     this.clearSpawnCircles();
+    this.clearAreaOverlay();
     this.schedule(true);
     this.queueFeatures();
     if (announce) this.onSeedChange(seed.trim());
@@ -368,6 +408,9 @@ export class MapView {
     if (options.mcVersion) {
       const match = this.versions.find((item) => item.name === options.mcVersion);
       if (match) this.version.value = String(match.id);
+    }
+    if (options.largeBiomes != null) {
+      this.large.checked = options.largeBiomes;
     }
     if (options.dimension != null) {
       this.dimension.value = String(options.dimension);
@@ -409,6 +452,7 @@ export class MapView {
     this.spawnOverlay = options.spawnCircles
       ? { x: options.x, z: options.z, radii: options.spawnRadii }
       : null;
+    this.areaOverlay = options.areaOverlay ?? null;
     this.queueFeatures();
     requestAnimationFrame(() => {
       this.resize();
@@ -883,6 +927,7 @@ export class MapView {
       }
       this.evictTiles();
       this.drawGrid(ctx, scale);
+      this.drawAreaOverlay(ctx);
       this.drawSlime(ctx, state);
       this.drawSpawnCircles(ctx);
       this.drawStructureFrames(ctx);
@@ -912,6 +957,30 @@ export class MapView {
     ctx.arc(center.x, center.y, 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+
+  private drawAreaOverlay(ctx: CanvasRenderingContext2D): void {
+    const overlay = this.areaOverlay;
+    if (!overlay) return;
+    const color = overlay.color ?? '#e6bf5a';
+    if (overlay.kind === 'circle') {
+      const center = this.worldToScreen(overlay.x, overlay.z);
+      const radius = Math.max(1, overlay.radius ?? 128);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, radius * this.pixelsPerBlock, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    const width = Math.max(1, overlay.width ?? 1);
+    const height = Math.max(1, overlay.height ?? 1);
+    const minX = overlay.x - Math.floor(width / 2);
+    const minZ = overlay.z - Math.floor(height / 2);
+    this.drawWorldRect(ctx, minX, minZ, minX + width - 1, minZ + height - 1, color);
   }
 
   private paintLevel(ctx: CanvasRenderingContext2D, state: ReturnType<MapView['state']>, scale: number, request: boolean): void {

@@ -36,7 +36,7 @@ export const SEARCHER_ITEMS: SearcherItem[] = [
   { id: 'NetherFortressOverall', enabled: true, icon: 'blaze' },
   { id: 'TrialSpawner', enabled: false, icon: 'chambers' },
   { id: 'BuddingAmethyst', enabled: false, icon: 'geode' },
-  { id: 'FlowerFarm', enabled: false, icon: 'torchflower' },
+  { id: 'FlowerFarm', enabled: true, icon: 'torchflower' },
 ];
 
 const DRIPSTONE_TABS: SearcherId[] = ['LowYDripstoneCave', 'LowYPitDripstoneCave'];

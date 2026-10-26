@@ -23,6 +23,12 @@ set(LYSH "${CMAKE_SOURCE_DIR}/../tools/lowyswamphut/lysh-c")
 set(FORTRESS "${CMAKE_SOURCE_DIR}/../tools/fortress")
 set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
 set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
+set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower/jni")
+if (EXISTS "${FLOWER}/cubiomes/biomes.h")
+  message(WARNING
+    "tools/flower/jni/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
+    "Keep the nested cubiomes empty (or change the includes to angle brackets) so the single-node cubiomes stays unified.")
+endif()
 
 option(AIO_DOUBLE_MONUMENT_REFACTORED "doublemonument branch already renamed for AIO" ON)
 
@@ -80,6 +86,31 @@ target_compile_options(lysh_core PRIVATE
   -O3 -DNDEBUG -ffp-contract=off -mavx2
 )
 
+# 全花种：CTS 是 C11 + OpenMP，FlowerFarmSearch.cpp 是 C++20；单独编成 object
+# library，避免把 -include pre_cubiomes.h 传播到其他引擎源，同时保留
+# -ffp-contract=off / -fno-lto。
+set(FLOWER_C
+  "${FLOWER}/cts/climate.c"
+  "${FLOWER}/cts/biome.c"
+  "${FLOWER}/cts/engine.c"
+)
+add_library(flower_objs OBJECT
+  "${FLOWER}/FlowerFarmSearch.cpp"
+  ${FLOWER_C}
+)
+set_target_properties(flower_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(flower_objs PRIVATE
+  "${FLOWER}"
+  "${FLOWER}/cts"
+  "${CMAKE_SOURCE_DIR}/../tools"
+  "${CUBI}"
+)
+target_compile_definitions(flower_objs PRIVATE _WIN32)
+target_compile_options(flower_objs PRIVATE
+  -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto -fopenmp
+  -include "${FLOWER}/cxx_compat/pre_cubiomes.h"
+)
+
 set(HOT_CXX
   addon.cpp
   map_service.cpp
@@ -90,6 +121,7 @@ set(HOT_CXX
   fortress_host.cpp
   multi_monument_host.cpp
   double_monument_host.cpp
+  flower_host.cpp
   search_gate.cpp
   "${SLIME}/slime_search.cpp"
   "${SLIMEOPT}/src/geometry.cpp"
@@ -128,7 +160,13 @@ set(SLIME_C
   "${SLIMERADAR}/cpu_search.c"
   "${SLIMERADAR}/cpu_simd_avx2.c"
 )
-add_library(allinone SHARED ${HOT_CXX} ${SLIME_C} ${MONUMENT_C} "${CMAKE_BINARY_DIR}/napi_bind.cpp")
+add_library(allinone SHARED
+  ${HOT_CXX}
+  ${SLIME_C}
+  ${MONUMENT_C}
+  $<TARGET_OBJECTS:flower_objs>
+  "${CMAKE_BINARY_DIR}/napi_bind.cpp"
+)
 set_target_properties(allinone PROPERTIES
   PREFIX ""
   SUFFIX ".node"
@@ -138,6 +176,8 @@ target_include_directories(allinone PRIVATE
   "${NODE_ADDON_API_DIR}"
   "${NODE_API_HEADERS_DIR}"
   "${CMAKE_SOURCE_DIR}/../tools"
+  "${FLOWER}"
+  "${FLOWER}/cts"
   "${LOWY}"
   "${SLIMERADAR}"
   "${SLIMEOPT}/include"
@@ -168,7 +208,10 @@ set_source_files_properties("${SLIMERADAR}/cpu_simd_avx2.c"
 set_source_files_properties("${SLIMERADAR}/cpu_search.c"
   PROPERTIES COMPILE_OPTIONS "-march=x86-64-v3;-funroll-loops"
 )
-target_link_libraries(allinone PRIVATE cubiomes_objs lysh_core "${CMAKE_BINARY_DIR}/napi_proxy.o" -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+target_link_libraries(allinone PRIVATE
+  cubiomes_objs lysh_core "${CMAKE_BINARY_DIR}/napi_proxy.o"
+  -Wl,-Bstatic -lgomp -lwinpthread -Wl,-Bdynamic
+)
 target_link_options(allinone PRIVATE
   -flto
   -Wl,--gc-sections

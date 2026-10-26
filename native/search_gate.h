@@ -19,6 +19,7 @@ enum class SearchOwner {
     Fortress,
     MultiMonument,
     DoubleMonument,
+    Flower,
 };
 
 /** true = 拿到闸门；false = 已有搜索正在运行。 */

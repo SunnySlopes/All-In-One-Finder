@@ -101,6 +101,7 @@
       "bad-ratio": "面积占比超出允许范围。",
       "slime-start-failed": "史莱姆搜索启动失败。",
       "witch-start-failed": "低 Y 女巫小屋搜索启动失败。",
+      "flower-start-failed": "全花种搜索启动失败。",
       "river-start-failed": "河流搜索启动失败。",
       "search-start-failed": "搜索线程启动失败。",
       "unsupported-preset": "这个搜索不支持所选世界预设。",
@@ -358,5 +359,26 @@
       "frozen": "冰冻",
       "others": "其他"
     }
+  },
+  "flower": {
+    "longSide": "窗口长边",
+    "shortSide": "窗口短边",
+    "windowSquare": "窗口为正方形",
+    "fastMode": "快速模式",
+    "help": "全花种：在范围内寻找同时具备繁花森林、沼泽与苍白花园（1.21.4+）的 640×320 窗口。",
+    "phase": {
+      "0": "准备",
+      "1": "气候粗筛",
+      "2": "精校验"
+    },
+    "phaseProgress": "本阶段 {current}/{total}",
+    "overallProgress": "总进度 {current}/{total}",
+    "flowerArea": "繁花森林{area}",
+    "paleArea": "苍白花园{area}",
+    "swampArea": "沼泽{area}",
+    "nether": "地狱 {biome}",
+    "bonus": "花簇",
+    "bonusWildflowers": "野花簇",
+    "bonusCherry": "樱花簇"
   }
 }

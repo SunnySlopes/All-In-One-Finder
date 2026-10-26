@@ -2,6 +2,7 @@ import './style.css';
 import { escapeText, showNotice } from './dialog';
 import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n';
 import { MapView } from './map';
+import { FlowerPanel } from './flower';
 import { FortressPanel } from './fortress';
 import { MonumentPanel } from './monument';
 import { call, type FeatureInfo, type McVersion } from './native';
@@ -43,6 +44,7 @@ const map = new MapView();
 const search = new SearchPanel();
 const slime = new SlimePanel();
 const witch = new WitchPanel();
+const flower = new FlowerPanel();
 const river = new RiverPanel();
 const fortressCross = new FortressPanel('cross');
 const fortressSpan = new FortressPanel('span');
@@ -53,6 +55,7 @@ resultsHost.append(results.root);
 search.bindResults(results);
 slime.bindResults(results);
 witch.bindResults(results);
+flower.bindResults(results);
 river.bindResults(results);
 fortressCross.bindResults(results);
 fortressSpan.bindResults(results);
@@ -67,6 +70,7 @@ map.onSeedChange = (seed) => {
   search.setSeedFromMap(seed);
   slime.setSeedFromMap(seed);
   witch.setSeedFromMap(seed);
+  flower.setSeedFromMap(seed);
   river.setSeedFromMap(seed);
   fortressCross.setSeedFromMap(seed);
   fortressSpan.setSeedFromMap(seed);
@@ -147,6 +151,9 @@ function show(which: SearcherId): void {
   } else if (which === 'LowYSwampHut') {
     witch.setSeedFromMap(map.getSeed());
     panel.replaceChildren(witch.root);
+  } else if (which === 'FlowerFarm') {
+    flower.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(flower.root);
   } else if (which === 'River') {
     river.setSeedFromMap(map.getSeed());
     panel.replaceChildren(river.root);
@@ -172,6 +179,7 @@ function show(which: SearcherId): void {
   if (which === 'map') map.refreshText();
   else if (which === 'SlimeChunk') slime.refresh();
   else if (which === 'LowYSwampHut') witch.refresh();
+  else if (which === 'FlowerFarm') flower.refresh();
   else if (which === 'River') river.refresh();
   else if (which === 'NetherFortressCross') fortressCross.refresh();
   else if (which === 'NetherFortressOverall') fortressSpan.refresh();
@@ -244,6 +252,7 @@ onLocale(() => {
   search.refresh();
   slime.refresh();
   witch.refresh();
+  flower.refresh();
   river.refresh();
   fortressCross.refresh();
   fortressSpan.refresh();
@@ -268,6 +277,7 @@ window.aio?.onSessionImport?.((text) => {
   search.setSeedFromMap(data.seed);
   slime.setSeedFromMap(data.seed);
   witch.setSeedFromMap(data.seed);
+  flower.setSeedFromMap(data.seed);
   river.setSeedFromMap(data.seed);
   fortressCross.setSeedFromMap(data.seed);
   fortressSpan.setSeedFromMap(data.seed);
@@ -291,6 +301,7 @@ void Promise.all([
     search.setSeedFromMap(map.getSeed());
     slime.setSeedFromMap(map.getSeed());
     witch.setSeedFromMap(map.getSeed());
+    flower.setSeedFromMap(map.getSeed());
     river.setSeedFromMap(map.getSeed());
     fortressCross.setSeedFromMap(map.getSeed());
     fortressSpan.setSeedFromMap(map.getSeed());
@@ -300,6 +311,7 @@ void Promise.all([
   search.load(versions);
   slime.load(versions);
   witch.load(versions);
+  flower.load(versions);
   river.load(versions);
   fortressCross.load(versions);
   fortressSpan.load(versions);

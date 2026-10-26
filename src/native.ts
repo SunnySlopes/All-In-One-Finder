@@ -108,6 +108,46 @@ export interface WitchStatus {
   hits: WitchHit[];
 }
 
+export interface FlowerHit {
+  seed: string;
+  x: number;
+  z: number;
+  sideX: number;
+  sideZ: number;
+  flowerArea: number;
+  paleArea: number;
+  swampArea: number;
+  flowerX: number;
+  flowerY: number;
+  flowerZ: number;
+  paleX: number;
+  paleZ: number;
+  swampX: number;
+  swampZ: number;
+  /** 'X', 'Z' or '' for a square window. */
+  orient: string;
+  nether: string;
+  bonus: string;
+}
+
+export interface FlowerStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  /** 0 = prepare, 1 = climate screen, 2 = verify. */
+  phase: number;
+  current: number;
+  total: number;
+  phaseCurrent: number;
+  phaseTotal: number;
+  overallCurrent: number;
+  overallTotal: number;
+  seedIndex: number;
+  seedCount: number;
+  error: string;
+  hits: FlowerHit[];
+}
+
 export interface RiverHit {
   seed: string;
   x: number;
@@ -197,6 +237,7 @@ const HIT_POLL_OPS = new Set([
   'slimeFarmPoll',
   'witchSearchPoll',
   'riverSearchPoll',
+  'flowerFarmPoll',
   'fortressSearchPoll',
   'multiMonumentSearchPoll',
   'doubleMonumentSearchPoll',

@@ -13,7 +13,9 @@
 #include <stdexcept>
 #include <thread>
 
+#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
 #define DRIPSTONECAVE_FINDER_JNI_LIB
+#endif
 #include "dripstonecave_finder.cpp"
 #include "LargePitSearch.cpp"
 

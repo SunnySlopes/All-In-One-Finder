@@ -1,8 +1,17 @@
 import { parseCoords } from './coords';
 import { escapeText } from './dialog';
-import { applyI18n, t } from './i18n';
+import { flowerMapVersion, type FlowerVersionTier } from './flower';
+import { applyI18n, biomeLabel, t } from './i18n';
 import type { MapView } from './map';
-import type { FortressHit, MonumentHit, RiverHit, SearchHit, SlimeHit, WitchHit } from './native';
+import type {
+  FlowerHit,
+  FortressHit,
+  MonumentHit,
+  RiverHit,
+  SearchHit,
+  SlimeHit,
+  WitchHit,
+} from './native';
 import { RIVER_MAP_VERSION } from './river';
 import { isDripstoneTab, type SearcherId } from './searchers';
 import { slimeMapVersion, type SlimeVersionGroup } from './slime';
@@ -12,13 +21,14 @@ import { witchMapVersion, type WitchVersionGroup } from './witch';
 const FULL_RING_AREA = 49640;
 const RIVER_FULL_RING = 49640;
 
-type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress';
+type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress' | 'flower';
 export type WitchSortMode = 'height' | 'distance';
 
 function displayFor(tab: SearcherId): Display | null {
   if (tab === 'LowYSwampHut') return 'witch';
   if (tab === 'River') return 'river';
   if (tab === 'SlimeChunk') return 'slime';
+  if (tab === 'FlowerFarm') return 'flower';
   if (tab === 'DoubleMonument' || tab === 'MultiMonument') return 'monument';
   if (tab === 'NetherFortressCross' || tab === 'NetherFortressOverall') return 'fortress';
   if (isDripstoneTab(tab)) return 'lowy';
@@ -39,6 +49,8 @@ export class ResultsColumn {
   private hits: SearchHit[] = [];
   private slimeHits: SlimeHit[] = [];
   private witchHits: WitchHit[] = [];
+  private flowerHits: FlowerHit[] = [];
+  private flowerVersion: FlowerVersionTier = 'latest';
   private riverHits: RiverHit[] = [];
   private monumentHits: MonumentHit[] = [];
   private fortressHits: FortressHit[] = [];
@@ -197,6 +209,28 @@ export class ResultsColumn {
     }
   }
 
+  clearFlower(version: FlowerVersionTier, listMode = false): void {
+    this.flowerHits = [];
+    this.flowerVersion = version;
+    this.listMode = listMode;
+    if (displayFor(this.viewTab) === 'flower' || this.viewTab === 'map') this.display = 'flower';
+    this.map.clearSpawnCircles();
+    this.map.clearAreaOverlay();
+    this.updateSpawnUi();
+    this.paint();
+  }
+
+  setFlowerHits(hits: FlowerHit[], version: FlowerVersionTier): void {
+    const previous = this.flowerHits.length;
+    const changedVersion = version !== this.flowerVersion;
+    this.flowerVersion = version;
+    if (displayFor(this.viewTab) === 'flower' || this.viewTab === 'map') this.display = 'flower';
+    this.flowerHits = hits;
+    if (this.display !== 'flower') return;
+    if (changedVersion || hits.length !== previous) this.renderFlower();
+    else this.updateExportButtons();
+  }
+
   clearRiver(listMode = false): void {
     this.riverHits = [];
     this.listMode = listMode;
@@ -350,6 +384,11 @@ export class ResultsColumn {
       this.exportAllBtn.disabled = source.length === 0;
       return;
     }
+    if (this.display === 'flower') {
+      this.exportSeedsBtn.disabled = !(this.listMode && this.flowerHits.length > 0);
+      this.exportAllBtn.disabled = this.flowerHits.length === 0;
+      return;
+    }
     if (this.display === 'monument') {
       this.exportSeedsBtn.disabled = !(this.listMode && this.monumentHits.length > 0);
       this.exportAllBtn.disabled = this.monumentHits.length === 0;
@@ -383,6 +422,34 @@ export class ResultsColumn {
         dimension: 0,
         mcVersion: witchMapVersion(this.witchVersion),
         features: ['swamp_hut'],
+        spawnCircles: false,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
+  private performFlowerJump(hit: FlowerHit): void {
+    // 结果没有 Y；跳图用采样 y=256，关闭大型生物群系，并按结果方向画窗口矩形。
+    this.spawnCheck.checked = false;
+    this.onShowMap();
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.jumpTo({
+        x: hit.x,
+        z: hit.z,
+        seed: hit.seed,
+        y: 256,
+        dimension: 0,
+        mcVersion: flowerMapVersion(this.flowerVersion, this.map.getVersionName()),
+        largeBiomes: false,
+        areaOverlay: {
+          kind: 'rect',
+          x: hit.x,
+          z: hit.z,
+          width: hit.sideX,
+          height: hit.sideZ,
+          color: '#e6bf5a',
+        },
         spawnCircles: false,
       });
     };
@@ -445,6 +512,53 @@ export class ResultsColumn {
       });
     };
     requestAnimationFrame(jump);
+  }
+
+  private renderFlower(): void {
+    this.updateExportButtons();
+    if (!this.flowerHits.length) {
+      this.list.innerHTML = `<div class="hint results-empty" data-i18n="common.results.empty"></div>`;
+      applyI18n(this.list);
+      return;
+    }
+    const legacy = this.flowerVersion === 'legacy';
+    this.list.innerHTML = this.flowerHits.map((hit, index) => {
+      const stats = [
+        `<span>${escapeText(t('flower.flowerArea', { area: hit.flowerArea }))}</span>`,
+        legacy ? '' : `<span>${escapeText(t('flower.paleArea', { area: hit.paleArea }))}</span>`,
+        `<span>${escapeText(t('flower.swampArea', { area: hit.swampArea }))}</span>`,
+        `<span>${escapeText(t('flower.nether', { biome: biomeLabel(hit.nether) }))}</span>`,
+        flowerBonusText(hit.bonus),
+      ].filter(Boolean).join('');
+      return `<article class="result-card result-flower" data-index="${index}">
+        <div class="result-seed">${escapeText(hit.seed)}</div>
+        <div class="result-coords">
+          <span>(${hit.x}, ${hit.z})</span>
+          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+        </div>
+        <div class="result-stats">${stats}</div>
+      </article>`;
+    }).join('');
+    this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('.result-copy')) return;
+        const hit = this.flowerHits[Number(card.dataset.index)];
+        if (!hit) return;
+        this.jumpX.value = String(hit.x);
+        this.jumpZ.value = String(hit.z);
+        this.performFlowerJump(hit);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-copy').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.flowerHits[Number(button.dataset.index)];
+        if (!hit) return;
+        void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
+      });
+    });
+    applyI18n(this.list);
   }
 
   private renderMonument(): void {
@@ -549,6 +663,10 @@ export class ResultsColumn {
     }
     if (this.display === 'river') {
       this.renderRiver(true);
+      return;
+    }
+    if (this.display === 'flower') {
+      this.renderFlower();
       return;
     }
     if (this.display === 'monument') {
@@ -780,6 +898,11 @@ export class ResultsColumn {
       });
       return;
     }
+    if (this.display === 'flower') {
+      this.saveGrouped(this.flowerHits, 'flower-results.txt',
+        (hit) => flowerLine(hit, this.flowerVersion));
+      return;
+    }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     this.saveGrouped(this.hits, 'results.txt', (hit) => {
       const detail = showDetail
@@ -809,9 +932,10 @@ export class ResultsColumn {
     const seedSource = this.display === 'slime' ? this.slimeHits
       : this.display === 'witch' ? this.witchHits
         : this.display === 'river' ? this.riverHits
-          : this.display === 'monument' ? this.monumentHits
-            : this.display === 'fortress' ? this.fortressHits
-              : this.hits;
+          : this.display === 'flower' ? this.flowerHits
+            : this.display === 'monument' ? this.monumentHits
+              : this.display === 'fortress' ? this.fortressHits
+                : this.hits;
     const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
     void window.aio.saveFile('seeds.txt', seeds.join('\n'));
   }
@@ -853,6 +977,26 @@ function groupBySeed<T extends { seed: string }>(hits: T[]): Array<{ seed: strin
 function formatArea(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function flowerSide(hit: FlowerHit): string {
+  return hit.sideX === hit.sideZ ? String(hit.sideX) : `${hit.sideX}x${hit.sideZ}`;
+}
+
+function flowerBonusText(bonus: string): string {
+  const labels: string[] = [];
+  if (bonus.includes('wildflowers')) labels.push(t('flower.bonusWildflowers'));
+  if (bonus.includes('pink_petals')) labels.push(t('flower.bonusCherry'));
+  if (!labels.length) return '';
+  return `<span>${escapeText(t('flower.bonus'))} ${labels.map((label) => escapeText(label)).join('/')}</span>`;
+}
+
+function flowerLine(hit: FlowerHit, tier: FlowerVersionTier): string {
+  let line = `/tp ${hit.x} 64 ${hit.z} side=${flowerSide(hit)} flowerArea=${hit.flowerArea}`;
+  if (tier !== 'legacy') line += ` paleArea=${hit.paleArea}`;
+  line += ` swampArea=${hit.swampArea} nether=${hit.nether}`;
+  if (hit.bonus) line += ` bonus=${hit.bonus}`;
+  return line;
 }
 
 function witchCard(hit: WitchHit, index: number): string {

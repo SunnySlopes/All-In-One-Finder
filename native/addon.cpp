@@ -1,4 +1,5 @@
 #include "double_monument_host.h"
+#include "flower_host.h"
 #include "fortress_host.h"
 #include "lowy_host.h"
 #include "map_service.h"
@@ -490,6 +491,93 @@ Napi::Value WitchSearchStop(const Napi::CallbackInfo &info)
     return info.Env().Undefined();
 }
 
+Napi::Value FlowerFarmStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    FlowerRequest request;
+    request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+    request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+    request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+    request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    request.longSide = args.Get("longSide").As<Napi::Number>().Int32Value();
+    request.shortSide = args.Get("shortSide").As<Napi::Number>().Int32Value();
+    request.squareOnly = readBool(args, "squareOnly");
+    request.fastMode = readBool(args, "fastMode");
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = flowerStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object flowerStatusToObject(Napi::Env env, const FlowerStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("phase", status.phase);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("phaseCurrent", Napi::Number::New(env, static_cast<double>(status.phaseCurrent)));
+    out.Set("phaseTotal", Napi::Number::New(env, static_cast<double>(status.phaseTotal)));
+    out.Set("overallCurrent", Napi::Number::New(env, static_cast<double>(status.overallCurrent)));
+    out.Set("overallTotal", Napi::Number::New(env, static_cast<double>(status.overallTotal)));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("z", hit.z);
+        item.Set("sideX", hit.sideX);
+        item.Set("sideZ", hit.sideZ);
+        item.Set("flowerArea", hit.flowerArea);
+        item.Set("paleArea", hit.paleArea);
+        item.Set("swampArea", hit.swampArea);
+        item.Set("flowerX", hit.flowerX);
+        item.Set("flowerY", hit.flowerY);
+        item.Set("flowerZ", hit.flowerZ);
+        item.Set("paleX", hit.paleX);
+        item.Set("paleZ", hit.paleZ);
+        item.Set("swampX", hit.swampX);
+        item.Set("swampZ", hit.swampZ);
+        item.Set("orient", hit.orient ? std::string(1, hit.orient) : std::string());
+        item.Set("nether", hit.nether);
+        item.Set("bonus", hit.bonus);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value FlowerFarmPoll(const Napi::CallbackInfo &info)
+{
+    return flowerStatusToObject(info.Env(), flowerPoll());
+}
+
+Napi::Value FlowerFarmPause(const Napi::CallbackInfo &info)
+{
+    flowerPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value FlowerFarmResume(const Napi::CallbackInfo &info)
+{
+    flowerResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value FlowerFarmStop(const Napi::CallbackInfo &info)
+{
+    flowerStop();
+    return info.Env().Undefined();
+}
+
 Napi::Value RiverSearchStart(const Napi::CallbackInfo &info)
 {
     Napi::Object args = info[0].As<Napi::Object>();
@@ -773,6 +861,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("witchSearchPause", Napi::Function::New(env, WitchSearchPause));
     exports.Set("witchSearchResume", Napi::Function::New(env, WitchSearchResume));
     exports.Set("witchSearchStop", Napi::Function::New(env, WitchSearchStop));
+    exports.Set("flowerFarmStart", Napi::Function::New(env, FlowerFarmStart));
+    exports.Set("flowerFarmPoll", Napi::Function::New(env, FlowerFarmPoll));
+    exports.Set("flowerFarmPause", Napi::Function::New(env, FlowerFarmPause));
+    exports.Set("flowerFarmResume", Napi::Function::New(env, FlowerFarmResume));
+    exports.Set("flowerFarmStop", Napi::Function::New(env, FlowerFarmStop));
     exports.Set("riverSearchStart", Napi::Function::New(env, RiverSearchStart));
     exports.Set("riverSearchPoll", Napi::Function::New(env, RiverSearchPoll));
     exports.Set("riverSearchPause", Napi::Function::New(env, RiverSearchPause));

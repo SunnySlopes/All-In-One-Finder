@@ -101,6 +101,7 @@
       "bad-ratio": "The area ratio is outside the allowed range.",
       "slime-start-failed": "The slime search could not start.",
       "witch-start-failed": "The low-Y swamp hut search could not start.",
+      "flower-start-failed": "The flower farm search could not start.",
       "river-start-failed": "The river search could not start.",
       "search-start-failed": "The search thread could not start.",
       "unsupported-preset": "This preset is not supported by the search.",
@@ -358,5 +359,26 @@
       "frozen": "Frozen",
       "others": "Other"
     }
+  },
+  "flower": {
+    "longSide": "Window long side",
+    "shortSide": "Window short side",
+    "windowSquare": "Square window",
+    "fastMode": "Fast mode",
+    "help": "Flower Farm: finds 640×320 windows with flower forest, swamp and (1.21.4+) pale garden in one area.",
+    "phase": {
+      "0": "Prepare",
+      "1": "Climate screen",
+      "2": "Verify"
+    },
+    "phaseProgress": "Phase {current}/{total}",
+    "overallProgress": "Overall {current}/{total}",
+    "flowerArea": "Flower forest {area}",
+    "paleArea": "Pale garden {area}",
+    "swampArea": "Swamp {area}",
+    "nether": "Nether biome:{biome}",
+    "bonus": "petal(s)",
+    "bonusWildflowers": "Wildflowers",
+    "bonusCherry": "PinkPetals"
   }
 }
