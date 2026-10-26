@@ -1,7 +1,7 @@
 {
   "name": "all-in-one-finder",
   "productName": "All-In-One Finder",
-  "version": "0.4.1",
+  "version": "0.4.1.1",
   "private": true,
   "license": "GPL-3.0-only",
   "main": "electron/main.cjs",

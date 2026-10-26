@@ -37,9 +37,8 @@
 | 搜索器 | 基底子模块 |
 | --- | --- |
 | 全花种 | `tools/flower` |
-
-> 试炼刷怪笼（`tools/trialspawner`）与紫水晶母岩（`tools/geode`）的基底子模块已移除，
-> 待两个项目重构后再重新引入；`tools/` 下仅保留占位 README。
+| 试炼刷怪笼 | `tools/trial` |
+| 紫水晶母岩 | `tools/geode` |
 
 地图与结构定位底层依赖 [cubiomes](https://github.com/xpple/cubiomes)（`tools/cubiomes`）。
 

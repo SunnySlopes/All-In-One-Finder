@@ -30,3 +30,11 @@
 [submodule "tools/slime/slimeoptimizer"]
 	path = tools/slime/slimeoptimizer
 	url = https://github.com/CITYWIDESIGN/SlimeOptimizer.git
+[submodule "tools/geode"]
+	path = tools/geode
+	url = https://github.com/SunnySlopes/geode-native
+	branch = main
+[submodule "tools/trial"]
+	path = tools/trial
+	url = https://github.com/SunnySlopes/trial-spawner-native
+	branch = main
