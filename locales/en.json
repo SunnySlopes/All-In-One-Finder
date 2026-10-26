@@ -365,7 +365,7 @@
     "shortSide": "Window short side",
     "windowSquare": "Square window",
     "fastMode": "Fast mode",
-    "help": "Flower Farm: finds 640×320 windows with flower forest, swamp and (1.21.4+) pale garden in one area.",
+    "help": "Finds assigned size windows with flower forest, swamp and pale garden(1.21.4+) in given area.",
     "phase": {
       "0": "Prepare",
       "1": "Climate screen",
