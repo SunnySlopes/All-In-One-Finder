@@ -62,6 +62,44 @@ async function runSearch(start, poll, stop) {
   return normalize(status);
 }
 
+/** Trial results are ranked, so keep hit order; include deterministic counters as a baseline.
+ * `pruned` is thread-scheduling dependent (global ranking merge order) and is intentionally
+ * excluded; hits are expected to stay identical. */
+function normalizeTrial(status) {
+  return {
+    done: !!status.done,
+    error: status.error || '',
+    seedCount: status.seedCount,
+    total: status.total,
+    candidates: status.candidates,
+    layouts: status.layouts,
+    chunks: status.chunks,
+    hits: (status.hits || []).map(canon),
+  };
+}
+
+async function runTrial(start, poll, stop) {
+  try {
+    start();
+  } catch (error) {
+    return { startError: error && error.message ? error.message : String(error) };
+  }
+  const started = Date.now();
+  let status = null;
+  while (Date.now() - started < timeoutMs) {
+    status = poll();
+    if (status.done || status.error) break;
+    await sleep(50);
+  }
+  if (!status || (!status.done && !status.error)) {
+    try { stop(); } catch {}
+    await sleep(300);
+    return { timeout: true, last: status ? normalizeTrial(status) : null };
+  }
+  try { stop(); } catch {}
+  return normalizeTrial(status);
+}
+
 const versions = addon.versions();
 const features = addon.features();
 const mc = (versions.find((item) => item.name === '26.3') || versions[versions.length - 1]).id;
@@ -177,6 +215,70 @@ cases.doubleMonument = await runSearch(
     seeds: ['0', '12345', '-987654321'],
   }),
   () => addon.doubleMonumentSearchPoll(), () => addon.doubleMonumentSearchStop(),
+);
+
+// Trial engine: three generation tiers plus a larger area case. Bounds are exact
+// inclusive min/max; the square-side UI is only a shortcut that fills these four values.
+for (const [name, generation] of [['trial263', 3], ['trialGen1', 1], ['trialGen2', 2]]) {
+  cases[name] = await runTrial(
+    () => addon.trialStart({
+      generation, threads: 4, minX: -1000, maxX: 999, minZ: -1000, maxZ: 999, fullWorld: false,
+      clusterCircle: false, clusterRadius: 160, clusterLongSide: 320, clusterShortSide: 320,
+      minStructures: 2, minSpawners: 20, limit: 100,
+      conversionRatio: 1 / 6, seeds: ['0'],
+    }),
+    () => addon.trialPoll(), () => addon.trialStop(),
+  );
+}
+
+cases.trialRect = await runTrial(
+  () => addon.trialStart({
+    generation: 3, threads: 8, minX: -12000, maxX: 15000, minZ: -8000, maxZ: 6000, fullWorld: false,
+    clusterCircle: false, clusterRadius: 160, clusterLongSide: 320, clusterShortSide: 320,
+    minStructures: 2, minSpawners: 20, limit: 100,
+    conversionRatio: 1 / 6, seeds: ['0'],
+  }),
+  () => addon.trialPoll(), () => addon.trialStop(),
+);
+
+cases.trialCircleWindow = await runTrial(
+  () => addon.trialStart({
+    generation: 3, threads: 4, minX: -1000, maxX: 999, minZ: -1000, maxZ: 999, fullWorld: false,
+    clusterCircle: true, clusterRadius: 160, clusterLongSide: 320, clusterShortSide: 320,
+    minStructures: 2, minSpawners: 20, limit: 100,
+    conversionRatio: 1 / 6, seeds: ['0'],
+  }),
+  () => addon.trialPoll(), () => addon.trialStop(),
+);
+
+cases.trialRectWindow = await runTrial(
+  () => addon.trialStart({
+    generation: 3, threads: 4, minX: -3000, maxX: 2999, minZ: -3000, maxZ: 2999, fullWorld: false,
+    clusterCircle: false, clusterRadius: 320, clusterLongSide: 640, clusterShortSide: 320,
+    minStructures: 2, minSpawners: 20, limit: 100,
+    conversionRatio: 1 / 6, seeds: ['0'],
+  }),
+  () => addon.trialPoll(), () => addon.trialStop(),
+);
+
+cases.trialLarge = await runTrial(
+  () => addon.trialStart({
+    generation: 3, threads: 8, minX: -100000, maxX: 99999, minZ: -100000, maxZ: 99999, fullWorld: false,
+    clusterCircle: false, clusterRadius: 160, clusterLongSide: 320, clusterShortSide: 320,
+    minStructures: 2, minSpawners: 20, limit: 100,
+    conversionRatio: 1 / 6, seeds: ['12345'],
+  }),
+  () => addon.trialPoll(), () => addon.trialStop(),
+);
+
+cases.trialList = await runTrial(
+  () => addon.trialStart({
+    generation: 3, threads: 4, minX: -1000, maxX: 999, minZ: -1000, maxZ: 999, fullWorld: false,
+    clusterCircle: false, clusterRadius: 160, clusterLongSide: 320, clusterShortSide: 320,
+    minStructures: 2, minSpawners: 20, limit: 100,
+    conversionRatio: 1, seeds: ['0', '12345'],
+  }),
+  () => addon.trialPoll(), () => addon.trialStop(),
 );
 
 // Slowest case goes last so a timeout cannot leave later cases "busy".

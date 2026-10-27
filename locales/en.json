@@ -61,6 +61,7 @@
     "dialog": {
       "yes": "Yes",
       "no": "No",
+      "cancel": "Cancel",
       "close": "Close"
     },
     "results": {
@@ -102,6 +103,7 @@
       "slime-start-failed": "The slime search could not start.",
       "witch-start-failed": "The low-Y swamp hut search could not start.",
       "flower-start-failed": "The flower farm search could not start.",
+      "trial-start-failed": "The trial spawner search could not start.",
       "river-start-failed": "The river search could not start.",
       "search-start-failed": "The search thread could not start.",
       "unsupported-preset": "This preset is not supported by the search.",
@@ -365,6 +367,9 @@
     "shortSide": "Window short side",
     "windowSquare": "Square window",
     "fastMode": "Fast mode",
+    "simulationDistance": "Simulation distance",
+    "simulationDistanceHint": "Simulation distance (8-32): the window long side becomes 32 × distance + 16 (capped at 1024) and the window switches to square",
+    "badSimulationDistance": "Simulation distance must be an integer from 8 to 32.",
     "help": "Finds assigned size windows with flower forest, swamp and pale garden(1.21.4+) in given area.",
     "phase": {
       "0": "Prepare",
@@ -380,5 +385,41 @@
     "bonus": "petal(s)",
     "bonusWildflowers": "Wildflowers",
     "bonusCherry": "PinkPetals"
+  },
+  "trial": {
+    "clusterShape": "Window shape",
+    "clusterShapeRect": "Square",
+    "clusterShapeCircle": "Circle",
+    "clusterRadius": "Window radius",
+    "clusterLong": "Window long side",
+    "clusterShort": "Window short side",
+    "clusterSquareWindow": "Square window",
+    "simulationDistance": "Simulation distance",
+    "simulationDistanceHint": "Simulation distance (8-32): window long side becomes 32 × distance + 16 (capped at 1024) and the window switches to square",
+    "badSimulationDistance": "Simulation distance must be an integer from 8 to 32.",
+    "minStructures": "Min chambers",
+    "minSpawners": "Min spawners",
+    "conversionRatio": "Slow-spawner ratio",
+    "conversionRatioHint": "Range 0–1 inclusive; out-of-range values are adjusted automatically.",
+    "help": "With \"Square\" selected, the window long/short sides can be edited; with \"Circle\", only the window radius is used.",
+    "phase": {
+      "0": "Prepare",
+      "1": "Shard scan",
+      "2": "Finish"
+    },
+    "counters": "Candidates {candidates} / layouts {layouts}",
+    "paused": "Paused",
+    "pausing": "Pausing (waiting for the current shard)",
+    "pausingButton": "Pausing…",
+    "pausingEta": "Pausing: waiting for the current shard",
+    "restartNotice": "Search settings changed, so the checkpoint cannot resume; restarting from the beginning.",
+    "truncated": "Reached the per-seed limit of {limit}; results may be truncated.",
+    "slowWarning": "The chamber/spawner thresholds you entered are too low and will slow the search down. We recommend at least 3 trial chambers and 60 spawners. Do you want to adjust them?",
+    "warnAdjust": "Adjust",
+    "converted": "Converted spawners {count}",
+    "totalSpawners": "Total {count}",
+    "fastSpawners": "Fast {count}",
+    "slowSpawners": "Slow {count}",
+    "structures": "Structures {count}"
   }
 }

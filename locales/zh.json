@@ -61,6 +61,7 @@
     "dialog": {
       "yes": "是",
       "no": "否",
+      "cancel": "取消",
       "close": "关闭"
     },
     "results": {
@@ -102,6 +103,7 @@
       "slime-start-failed": "史莱姆搜索启动失败。",
       "witch-start-failed": "低 Y 女巫小屋搜索启动失败。",
       "flower-start-failed": "全花种搜索启动失败。",
+      "trial-start-failed": "试炼刷怪笼搜索启动失败。",
       "river-start-failed": "河流搜索启动失败。",
       "search-start-failed": "搜索线程启动失败。",
       "unsupported-preset": "这个搜索不支持所选世界预设。",
@@ -365,6 +367,9 @@
     "shortSide": "窗口短边",
     "windowSquare": "正方形窗口",
     "fastMode": "快速模式",
+    "simulationDistance": "模距",
+    "simulationDistanceHint": "simulation distance（8~32）：窗口长边 = 32×模距+16（上限 1024），并切换为正方形窗口",
+    "badSimulationDistance": "模距必须是 8 到 32 之间的整数。",
     "help": "在范围内寻找同时具备繁花森林、沼泽与苍白花园(1.21.4+)的指定范围窗口。",
     "phase": {
       "0": "准备",
@@ -380,5 +385,41 @@
     "bonus": "花簇",
     "bonusWildflowers": "野花簇",
     "bonusCherry": "樱花簇"
+  },
+  "trial": {
+    "clusterShape": "窗口形状",
+    "clusterShapeRect": "方形",
+    "clusterShapeCircle": "圆形",
+    "clusterRadius": "窗口半径",
+    "clusterLong": "窗口长边",
+    "clusterShort": "窗口短边",
+    "clusterSquareWindow": "正方形窗口",
+    "simulationDistance": "模距",
+    "simulationDistanceHint": "模距（8–32）：把窗口长边设为 32×模距+16（最大 1024），并切换为正方形窗口",
+    "badSimulationDistance": "模距需为 8–32 的整数。",
+    "minStructures": "最低密室数",
+    "minSpawners": "最低总刷怪笼数",
+    "conversionRatio": "慢速笼折算比例",
+    "conversionRatioHint": "范围 0–1（含上下界），超出会自动调整。",
+    "help": "选择“方形”时可编辑窗口长边/短边，选择“圆形”时只能用窗口半径。",
+    "phase": {
+      "0": "准备",
+      "1": "分片扫描",
+      "2": "收尾"
+    },
+    "counters": "候选 {candidates} / 布局 {layouts}",
+    "paused": "已暂停",
+    "pausing": "暂停中（等待当前分片完成）",
+    "pausingButton": "暂停中…",
+    "pausingEta": "暂停中：等待当前分片完成",
+    "restartNotice": "搜索参数已改变，无法续跑，将从开头重新开始。",
+    "truncated": "每个种子已达到 {limit} 条上限，结果可能被截断。",
+    "slowWarning": "你填写的密室数/笼数过低，将会导致搜索变慢，建议调大搜索参数至大于等于3试炼密室和大于等于60刷怪笼，是否调整？",
+    "warnAdjust": "调整",
+    "converted": "折算笼数 {count}",
+    "totalSpawners": "总笼数 {count}",
+    "fastSpawners": "其中快速笼 {count}",
+    "slowSpawners": "慢速笼 {count}",
+    "structures": "结构数 {count}"
   }
 }

@@ -572,7 +572,7 @@ function startUtility() {
   utility = utilityProcess.fork(utilityScript(), [], {
     serviceName: 'aio-native',
     stdio: 'inherit',
-    env: { ...process.env, AIO_NATIVE: nativePath() },
+    env: { ...process.env, AIO_NATIVE: nativePath(), AIO_DATA_DIR: app.getPath('userData') },
   });
   utility.on('exit', (code) => log(`native utility exited ${code}`));
   return new Promise((resolve) => {

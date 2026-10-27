@@ -10,18 +10,28 @@ import type {
   RiverHit,
   SearchHit,
   SlimeHit,
+  TrialHit,
   WitchHit,
 } from './native';
 import { RIVER_MAP_VERSION } from './river';
 import { isDripstoneTab, type SearcherId } from './searchers';
 import { slimeMapVersion, type SlimeVersionGroup } from './slime';
+import { trialMapVersion, type TrialVersionTier } from './trial';
 import { witchMapVersion, type WitchVersionGroup } from './witch';
 
 /** 24 < r <= 128 刷怪环的格点总面积；溶洞与史莱姆共用同一口径，河流展示也沿用该分母。 */
 const FULL_RING_AREA = 49640;
 const RIVER_FULL_RING = 49640;
 
-type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress' | 'flower';
+/** The trial statistics window, used for map overlays. */
+export interface TrialWindowView {
+  circle: boolean;
+  radius: number;
+  longSide: number;
+  shortSide: number;
+}
+
+type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress' | 'flower' | 'trial';
 export type WitchSortMode = 'height' | 'distance';
 
 function displayFor(tab: SearcherId): Display | null {
@@ -29,6 +39,7 @@ function displayFor(tab: SearcherId): Display | null {
   if (tab === 'River') return 'river';
   if (tab === 'SlimeChunk') return 'slime';
   if (tab === 'FlowerFarm') return 'flower';
+  if (tab === 'TrialSpawner') return 'trial';
   if (tab === 'DoubleMonument' || tab === 'MultiMonument') return 'monument';
   if (tab === 'NetherFortressCross' || tab === 'NetherFortressOverall') return 'fortress';
   if (isDripstoneTab(tab)) return 'lowy';
@@ -51,6 +62,10 @@ export class ResultsColumn {
   private witchHits: WitchHit[] = [];
   private flowerHits: FlowerHit[] = [];
   private flowerVersion: FlowerVersionTier = 'latest';
+  private trialHits: TrialHit[] = [];
+  private trialVersion: TrialVersionTier = 'latest';
+  private trialWindow: TrialWindowView = { circle: false, radius: 160, longSide: 320, shortSide: 320 };
+  private trialRatio = 1 / 6;
   private riverHits: RiverHit[] = [];
   private monumentHits: MonumentHit[] = [];
   private fortressHits: FortressHit[] = [];
@@ -231,6 +246,47 @@ export class ResultsColumn {
     else this.updateExportButtons();
   }
 
+  clearTrial(
+    version: TrialVersionTier,
+    window: TrialWindowView,
+    conversionRatio: number,
+    listMode = false,
+  ): void {
+    this.trialHits = [];
+    this.trialVersion = version;
+    this.trialWindow = window;
+    this.trialRatio = conversionRatio;
+    this.listMode = listMode;
+    if (displayFor(this.viewTab) === 'trial' || this.viewTab === 'map') this.display = 'trial';
+    this.map.clearSpawnCircles();
+    this.map.clearAreaOverlay();
+    this.updateSpawnUi();
+    this.paint();
+  }
+
+  setTrialHits(
+    hits: TrialHit[],
+    version: TrialVersionTier,
+    window: TrialWindowView,
+    conversionRatio: number,
+  ): void {
+    const previous = this.trialHits.length;
+    const changedSetup = version !== this.trialVersion
+      || window.circle !== this.trialWindow.circle
+      || window.radius !== this.trialWindow.radius
+      || window.longSide !== this.trialWindow.longSide
+      || window.shortSide !== this.trialWindow.shortSide
+      || conversionRatio !== this.trialRatio;
+    this.trialVersion = version;
+    this.trialWindow = window;
+    this.trialRatio = conversionRatio;
+    if (displayFor(this.viewTab) === 'trial' || this.viewTab === 'map') this.display = 'trial';
+    this.trialHits = hits;
+    if (this.display !== 'trial') return;
+    if (changedSetup || hits.length !== previous) this.renderTrial();
+    else this.updateExportButtons();
+  }
+
   clearRiver(listMode = false): void {
     this.riverHits = [];
     this.listMode = listMode;
@@ -389,6 +445,11 @@ export class ResultsColumn {
       this.exportAllBtn.disabled = this.flowerHits.length === 0;
       return;
     }
+    if (this.display === 'trial') {
+      this.exportSeedsBtn.disabled = !(this.listMode && this.trialHits.length > 0);
+      this.exportAllBtn.disabled = this.trialHits.length === 0;
+      return;
+    }
     if (this.display === 'monument') {
       this.exportSeedsBtn.disabled = !(this.listMode && this.monumentHits.length > 0);
       this.exportAllBtn.disabled = this.monumentHits.length === 0;
@@ -450,6 +511,39 @@ export class ResultsColumn {
           height: hit.sideZ,
           color: '#e6bf5a',
         },
+        spawnCircles: false,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
+  private performTrialJump(hit: TrialHit): void {
+    // Cards never show Y; the jump uses the engine's display height (-30) and draws the
+    // statistics window (circle radius, or long/short rectangle sides) around the center.
+    this.spawnCheck.checked = false;
+    this.onShowMap();
+    const window = this.trialWindow;
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.jumpTo({
+        x: hit.x,
+        z: hit.z,
+        seed: hit.seed,
+        y: -30,
+        dimension: 0,
+        mcVersion: trialMapVersion(this.trialVersion),
+        largeBiomes: false,
+        features: ['trial_chambers'],
+        areaOverlay: window.circle
+          ? { kind: 'circle', x: hit.x, z: hit.z, radius: Math.max(1, window.radius), color: '#d0a24a' }
+          : {
+            kind: 'rect',
+            x: hit.x,
+            z: hit.z,
+            width: Math.max(1, window.longSide),
+            height: Math.max(1, window.shortSide),
+            color: '#d0a24a',
+          },
         spawnCircles: false,
       });
     };
@@ -561,6 +655,52 @@ export class ResultsColumn {
     applyI18n(this.list);
   }
 
+  private renderTrial(): void {
+    this.updateExportButtons();
+    if (!this.trialHits.length) {
+      this.list.innerHTML = `<div class="hint results-empty" data-i18n="common.results.empty"></div>`;
+      applyI18n(this.list);
+      return;
+    }
+    this.list.innerHTML = this.trialHits.map((hit, index) => {
+      const stats = [
+        `<span>${escapeText(t('trial.converted', { count: trialConverted(hit, this.trialRatio) }))}</span>`,
+        `<span>${escapeText(t('trial.totalSpawners', { count: hit.spawners }))}</span>`,
+        `<span>${escapeText(t('trial.fastSpawners', { count: hit.fastSpawners }))}</span>`,
+        `<span>${escapeText(t('trial.slowSpawners', { count: hit.slowSpawners }))}</span>`,
+        `<span>${escapeText(t('trial.structures', { count: hit.structures }))}</span>`,
+      ].join('');
+      return `<article class="result-card result-trial" data-index="${index}">
+        <div class="result-seed">${escapeText(hit.seed)}</div>
+        <div class="result-coords">
+          <span>(${hit.x}, ${hit.z})</span>
+          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+        </div>
+        <div class="result-stats">${stats}</div>
+      </article>`;
+    }).join('');
+    this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('.result-copy')) return;
+        const hit = this.trialHits[Number(card.dataset.index)];
+        if (!hit) return;
+        this.jumpX.value = String(hit.x);
+        this.jumpZ.value = String(hit.z);
+        this.performTrialJump(hit);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-copy').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.trialHits[Number(button.dataset.index)];
+        if (!hit) return;
+        void navigator.clipboard.writeText(`/tp ${hit.x} -30 ${hit.z}`);
+      });
+    });
+    applyI18n(this.list);
+  }
+
   private renderMonument(): void {
     this.updateExportButtons();
     if (!this.monumentHits.length) {
@@ -667,6 +807,10 @@ export class ResultsColumn {
     }
     if (this.display === 'flower') {
       this.renderFlower();
+      return;
+    }
+    if (this.display === 'trial') {
+      this.renderTrial();
       return;
     }
     if (this.display === 'monument') {
@@ -903,6 +1047,10 @@ export class ResultsColumn {
         (hit) => flowerLine(hit, this.flowerVersion));
       return;
     }
+    if (this.display === 'trial') {
+      this.saveGrouped(this.trialHits, 'trial-results.txt', (hit) => trialLine(hit, this.trialRatio));
+      return;
+    }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     this.saveGrouped(this.hits, 'results.txt', (hit) => {
       const detail = showDetail
@@ -933,7 +1081,8 @@ export class ResultsColumn {
       : this.display === 'witch' ? this.witchHits
         : this.display === 'river' ? this.riverHits
           : this.display === 'flower' ? this.flowerHits
-            : this.display === 'monument' ? this.monumentHits
+            : this.display === 'trial' ? this.trialHits
+              : this.display === 'monument' ? this.monumentHits
               : this.display === 'fortress' ? this.fortressHits
                 : this.hits;
     const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
@@ -997,6 +1146,17 @@ function flowerLine(hit: FlowerHit, tier: FlowerVersionTier): string {
   line += ` swampArea=${hit.swampArea} nether=${hit.nether}`;
   if (hit.bonus) line += ` bonus=${hit.bonus}`;
   return line;
+}
+
+/** Card and export share the same 2-decimal conversion value. */
+function trialConverted(hit: TrialHit, ratio: number): string {
+  return (hit.fastSpawners + hit.slowSpawners * ratio).toFixed(2);
+}
+
+/** Export keeps the engine's display height (-30); the card itself never shows Y. */
+function trialLine(hit: TrialHit, ratio: number): string {
+  return `/tp ${hit.x} -30 ${hit.z} converted=${trialConverted(hit, ratio)}`
+    + ` total=${hit.spawners} fast=${hit.fastSpawners} slow=${hit.slowSpawners} count=${hit.structures}`;
 }
 
 function witchCard(hit: WitchHit, index: number): string {

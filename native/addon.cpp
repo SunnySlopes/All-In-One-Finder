@@ -6,6 +6,7 @@
 #include "multi_monument_host.h"
 #include "river_host.h"
 #include "slime_host.h"
+#include "trial_host.h"
 #include "witch_host.h"
 
 #include "cubiomes/finders.h"
@@ -578,6 +579,121 @@ Napi::Value FlowerFarmStop(const Napi::CallbackInfo &info)
     return info.Env().Undefined();
 }
 
+Napi::Value TrialStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    TrialRequest request;
+    request.generation = args.Get("generation").As<Napi::Number>().Int32Value();
+    request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    const bool anyBounds = args.Has("minX") || args.Has("maxX") || args.Has("minZ") || args.Has("maxZ");
+    const bool allBounds = args.Has("minX") && args.Has("maxX") && args.Has("minZ") && args.Has("maxZ");
+    if (anyBounds && !allBounds) {
+        throw Napi::Error::New(info.Env(), "bad-bounds");
+    }
+    if (allBounds) {
+        request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+        request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+        request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+        request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    } else if (args.Has("side")) {
+        // 旧调用兼容：side 表示正方形边长，换算成 [-side/2, -side/2 + side)。
+        const int side = args.Get("side").As<Napi::Number>().Int32Value();
+        const int min = -side / 2;
+        request.minX = min;
+        request.maxX = min + side - 1;
+        request.minZ = min;
+        request.maxZ = min + side - 1;
+    }
+    request.fullWorld = readBool(args, "fullWorld");
+    request.clusterRadius = args.Has("clusterRadius")
+        ? args.Get("clusterRadius").As<Napi::Number>().Int32Value()
+        : 160;
+    request.clusterCircle = args.Has("clusterCircle")
+        ? args.Get("clusterCircle").As<Napi::Boolean>().Value()
+        : args.Has("clusterSquare") ? !args.Get("clusterSquare").As<Napi::Boolean>().Value() : false;
+    request.clusterLongSide = args.Has("clusterLongSide")
+        ? args.Get("clusterLongSide").As<Napi::Number>().Int32Value()
+        : request.clusterRadius * 2;
+    request.clusterShortSide = args.Has("clusterShortSide")
+        ? args.Get("clusterShortSide").As<Napi::Number>().Int32Value()
+        : request.clusterLongSide;
+    request.minStructures = args.Has("minStructures")
+        ? args.Get("minStructures").As<Napi::Number>().Int32Value()
+        : 2;
+    request.minSpawners = args.Has("minSpawners")
+        ? args.Get("minSpawners").As<Napi::Number>().Int32Value()
+        : 50;
+    request.limit = args.Has("limit") ? args.Get("limit").As<Napi::Number>().Int32Value() : 1000;
+    request.conversionRatio = args.Has("conversionRatio")
+        ? args.Get("conversionRatio").As<Napi::Number>().DoubleValue()
+        : 1.0 / 6.0;
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = trialStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object trialStatusToObject(Napi::Env env, const TrialStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("pausing", status.pausing);
+    out.Set("phase", status.phase);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("candidates", Napi::Number::New(env, static_cast<double>(status.candidates)));
+    out.Set("layouts", Napi::Number::New(env, static_cast<double>(status.layouts)));
+    out.Set("pruned", Napi::Number::New(env, static_cast<double>(status.pruned)));
+    out.Set("found", Napi::Number::New(env, static_cast<double>(status.found)));
+    out.Set("chunks", Napi::Number::New(env, static_cast<double>(status.chunks)));
+    out.Set("elapsedMs", Napi::Number::New(env, status.elapsedMs));
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("truncated", status.truncated);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("z", hit.z);
+        item.Set("structures", hit.structures);
+        item.Set("spawners", hit.spawners);
+        item.Set("fastSpawners", hit.fastSpawners);
+        item.Set("slowSpawners", hit.slowSpawners);
+        item.Set("converted", hit.converted);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value TrialPoll(const Napi::CallbackInfo &info)
+{
+    return trialStatusToObject(info.Env(), trialPoll());
+}
+
+Napi::Value TrialPause(const Napi::CallbackInfo &info)
+{
+    trialPause();
+    return info.Env().Undefined();
+}
+
+Napi::Value TrialResume(const Napi::CallbackInfo &info)
+{
+    trialResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value TrialStop(const Napi::CallbackInfo &info)
+{
+    trialStop();
+    return info.Env().Undefined();
+}
+
 Napi::Value RiverSearchStart(const Napi::CallbackInfo &info)
 {
     Napi::Object args = info[0].As<Napi::Object>();
@@ -866,6 +982,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("flowerFarmPause", Napi::Function::New(env, FlowerFarmPause));
     exports.Set("flowerFarmResume", Napi::Function::New(env, FlowerFarmResume));
     exports.Set("flowerFarmStop", Napi::Function::New(env, FlowerFarmStop));
+    exports.Set("trialStart", Napi::Function::New(env, TrialStart));
+    exports.Set("trialPoll", Napi::Function::New(env, TrialPoll));
+    exports.Set("trialPause", Napi::Function::New(env, TrialPause));
+    exports.Set("trialResume", Napi::Function::New(env, TrialResume));
+    exports.Set("trialStop", Napi::Function::New(env, TrialStop));
     exports.Set("riverSearchStart", Napi::Function::New(env, RiverSearchStart));
     exports.Set("riverSearchPoll", Napi::Function::New(env, RiverSearchPoll));
     exports.Set("riverSearchPause", Napi::Function::New(env, RiverSearchPause));

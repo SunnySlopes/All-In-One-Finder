@@ -34,7 +34,7 @@ export const SEARCHER_ITEMS: SearcherItem[] = [
   { id: 'MultiMonument', enabled: true, icon: 'guardian' },
   { id: 'NetherFortressCross', enabled: true, icon: 'blaze' },
   { id: 'NetherFortressOverall', enabled: true, icon: 'blaze' },
-  { id: 'TrialSpawner', enabled: false, icon: 'chambers' },
+  { id: 'TrialSpawner', enabled: true, icon: 'chambers' },
   { id: 'BuddingAmethyst', enabled: false, icon: 'geode' },
   { id: 'FlowerFarm', enabled: true, icon: 'torchflower' },
 ];

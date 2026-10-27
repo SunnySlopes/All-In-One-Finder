@@ -17,6 +17,13 @@ const WORLD_SIDE = 60000001;
 const WORLD_COORD = 30000000;
 const MAX_WINDOW = 1024;
 const MIN_WINDOW = 256;
+/** 模距（simulation distance，区块）与原 GUI 的取值区间和默认值。 */
+const MAX_SIMULATION_DISTANCE = 32;
+const MIN_SIMULATION_DISTANCE = 8;
+const DEFAULT_SIMULATION_DISTANCE = 10;
+/** 模距换算窗口：每个区块 32 格，另加 16 格边距（原 GUI 的 32×模距+16）。 */
+const BLOCKS_PER_DISTANCE = 32;
+const WINDOW_MARGIN = 16;
 
 const VERSION_OPTIONS: { value: FlowerVersionTier; label: string }[] = [
   { value: 'legacy', label: '1.18~1.21.3' },
@@ -61,6 +68,7 @@ export class FlowerPanel {
   private shortSide!: HTMLInputElement;
   private windowSquare!: HTMLInputElement;
   private fastMode!: HTMLInputElement;
+  private viewDistance!: HTMLInputElement;
   private seedMode: SeedMode = 'single';
   private tier: FlowerVersionTier = 'latest';
   private searchTier: FlowerVersionTier = 'latest';
@@ -112,6 +120,10 @@ export class FlowerPanel {
           <label class="feature"><input id="f-window-square" type="checkbox" /><span data-i18n="flower.windowSquare"></span></label>
           <label class="feature"><input id="f-fast" type="checkbox" checked /><span data-i18n="flower.fastMode"></span></label>
         </div>
+        <div class="grid">
+          <label data-i18n="flower.simulationDistance"></label>
+          <input id="f-view-distance" type="number" step="1" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
+        </div>
         <div class="hint" data-i18n="flower.help"></div>
       </div>
       <div class="search-panel-footer" id="f-footer"></div>
@@ -130,6 +142,7 @@ export class FlowerPanel {
     this.shortSide = this.root.querySelector('#f-short')!;
     this.windowSquare = this.root.querySelector('#f-window-square')!;
     this.fastMode = this.root.querySelector('#f-fast')!;
+    this.viewDistance = this.root.querySelector('#f-view-distance')!;
     this.threads.value = String(Math.min(32, navigator.hardwareConcurrency || 8));
     this.square.addEventListener('change', () => this.applySquare());
     this.side.addEventListener('input', () => this.applySquare());
@@ -144,6 +157,7 @@ export class FlowerPanel {
       this.resetDefaultArea();
     });
     this.windowSquare.addEventListener('change', () => this.applyWindowSquare());
+    this.viewDistance.addEventListener('change', () => this.applyViewDistance());
     this.longSide.addEventListener('input', () => {
       if (this.windowSquare.checked) this.shortSide.value = this.longSide.value;
     });
@@ -220,6 +234,19 @@ export class FlowerPanel {
     if (locked) this.shortSide.value = this.longSide.value;
   }
 
+  /** 与原 GUI 的“模距”一致：换算成正方形窗口，长边 = 32×模距+16，32 时封顶 1024。 */
+  private applyViewDistance(): void {
+    const view = Number(this.viewDistance.value);
+    if (!Number.isInteger(view) || view < MIN_SIMULATION_DISTANCE || view > MAX_SIMULATION_DISTANCE) {
+      this.viewDistance.value = String(DEFAULT_SIMULATION_DISTANCE);
+      showNotice(t('flower.badSimulationDistance'));
+      return;
+    }
+    this.longSide.value = String(Math.min(MAX_WINDOW, view * BLOCKS_PER_DISTANCE + WINDOW_MARGIN));
+    this.windowSquare.checked = true;
+    this.applyWindowSquare();
+  }
+
   private renderSeedBlock(): void {
     const host = this.root.querySelector('#f-seed-block')!;
     if (this.seedMode === 'single') {
@@ -244,6 +271,7 @@ export class FlowerPanel {
     this.version.value = this.tier;
     this.renderSeedBlock();
     this.applyWindowSquare();
+    this.viewDistance.title = t('flower.simulationDistanceHint');
     this.footer.innerHTML = `
       <div class="row">
         <button id="f-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>

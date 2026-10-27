@@ -20,6 +20,7 @@ enum class SearchOwner {
     MultiMonument,
     DoubleMonument,
     Flower,
+    Trial,
 };
 
 /** true = 拿到闸门；false = 已有搜索正在运行。 */

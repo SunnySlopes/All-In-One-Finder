@@ -148,6 +148,43 @@ export interface FlowerStatus {
   hits: FlowerHit[];
 }
 
+export interface TrialHit {
+  seed: string;
+  x: number;
+  z: number;
+  /** Number of trial chambers that contributed spawners. */
+  structures: number;
+  /** Total spawners inside the statistics area (fast + slow). */
+  spawners: number;
+  fastSpawners: number;
+  slowSpawners: number;
+  /** fast + slow * conversionRatio, rounded to one decimal by the host. */
+  converted: number;
+}
+
+export interface TrialStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  /** Pause requested; waiting for the in-flight shard to finish. */
+  pausing: boolean;
+  /** 0 = prepare, 1 = shard scan/cluster, 2 = finished. */
+  phase: number;
+  current: number;
+  total: number;
+  candidates: number;
+  layouts: number;
+  pruned: number;
+  found: number;
+  chunks: number;
+  elapsedMs: number;
+  seedIndex: number;
+  seedCount: number;
+  truncated: boolean;
+  error: string;
+  hits: TrialHit[];
+}
+
 export interface RiverHit {
   seed: string;
   x: number;
@@ -238,6 +275,7 @@ const HIT_POLL_OPS = new Set([
   'witchSearchPoll',
   'riverSearchPoll',
   'flowerFarmPoll',
+  'trialPoll',
   'fortressSearchPoll',
   'multiMonumentSearchPoll',
   'doubleMonumentSearchPoll',

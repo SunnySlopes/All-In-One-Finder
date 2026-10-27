@@ -24,6 +24,7 @@ set(FORTRESS "${CMAKE_SOURCE_DIR}/../tools/fortress")
 set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
 set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
 set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower/jni")
+set(TRIAL "${CMAKE_SOURCE_DIR}/../tools/trial")
 if (EXISTS "${FLOWER}/cubiomes/biomes.h")
   message(WARNING
     "tools/flower/jni/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
@@ -49,7 +50,8 @@ add_library(cubiomes_objs OBJECT ${CUBI_SOURCES})
 set_target_properties(cubiomes_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(cubiomes_objs PUBLIC "${CUBI}")
 target_compile_options(cubiomes_objs PRIVATE
-  -O3 -DNDEBUG -fwrapv -fno-semantic-interposition -mpopcnt -flto -D_WIN32
+  -O3 -DNDEBUG -fwrapv -fno-semantic-interposition -mpopcnt
+  -ffp-contract=off -fno-lto
   -ffunction-sections -fdata-sections
 )
 
@@ -111,6 +113,37 @@ target_compile_options(flower_objs PRIVATE
   -include "${FLOWER}/cxx_compat/pre_cubiomes.h"
 )
 
+# 试炼刷怪笼：layout/search/climate263 是 C++20，biome_bridge 是 C。
+# 引擎源单独编成 object library，不继承 allinone 目标的 -include pre_cubiomes.h；
+# 只共用一份根 cubiomes（cubiomes_objs）。
+add_library(trial_objs OBJECT
+  "${TRIAL}/src/layout.cpp"
+  "${TRIAL}/src/search.cpp"
+  "${TRIAL}/src/climate263.cpp"
+)
+set_target_properties(trial_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(trial_objs PRIVATE
+  "${TRIAL}/src"
+  "${TRIAL}/data"
+  "${CUBI}"
+)
+target_compile_definitions(trial_objs PRIVATE
+  _WIN32
+  TRIAL_ENGINE_VERSION="3.0.4"
+)
+target_compile_options(trial_objs PRIVATE
+  -O3 -DNDEBUG -fwrapv -fexceptions -ffp-contract=off -fno-lto
+  -ffunction-sections -fdata-sections
+)
+
+add_library(trial_bridge OBJECT "${TRIAL}/src/biome_bridge.c")
+set_target_properties(trial_bridge PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(trial_bridge PRIVATE "${CUBI}")
+target_compile_options(trial_bridge PRIVATE
+  -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
+  -ffunction-sections -fdata-sections
+)
+
 set(HOT_CXX
   addon.cpp
   map_service.cpp
@@ -122,6 +155,7 @@ set(HOT_CXX
   multi_monument_host.cpp
   double_monument_host.cpp
   flower_host.cpp
+  trial_host.cpp
   search_gate.cpp
   "${SLIME}/slime_search.cpp"
   "${SLIMEOPT}/src/geometry.cpp"
@@ -165,6 +199,8 @@ add_library(allinone SHARED
   ${SLIME_C}
   ${MONUMENT_C}
   $<TARGET_OBJECTS:flower_objs>
+  $<TARGET_OBJECTS:trial_objs>
+  $<TARGET_OBJECTS:trial_bridge>
   "${CMAKE_BINARY_DIR}/napi_bind.cpp"
 )
 set_target_properties(allinone PROPERTIES
@@ -178,6 +214,7 @@ target_include_directories(allinone PRIVATE
   "${CMAKE_SOURCE_DIR}/../tools"
   "${FLOWER}"
   "${FLOWER}/cts"
+  "${TRIAL}/src"
   "${LOWY}"
   "${SLIMERADAR}"
   "${SLIMEOPT}/include"
