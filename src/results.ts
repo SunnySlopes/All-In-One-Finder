@@ -1,11 +1,13 @@
 import { parseCoords } from './coords';
 import { escapeText } from './dialog';
 import { flowerMapVersion, type FlowerVersionTier } from './flower';
+import type { GeodeView } from './geode';
 import { applyI18n, biomeLabel, t } from './i18n';
 import type { MapView } from './map';
 import type {
   FlowerHit,
   FortressHit,
+  GeodeHit,
   MonumentHit,
   RiverHit,
   SearchHit,
@@ -31,7 +33,7 @@ export interface TrialWindowView {
   shortSide: number;
 }
 
-type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress' | 'flower' | 'trial';
+type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress' | 'flower' | 'trial' | 'geode';
 export type WitchSortMode = 'height' | 'distance';
 
 function displayFor(tab: SearcherId): Display | null {
@@ -40,6 +42,7 @@ function displayFor(tab: SearcherId): Display | null {
   if (tab === 'SlimeChunk') return 'slime';
   if (tab === 'FlowerFarm') return 'flower';
   if (tab === 'TrialSpawner') return 'trial';
+  if (tab === 'BuddingAmethyst') return 'geode';
   if (tab === 'DoubleMonument' || tab === 'MultiMonument') return 'monument';
   if (tab === 'NetherFortressCross' || tab === 'NetherFortressOverall') return 'fortress';
   if (isDripstoneTab(tab)) return 'lowy';
@@ -66,6 +69,20 @@ export class ResultsColumn {
   private trialVersion: TrialVersionTier = 'latest';
   private trialWindow: TrialWindowView = { circle: false, radius: 160, longSide: 320, shortSide: 320 };
   private trialRatio = 1 / 6;
+  private geodeHits: GeodeHit[] = [];
+  private geodeView: GeodeView = {
+    version: '26.3',
+    mapVersion: '26.3',
+    listMode: false,
+    minX: -16384,
+    maxX: 16383,
+    minZ: -16384,
+    maxZ: 16383,
+    prefilter: 0,
+    verifyTop: 0,
+    simulationDistance: 10,
+    modernActivity: true,
+  };
   private riverHits: RiverHit[] = [];
   private monumentHits: MonumentHit[] = [];
   private fortressHits: FortressHit[] = [];
@@ -80,7 +97,6 @@ export class ResultsColumn {
   private display: Display = 'lowy';
   private listMode = false;
   private map: MapView;
-  onShowMap: () => void = () => {};
 
   constructor(map: MapView) {
     this.map = map;
@@ -287,6 +303,36 @@ export class ResultsColumn {
     else this.updateExportButtons();
   }
 
+  clearGeode(view: GeodeView): void {
+    this.geodeHits = [];
+    this.geodeView = view;
+    this.listMode = view.listMode;
+    if (displayFor(this.viewTab) === 'geode' || this.viewTab === 'map') this.display = 'geode';
+    this.map.clearSpawnCircles();
+    this.map.clearAreaOverlay();
+    this.updateSpawnUi();
+    this.paint();
+  }
+
+  setGeodeHits(hits: GeodeHit[], view: GeodeView): void {
+    const changedSetup = view.version !== this.geodeView.version
+      || view.listMode !== this.geodeView.listMode
+      || view.minX !== this.geodeView.minX
+      || view.maxX !== this.geodeView.maxX
+      || view.minZ !== this.geodeView.minZ
+      || view.maxZ !== this.geodeView.maxZ
+      || view.prefilter !== this.geodeView.prefilter
+      || view.verifyTop !== this.geodeView.verifyTop;
+    const previous = this.geodeHits.length;
+    this.geodeView = view;
+    this.listMode = view.listMode;
+    if (displayFor(this.viewTab) === 'geode' || this.viewTab === 'map') this.display = 'geode';
+    this.geodeHits = hits;
+    if (this.display !== 'geode') return;
+    if (changedSetup || hits.length !== previous) this.renderGeode();
+    else this.updateExportButtons();
+  }
+
   clearRiver(listMode = false): void {
     this.riverHits = [];
     this.listMode = listMode;
@@ -399,7 +445,6 @@ export class ResultsColumn {
   private performJump(x: number, z: number, seed?: string, fromResult = false): void {
     const dripstoneResult = isDripstoneTab(this.sourceTab);
     const draw = this.spawnCheck.checked;
-    this.onShowMap();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -416,7 +461,6 @@ export class ResultsColumn {
 
   private performSlimeJump(hit: SlimeHit): void {
     this.spawnCheck.checked = true;
-    this.onShowMap();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -450,6 +494,11 @@ export class ResultsColumn {
       this.exportAllBtn.disabled = this.trialHits.length === 0;
       return;
     }
+    if (this.display === 'geode') {
+      this.exportSeedsBtn.disabled = !(this.listMode && this.geodeHits.length > 0);
+      this.exportAllBtn.disabled = this.geodeHits.length === 0;
+      return;
+    }
     if (this.display === 'monument') {
       this.exportSeedsBtn.disabled = !(this.listMode && this.monumentHits.length > 0);
       this.exportAllBtn.disabled = this.monumentHits.length === 0;
@@ -472,7 +521,6 @@ export class ResultsColumn {
   private performWitchJump(hit: WitchHit): void {
     // 点击结果固定主世界 + y=64 + 打开女巫小屋图标；不切大型生物群系、不画刷怪环。
     this.spawnCheck.checked = false;
-    this.onShowMap();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -492,7 +540,6 @@ export class ResultsColumn {
   private performFlowerJump(hit: FlowerHit): void {
     // 结果没有 Y；跳图用采样 y=256，关闭大型生物群系，并按结果方向画窗口矩形。
     this.spawnCheck.checked = false;
-    this.onShowMap();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -521,7 +568,6 @@ export class ResultsColumn {
     // Cards never show Y; the jump uses the engine's display height (-30) and draws the
     // statistics window (circle radius, or long/short rectangle sides) around the center.
     this.spawnCheck.checked = false;
-    this.onShowMap();
     const window = this.trialWindow;
     const jump = () => {
       this.map.clearSpawnCircles();
@@ -550,9 +596,37 @@ export class ResultsColumn {
     requestAnimationFrame(jump);
   }
 
+  private performGeodeJump(hit: GeodeHit): void {
+    // 紫水晶结果跳点：保留地图当前 Y，并打开紫晶洞图层。
+    // 1.21.5+ 画活动范围正方形（32×模距+16）；更早版本只画 128 格刷怪外圈，不画内圈。
+    const view = this.geodeView;
+    this.spawnCheck.checked = !view.modernActivity;
+    const y = this.map.getY();
+    const side = Math.max(1, 32 * view.simulationDistance + 16);
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.clearAreaOverlay();
+      this.map.jumpTo({
+        x: hit.x,
+        z: hit.z,
+        seed: hit.seed,
+        y,
+        dimension: 0,
+        mcVersion: view.mapVersion,
+        largeBiomes: false,
+        features: ['geode'],
+        spawnCircles: !view.modernActivity,
+        spawnRadii: [128],
+        areaOverlay: view.modernActivity
+          ? { kind: 'rect', x: hit.x, z: hit.z, width: side, height: side, color: '#b07adf' }
+          : null,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
   private performRiverJump(hit: RiverHit): void {
     this.spawnCheck.checked = true;
-    this.onShowMap();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -570,7 +644,6 @@ export class ResultsColumn {
 
   private performMonumentJump(hit: MonumentHit): void {
     this.spawnCheck.checked = true;
-    this.onShowMap();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -589,7 +662,6 @@ export class ResultsColumn {
 
   private performFortressJump(hit: FortressHit): void {
     this.spawnCheck.checked = true;
-    this.onShowMap();
     const radii = this.fortressTab === 'NetherFortressOverall' ? [128] : [64];
     const jump = () => {
       this.map.clearSpawnCircles();
@@ -696,6 +768,59 @@ export class ResultsColumn {
         const hit = this.trialHits[Number(button.dataset.index)];
         if (!hit) return;
         void navigator.clipboard.writeText(`/tp ${hit.x} -30 ${hit.z}`);
+      });
+    });
+    applyI18n(this.list);
+  }
+
+  private renderGeode(): void {
+    this.updateExportButtons();
+    if (!this.geodeHits.length) {
+      this.list.innerHTML = `<div class="hint results-empty" data-i18n="common.results.empty"></div>`;
+      applyI18n(this.list);
+      return;
+    }
+    const approximate = this.geodeView.prefilter > 0;
+    this.list.innerHTML = this.geodeHits.map((hit, index) => {
+      const verified = hit.verified
+        ? ` <span class="badge">${escapeText(t('geode.card.verified'))}</span>`
+        : '';
+      const listed = hit.listedBudding >= 0
+        ? ` (${escapeText(t('geode.card.listed', { count: hit.listedBudding }))})`
+        : '';
+      const approx = approximate
+        ? `<span>${escapeText(t('geode.card.approximate'))}</span>`
+        : '';
+      return `<article class="result-card result-geode" data-index="${index}">
+        <div class="result-seed">${escapeText(hit.seed)}</div>
+        <div class="result-coords">
+          <span>(${hit.x}, ${hit.z})</span>
+          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+        </div>
+        <div class="result-stats">
+          <span>${escapeText(t('geode.card.budding', { count: hit.budding }))}${escapeText(listed)}${verified}</span>
+          <span>${escapeText(t('geode.card.geodes', { count: hit.geodes }))}</span>
+          ${approx}
+        </div>
+      </article>`;
+    }).join('');
+    this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest('.result-copy')) return;
+        const hit = this.geodeHits[Number(card.dataset.index)];
+        if (!hit) return;
+        this.jumpX.value = String(hit.x);
+        this.jumpZ.value = String(hit.z);
+        this.performGeodeJump(hit);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-copy').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.geodeHits[Number(button.dataset.index)];
+        if (!hit) return;
+        void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
       });
     });
     applyI18n(this.list);
@@ -811,6 +936,10 @@ export class ResultsColumn {
     }
     if (this.display === 'trial') {
       this.renderTrial();
+      return;
+    }
+    if (this.display === 'geode') {
+      this.renderGeode();
       return;
     }
     if (this.display === 'monument') {
@@ -1051,6 +1180,11 @@ export class ResultsColumn {
       this.saveGrouped(this.trialHits, 'trial-results.txt', (hit) => trialLine(hit, this.trialRatio));
       return;
     }
+    if (this.display === 'geode') {
+      this.saveGrouped(this.geodeHits, this.geodeFileName(this.geodeHits),
+        (hit) => geodeLine(hit, this.geodeView));
+      return;
+    }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     this.saveGrouped(this.hits, 'results.txt', (hit) => {
       const detail = showDetail
@@ -1076,15 +1210,26 @@ export class ResultsColumn {
     void window.aio.saveFile(fileName, hits.map(line).join('\n'));
   }
 
+  private geodeFileName(hits: GeodeHit[]): string {
+    const view = this.geodeView;
+    const range = `x${view.minX}..${view.maxX}_z${view.minZ}..${view.maxZ}`;
+    const approx = view.prefilter > 0 ? '1' : '0';
+    const seed = view.listMode
+      ? `seeds-${new Set(hits.map((hit) => hit.seed)).size}`
+      : `seed-${hits[0]?.seed ?? '0'}`;
+    return `geode_${seed}_ver-${view.version}_${range}_approx-${approx}_${exportStamp()}.txt`;
+  }
+
   private exportSeeds(): void {
     const seedSource = this.display === 'slime' ? this.slimeHits
       : this.display === 'witch' ? this.witchHits
         : this.display === 'river' ? this.riverHits
           : this.display === 'flower' ? this.flowerHits
             : this.display === 'trial' ? this.trialHits
-              : this.display === 'monument' ? this.monumentHits
-              : this.display === 'fortress' ? this.fortressHits
-                : this.hits;
+              : this.display === 'geode' ? this.geodeHits
+                : this.display === 'monument' ? this.monumentHits
+                  : this.display === 'fortress' ? this.fortressHits
+                    : this.hits;
     const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
     void window.aio.saveFile('seeds.txt', seeds.join('\n'));
   }
@@ -1157,6 +1302,21 @@ function trialConverted(hit: TrialHit, ratio: number): string {
 function trialLine(hit: TrialHit, ratio: number): string {
   return `/tp ${hit.x} -30 ${hit.z} converted=${trialConverted(hit, ratio)}`
     + ` total=${hit.spawners} fast=${hit.fastSpawners} slow=${hit.slowSpawners} count=${hit.structures}`;
+}
+
+/** 紫水晶导出：距离以矩形中点为准；不写版本/模型/复核元数据，也不加 verify 标记。 */
+function geodeLine(hit: GeodeHit, view: GeodeView): string {
+  const centerX = Math.trunc((view.minX + view.maxX) / 2);
+  const centerZ = Math.trunc((view.minZ + view.maxZ) / 2);
+  const distance = Math.round(Math.hypot(hit.x - centerX, hit.z - centerZ));
+  return `/tp ${hit.x} 64 ${hit.z} budding=${hit.budding} geodes=${hit.geodes} dist=${distance}`;
+}
+
+function exportStamp(): string {
+  const date = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+    + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
 function witchCard(hit: WitchHit, index: number): string {

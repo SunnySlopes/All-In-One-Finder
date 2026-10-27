@@ -162,6 +162,32 @@ export interface TrialHit {
   converted: number;
 }
 
+/** One host room that contains at least one trial cage; already padded by one block. */
+export interface TrialFrame extends Bounds3 {
+  spawners: number;
+  slowSpawners: number;
+}
+
+/** One trial spawner cage; `slow` marks the slow-spawner pool. */
+export interface TrialSpawner {
+  x: number;
+  y: number;
+  z: number;
+  slow: boolean;
+}
+
+/** Per-chamber map overlay data returned by the `trialChambers` op. */
+export interface TrialChamberInfo {
+  x: number;
+  z: number;
+  chunkX: number;
+  chunkZ: number;
+  exists: boolean;
+  pieces: number;
+  frames: TrialFrame[];
+  spawners: TrialSpawner[];
+}
+
 export interface TrialStatus {
   running: boolean;
   done: boolean;
@@ -183,6 +209,64 @@ export interface TrialStatus {
   truncated: boolean;
   error: string;
   hits: TrialHit[];
+}
+
+export interface GeodeChunkInfo {
+  exists: boolean;
+  budding: number;
+}
+
+export interface GeodeHit {
+  seed: string;
+  x: number;
+  z: number;
+  /** 预计活跃母岩数（主排序键；复核后为复核值）。 */
+  budding: number;
+  /** 活跃晶洞数（仅展示）。 */
+  geodes: number;
+  /** 该点已用 evaluate() 逐块重算。 */
+  verified: boolean;
+  /** 复核前榜单值；与复核值一致时为 -1。 */
+  listedBudding: number;
+  listedGeodes: number;
+}
+
+export interface GeodeStatus {
+  running: boolean;
+  done: boolean;
+  paused: boolean;
+  /** 暂停请求已发出，等待当前工作单元到检查点。 */
+  pausing: boolean;
+  stopping: boolean;
+  /** 本次运行被用户停止；结果已清空，全图断点仍保留。 */
+  stopped: boolean;
+  truncated: boolean;
+  /** 'scan' | 'simulate' | 'rank' | 'verify' | 'done' */
+  phase: string;
+  phaseIndex: number;
+  /** 3 = 无复核；4 = 单种子近似候选带复核。 */
+  phaseCount: number;
+  current: number;
+  total: number;
+  verifyDone: number;
+  verifyTotal: number;
+  verified: number;
+  verifyMismatch: number;
+  seedIndex: number;
+  seedCount: number;
+  autoBudget: boolean;
+  /** 实际传给引擎的候选预算；0 = 完整候选。 */
+  prefilter: number;
+  /** 本次是否从区域断点恢复（全图）。 */
+  resumed: boolean;
+  /** 当前阶段预计剩余秒数；-1 = 计算中。 */
+  etaSeconds: number;
+  scanBackend: string;
+  approximate: boolean;
+  backend: string;
+  elapsedMs: number;
+  error: string;
+  hits: GeodeHit[];
 }
 
 export interface RiverHit {
@@ -276,6 +360,7 @@ const HIT_POLL_OPS = new Set([
   'riverSearchPoll',
   'flowerFarmPoll',
   'trialPoll',
+  'geodePoll',
   'fortressSearchPoll',
   'multiMonumentSearchPoll',
   'doubleMonumentSearchPoll',

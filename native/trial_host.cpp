@@ -27,10 +27,19 @@ namespace {
 
 constexpr int kMaxThreads = 32;
 constexpr int kMaxLimit = 1000;
-constexpr int kMaxClusterRadius = 8192;
-constexpr int kMaxWindowSide = 16384;
+constexpr int kMaxClusterRadius = 256;
+constexpr int kMaxWindowSide = 512;
+constexpr int kMaxStrictMargin = 256;
+/** 产品联数上限：试炼笼结果最多 4 联（二联/三联/四联）。 */
+constexpr int kProductMaxStructures = 4;
+constexpr int kMaxStructures = 32;
+/**
+ * 统计窗口等效面积上限（512×512 格）。任何形状都按等效面积判断：
+ * 矩形/方形 = 长边×短边，圆形 = πr²。
+ */
+constexpr int64_t kMaxWindowArea = 512LL * 512LL;
 constexpr int kWorldMin = -30000000;
-constexpr int kWorldMax = 29999999;
+constexpr int kWorldMax = 30000000;
 
 std::mutex gMu;
 std::thread gThread;
@@ -172,6 +181,9 @@ trial::Options optionsFor(const TrialRequest &request, int64_t seed, const std::
     }
     options.min_structures = request.minStructures;
     options.min_spawners = request.minSpawners;
+    options.max_structures = request.maxStructures;
+    options.strict_mode = request.strictMode;
+    options.strict_margin = request.strictMargin;
     options.threads = request.threads;
     options.result_limit = request.limit;
     options.conversion_ratio = request.conversionRatio;
@@ -327,18 +339,53 @@ bool validRequest(const TrialRequest &request, std::string &error)
             return false;
         }
     }
+    int halfX = 0, halfZ = 0;
     if (request.clusterCircle) {
         if (request.clusterRadius < 1 || request.clusterRadius > kMaxClusterRadius) {
             error = "bad-bounds";
             return false;
         }
-    } else if (request.clusterLongSide < 1 || request.clusterLongSide > kMaxWindowSide ||
-               request.clusterShortSide < 1 || request.clusterShortSide > kMaxWindowSide ||
-               request.clusterShortSide > request.clusterLongSide) {
+        const double area = 3.14159265358979323846 * double(request.clusterRadius) * request.clusterRadius;
+        if (area > double(kMaxWindowArea) + 1e-9) {
+            error = "bad-bounds";
+            return false;
+        }
+        halfX = halfZ = request.clusterRadius;
+    } else {
+        if (request.clusterLongSide < 1 || request.clusterLongSide > kMaxWindowSide ||
+            request.clusterShortSide < 1 || request.clusterShortSide > kMaxWindowSide ||
+            request.clusterShortSide > request.clusterLongSide) {
+            error = "bad-bounds";
+            return false;
+        }
+        if (int64_t(request.clusterLongSide) * request.clusterShortSide > kMaxWindowArea) {
+            error = "bad-bounds";
+            return false;
+        }
+        halfX = request.clusterLongSide / 2;
+        halfZ = request.clusterShortSide / 2;
+    }
+    if (request.strictMode) {
+        // 严格模式的内窗口必须保留正宽度，否则没有可行中心。
+        if (request.strictMargin < 0 || request.strictMargin > kMaxStrictMargin ||
+            halfX <= request.strictMargin || halfZ <= request.strictMargin) {
+            error = "bad-bounds";
+            return false;
+        }
+    }
+    if (request.minStructures < 1 || request.minSpawners < 0) {
         error = "bad-bounds";
         return false;
     }
-    if (request.minStructures < 1 || request.minSpawners < 0) {
+    // 联数上限：产品最多 4 联；请求可调低但不能超过 4（0 视为按产品上限）。
+    if (request.maxStructures < 0 || request.maxStructures > kMaxStructures) {
+        error = "bad-bounds";
+        return false;
+    }
+    const int maxStructures = request.maxStructures > 0
+        ? std::min(request.maxStructures, kProductMaxStructures)
+        : kProductMaxStructures;
+    if (request.minStructures > maxStructures) {
         error = "bad-bounds";
         return false;
     }
@@ -365,6 +412,11 @@ std::string trialStart(const TrialRequest &request)
     normalized.conversionRatio = std::max(0.0, std::min(1.0, normalized.conversionRatio));
     normalized.minSpawners = std::max(0, normalized.minSpawners);
     normalized.minStructures = std::max(1, normalized.minStructures);
+    // 产品联数上限：无论请求值如何都不超过 4（0 = 按产品上限）。
+    normalized.maxStructures = normalized.maxStructures > 0
+        ? std::min(normalized.maxStructures, kProductMaxStructures)
+        : kProductMaxStructures;
+    normalized.strictMargin = std::max(0, std::min(kMaxStrictMargin, normalized.strictMargin));
     normalized.clusterRadius = std::max(1, std::min(kMaxClusterRadius, normalized.clusterRadius));
     normalized.clusterLongSide = std::max(1, std::min(kMaxWindowSide, normalized.clusterLongSide));
     normalized.clusterShortSide =

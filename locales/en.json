@@ -89,11 +89,18 @@
       "overworld": "Overworld",
       "nether": "Nether",
       "end": "The End",
-      "grid": "Coordinate grid"
+      "grid": "Coordinate grid",
+      "trialCages": "Cages {total} (normal {fast} / slow {slow})",
+      "trialCageFast": "Normal cage",
+      "trialCageSlow": "Slow cage",
+      "trialCageAt": "{kind} ({x}, {z}), Y = {y}",
+      "trialCageColumn": "{kind} ({x}, {z}), Y = {ys}",
+      "trialNotGenerated": "No chamber generated at this position",
+      "geodeBudding": "Budding count {count}"
     },
     "error": {
       "bad-seed": "Enter an integer seed.",
-      "bad-bounds": "The search box is invalid.",
+      "bad-bounds": "The window size is invalid. Change them between 0 and 512.",
       "area-too-large": "The search box is larger than the allowed maximum.",
       "unsupported-version": "This version is not supported by the search.",
       "no-seeds": "No usable seeds were found.",
@@ -115,7 +122,11 @@
       "bad-level": "Invalid search parameters.",
       "fortress-start-failed": "Failed to start the nether fortress search.",
       "multi-monument-start-failed": "Failed to start the multi-monument search.",
-      "double-monument-start-failed": "Failed to start the double-monument search."
+      "double-monument-start-failed": "Failed to start the double-monument search.",
+      "geode-start-failed": "Budding Amethyst search failed to start.",
+      "geode-engine-failed": "Budding Amethyst engine error.",
+      "geode-verify-failed": "Exact verification failed for a point (it stays unverified).",
+      "full-map-single-seed": "Full map search supports a single seed only."
     },
     "structure": {
       "desert_pyramid": "Desert pyramid",
@@ -340,9 +351,7 @@
       "ne": "NE (+-)"
     },
     "crossHelp": "Finds 2/3/4-crossing layouts in soul sand valleys.",
-    "spanHelp": "Finds nether fortresses whose large-range long/short edges and height all exceed the required minimums.",
-    "crossingsUnit": " crossings",
-    "areaLabel": "Area"
+    "spanHelp": "Finds nether fortresses whose large-range long/short edges and height all exceed the required minimums."
   },
   "monument": {
     "level": "Monuments",
@@ -354,8 +363,6 @@
       "lowHint": "Low-efficiency pairs are sorted last and dropped first."
     },
     "lowEfficiency": "Slightly reduced efficiency",
-    "areaLabel": "Area",
-    "groupUnit": "-group",
     "ocean": {
       "cold": "Cold",
       "frozen": "Frozen",
@@ -376,7 +383,6 @@
       "1": "Climate screen",
       "2": "Verify"
     },
-    "phaseProgress": "Phase {current}/{total}",
     "overallProgress": "Overall {current}/{total}",
     "flowerArea": "Flower forest {area}",
     "paleArea": "Pale garden {area}",
@@ -395,13 +401,20 @@
     "clusterShort": "Window short side",
     "clusterSquareWindow": "Square window",
     "simulationDistance": "Simulation distance",
-    "simulationDistanceHint": "Simulation distance (8-32): window long side becomes 32 × distance + 16 (capped at 1024) and the window switches to square",
+    "simulationDistanceHint": "Simulation distance (8–16): sets the long side to 32×distance+16 (max 512) and switches to a square window.",
     "badSimulationDistance": "Simulation distance must be an integer from 8 to 32.",
+    "strictMode": "Structure edge distance",
+    "strictMargin": "Edge margin",
+    "strictMarginHint": "Strict mode: a chamber origin must stay at least this many blocks inside the statistics window; edge chambers count toward neither structures nor spawners.",
+    "badStrictMargin": "The edge margin must be smaller than half the window; reduce it or enlarge the statistics window.",
+    "windowTooLarge": "The statistics window cannot exceed 512×512 (equivalent area limit {area} blocks²).",
     "minStructures": "Min chambers",
     "minSpawners": "Min spawners",
+    "structuresCapHint": "The linked-chamber cap is fixed at 4 (double/triple/quadruple); min chambers must be 1–4.",
+    "badStructures": "The linked-chamber cap is 4: min chambers must be between 1 and 4.",
     "conversionRatio": "Slow-spawner ratio",
     "conversionRatioHint": "Range 0–1 inclusive; out-of-range values are adjusted automatically.",
-    "help": "With \"Square\" selected, the window long/short sides can be edited; with \"Circle\", only the window radius is used.",
+    "help": "In square/rect mode edit the long/short side; in circle mode only the radius is used. Side max 512, circle radius max 256. When \"Structure edge distance\" is checked, structure starts must stay at least the given margin inside the statistics window (default 0). Results are capped at 4 chambers.",
     "phase": {
       "0": "Prepare",
       "1": "Shard scan",
@@ -421,5 +434,40 @@
     "fastSpawners": "Fast {count}",
     "slowSpawners": "Slow {count}",
     "structures": "Structures {count}"
+  },
+  "geode": {
+    "tickRadius": "Tick radius (1.21.4-)",
+    "simulationDistance": "Simulation distance (1.21.5+)",
+    "activityLegacy": "1.21.4-: circular tick radius, strict chunk-center circle",
+    "activityModern": "1.21.5+: player chunk + square simulation distance",
+    "rangeLargeHint": "Large range: runtime increases noticeably; keep the automatic budget.",
+    "minGeodes": "Min geodes",
+    "minBudding": "Min budding",
+    "help": "The candidate budget is chosen automatically from the search range; values are in-model estimates, not in-game measurements.",
+    "fullMapSingleSeed": "Full map search supports a single seed only.",
+    "phaseLine": "Phase {index}/{count} {phase}",
+    "paused": "Paused",
+    "pausing": "Pausing (waiting for the current work unit)",
+    "pausingButton": "Pausing…",
+    "stopping": "Stopping…",
+    "stoppingButton": "Stopping…",
+    "stoppingEta": "Stopping: waiting for the current work unit",
+    "pausingEta": "Pausing: waiting for the next checkpoint",
+    "phase": {
+      "scan": "Scan",
+      "simulate": "Simulate",
+      "rank": "Rank",
+      "verify": "Verify",
+      "done": "Done"
+    },
+    "card": {
+      "budding": "Budding count {count}",
+      "geodes": "Geodes count {count}",
+      "verified": "Verified",
+      "approximate": "Approximate candidates",
+      "listed": "listed {count}"
+    },
+    "stopped": "Stopped; results were cleared.",
+    "stoppedProgress": "Stopped"
   }
 }

@@ -4,6 +4,7 @@ import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n
 import { MapView } from './map';
 import { FlowerPanel } from './flower';
 import { FortressPanel } from './fortress';
+import { GeodePanel } from './geode';
 import { MonumentPanel } from './monument';
 import { call, type FeatureInfo, type McVersion } from './native';
 import { ResultsColumn } from './results';
@@ -47,6 +48,7 @@ const slime = new SlimePanel();
 const witch = new WitchPanel();
 const flower = new FlowerPanel();
 const trial = new TrialPanel();
+const geode = new GeodePanel();
 const river = new RiverPanel();
 const fortressCross = new FortressPanel('cross');
 const fortressSpan = new FortressPanel('span');
@@ -59,6 +61,7 @@ slime.bindResults(results);
 witch.bindResults(results);
 flower.bindResults(results);
 trial.bindResults(results);
+geode.bindResults(results);
 river.bindResults(results);
 fortressCross.bindResults(results);
 fortressSpan.bindResults(results);
@@ -67,22 +70,50 @@ monumentMulti.bindResults(results);
 map.mountCanvas(document.querySelector('#stage')!);
 search.onNavigate = (id) => show(id);
 river.onNavigate = (id) => show(id);
-results.onShowMap = () => show('map');
 witch.getLargeBiomes = () => map.getLargeBiomes();
-map.onSeedChange = (seed) => {
-  search.setSeedFromMap(seed);
-  slime.setSeedFromMap(seed);
-  witch.setSeedFromMap(seed);
-  flower.setSeedFromMap(seed);
-  trial.setSeedFromMap(seed);
-  river.setSeedFromMap(seed);
-  fortressCross.setSeedFromMap(seed);
-  fortressSpan.setSeedFromMap(seed);
-  monumentDouble.setSeedFromMap(seed);
-  monumentMulti.setSeedFromMap(seed);
-};
 
 let current: SearcherId = 'map';
+
+/** 地图种子变化时，只同步到当前为“单种子”来源的搜索 tab。 */
+function pushSeedToSingleTabs(seed: string): void {
+  const value = seed.trim();
+  if (!value) return;
+  search.setSeedFromMap(value);
+  slime.setSeedFromMap(value);
+  witch.setSeedFromMap(value);
+  flower.setSeedFromMap(value);
+  trial.setSeedFromMap(value);
+  geode.setSeedFromMap(value);
+  river.setSeedFromMap(value);
+  fortressCross.setSeedFromMap(value);
+  fortressSpan.setSeedFromMap(value);
+  monumentDouble.setSeedFromMap(value);
+  monumentMulti.setSeedFromMap(value);
+}
+
+map.onSeedChange = (seed) => pushSeedToSingleTabs(seed);
+
+// 单种子页面改种子：失焦或回车后，同步地图画布和其他所有单种子 tab。
+panel.addEventListener('change', (event) => {
+  if (current === 'map') return; // 地图自己的 onSeedChange 已处理
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.id.endsWith('-seed')) return;
+  const mode = panel.querySelector<HTMLSelectElement>('select[id$="-seed-mode"]');
+  if (mode && mode.value !== 'single') return;
+  const seed = input.value.trim();
+  if (!seed) return;
+  map.setSeed(seed, false);
+  pushSeedToSingleTabs(seed);
+});
+
+panel.addEventListener('keydown', (event) => {
+  if (current === 'map') return;
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.id.endsWith('-seed')) return;
+  if ((event as KeyboardEvent).key !== 'Enter') return;
+  event.preventDefault();
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
 
 function setWindowTitle(): void {
   const title = t('common.app.title');
@@ -161,6 +192,9 @@ function show(which: SearcherId): void {
   } else if (which === 'TrialSpawner') {
     trial.setSeedFromMap(map.getSeed());
     panel.replaceChildren(trial.root);
+  } else if (which === 'BuddingAmethyst') {
+    geode.setSeedFromMap(map.getSeed());
+    panel.replaceChildren(geode.root);
   } else if (which === 'River') {
     river.setSeedFromMap(map.getSeed());
     panel.replaceChildren(river.root);
@@ -188,6 +222,7 @@ function show(which: SearcherId): void {
   else if (which === 'LowYSwampHut') witch.refresh();
   else if (which === 'FlowerFarm') flower.refresh();
   else if (which === 'TrialSpawner') trial.refresh();
+  else if (which === 'BuddingAmethyst') geode.refresh();
   else if (which === 'River') river.refresh();
   else if (which === 'NetherFortressCross') fortressCross.refresh();
   else if (which === 'NetherFortressOverall') fortressSpan.refresh();
@@ -262,6 +297,7 @@ onLocale(() => {
   witch.refresh();
   flower.refresh();
   trial.refresh();
+  geode.refresh();
   river.refresh();
   fortressCross.refresh();
   fortressSpan.refresh();
@@ -288,6 +324,7 @@ window.aio?.onSessionImport?.((text) => {
   witch.setSeedFromMap(data.seed);
   flower.setSeedFromMap(data.seed);
   trial.setSeedFromMap(data.seed);
+  geode.setSeedFromMap(data.seed);
   river.setSeedFromMap(data.seed);
   fortressCross.setSeedFromMap(data.seed);
   fortressSpan.setSeedFromMap(data.seed);
@@ -313,6 +350,7 @@ void Promise.all([
     witch.setSeedFromMap(map.getSeed());
     flower.setSeedFromMap(map.getSeed());
     trial.setSeedFromMap(map.getSeed());
+    geode.setSeedFromMap(map.getSeed());
     river.setSeedFromMap(map.getSeed());
     fortressCross.setSeedFromMap(map.getSeed());
     fortressSpan.setSeedFromMap(map.getSeed());
@@ -324,6 +362,7 @@ void Promise.all([
   witch.load(versions);
   flower.load(versions);
   trial.load(versions);
+  geode.load(versions);
   river.load(versions);
   fortressCross.load(versions);
   fortressSpan.load(versions);

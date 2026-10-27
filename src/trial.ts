@@ -16,12 +16,14 @@ const DEFAULT_CLUSTER_LONG = 320;
 const DEFAULT_CLUSTER_SHORT = 320;
 const DEFAULT_SIMULATION_DISTANCE = 10;
 const MIN_SIMULATION_DISTANCE = 8;
-const MAX_SIMULATION_DISTANCE = 32;
+const MAX_SIMULATION_DISTANCE = 16;
 const BLOCKS_PER_DISTANCE = 32;
 const WINDOW_MARGIN = 16;
-const MAX_SIMULATION_WINDOW = 1024;
+/** 统计窗口等效面积上限：512×512 格（262,144 格²）。 */
+const MAX_WINDOW_AREA = 512 * 512;
+const MAX_SIMULATION_WINDOW = 512;
 const MIN_WINDOW_SIDE = 1;
-const MAX_WINDOW_SIDE = 16384;
+const MAX_WINDOW_SIDE = 512;
 const SEARCH_AREA_WARN = Math.PI * 1e6 * 1e6;
 const WINDOW_AREA_WARN = Math.PI * 128 * 128;
 const WARN_MIN_STRUCTURES = 3;
@@ -33,9 +35,15 @@ const DEFAULT_MIN_SPAWNERS = 50;
 const DEFAULT_LIMIT = 1000;
 const DEFAULT_RATIO = 1 / 6;
 const MAX_SIDE = 60000001;const MAX_THREADS = 32;
-const MAX_CLUSTER_RADIUS = 8192;
+/** 圆形窗口半径上限 256 格（与“圆半径不得超过 256”一致）。 */
+const MAX_CLUSTER_RADIUS = 256;
+/** 严格模式内缩格数：结构起点需离窗口边界至少这么多格；默认关闭、默认 0。 */
+const DEFAULT_STRICT_MARGIN = 0;
+const MAX_STRICT_MARGIN = 256;
+/** 联数上限：试炼笼结果最多 4 联（二联/三联/四联），超过的簇整组剔除。 */
+const MAX_TRIAL_STRUCTURES = 4;
 const WORLD_MIN = -30000000;
-const WORLD_MAX = 29999999;
+const WORLD_MAX = 30000000;
 
 const VERSION_OPTIONS: { value: TrialVersionTier; label: string }[] = [
   { value: 'legacy', label: '1.21 ~ 1.21.1' },
@@ -76,6 +84,11 @@ interface TrialStartArgs {
   clusterShortSide: number;
   minStructures: number;
   minSpawners: number;
+  /** 联数上限：结果最多 4 联；产品固定传 4。 */
+  maxStructures: number;
+  /** 严格模式：结构起点需离统计窗口边界至少 strictMargin 格。 */
+  strictMode: boolean;
+  strictMargin: number;
   limit: number;
   conversionRatio: number;
   seeds: string;
@@ -98,6 +111,8 @@ export class TrialPanel {
   private clusterShort!: HTMLInputElement;
   private clusterSquare!: HTMLInputElement;
   private viewDistance!: HTMLInputElement;
+  private strictMode!: HTMLInputElement;
+  private strictMargin!: HTMLInputElement;
   private minStructures!: HTMLInputElement;
   private minSpawners!: HTMLInputElement;
   private ratio!: HTMLInputElement;
@@ -174,11 +189,15 @@ export class TrialPanel {
           <label data-i18n="trial.simulationDistance"></label>
           <input id="t-view-distance" type="number" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
           <label data-i18n="trial.minStructures"></label>
-          <input id="t-min-structures" type="number" min="1" value="${DEFAULT_MIN_STRUCTURES}" />
+          <input id="t-min-structures" type="number" min="1" max="${MAX_TRIAL_STRUCTURES}" value="${DEFAULT_MIN_STRUCTURES}" />
           <label data-i18n="trial.minSpawners"></label>
           <input id="t-min-spawners" type="number" min="0" value="${DEFAULT_MIN_SPAWNERS}" />
           <label data-i18n="trial.conversionRatio"></label>
           <input id="t-ratio" type="number" min="0" max="1" step="0.001" value="${DEFAULT_RATIO.toFixed(3)}" />
+        </div>
+        <div class="square-row">
+          <label class="feature"><input id="t-strict" type="checkbox" /><span data-i18n="trial.strictMode"></span></label>
+          <input id="t-strict-margin" type="number" min="0" max="${MAX_STRICT_MARGIN}" value="${DEFAULT_STRICT_MARGIN}" />
         </div>
         <div class="hint" data-i18n="trial.help"></div>
       </div>
@@ -199,6 +218,8 @@ export class TrialPanel {
     this.clusterShort = this.root.querySelector('#t-cluster-short')!;
     this.clusterSquare = this.root.querySelector('#t-cluster-square')!;
     this.viewDistance = this.root.querySelector('#t-view-distance')!;
+    this.strictMode = this.root.querySelector('#t-strict')!;
+    this.strictMargin = this.root.querySelector('#t-strict-margin')!;
     this.minStructures = this.root.querySelector('#t-min-structures')!;
     this.minSpawners = this.root.querySelector('#t-min-spawners')!;
     this.ratio = this.root.querySelector('#t-ratio')!;
@@ -212,6 +233,7 @@ export class TrialPanel {
       if (this.clusterSquare.checked) this.clusterShort.value = this.clusterLong.value;
     });
     this.viewDistance.addEventListener('change', () => this.applyViewDistance());
+    this.strictMode.addEventListener('change', () => this.applyStrictMode());
     this.ratio.addEventListener('change', () => this.normalizeRatioInput());
     this.root.querySelector('#t-reset')!.addEventListener('click', () => this.resetDefaultArea());
     this.root.querySelector('#t-border')!.addEventListener('click', () => this.resetWorldBorder());
@@ -232,6 +254,8 @@ export class TrialPanel {
   }
 
   setSeedFromMap(seed: string): void {
+    // 只有“单种子”来源的 tab 才跟随地图/其他单种子页面的种子。
+    if (this.seedMode !== 'single') return;
     if (!seed.trim()) return;
     this.seed = seed.trim();
     const input = this.root.querySelector<HTMLInputElement>('#t-seed');
@@ -302,6 +326,11 @@ export class TrialPanel {
     if (!circle && this.clusterSquare.checked) this.clusterShort.value = this.clusterLong.value;
   }
 
+  /** 严格模式的内缩格数只在勾选时生效。 */
+  private applyStrictMode(): void {
+    this.strictMargin.disabled = !this.strictMode.checked;
+  }
+
   /** 折算比例固定 0–1（含端点）；超出范围静默裁剪。 */
   private normalizeRatioInput(): void {
     const text = this.ratio.value.trim();
@@ -311,7 +340,7 @@ export class TrialPanel {
       : String(clampRatio(raw));
   }
 
-  /** 与全花种一致：模距 8–32 → 长边 = 32×模距+16（封顶 1024），并切回正方形窗口。 */
+  /** 模距 8–16 → 长边 = 32×模距+16（封顶 512）。 */
   private applyViewDistance(): void {
     const view = Number(this.viewDistance.value);
     if (!Number.isInteger(view) || view < MIN_SIMULATION_DISTANCE || view > MAX_SIMULATION_DISTANCE) {
@@ -349,7 +378,10 @@ export class TrialPanel {
     this.renderSeedBlock();
     this.applyArea();
     this.applyClusterWindow();
+    this.applyStrictMode();
     this.viewDistance.title = t('trial.simulationDistanceHint');
+    this.strictMargin.title = t('trial.strictMarginHint');
+    this.minStructures.title = t('trial.structuresCapHint');
     this.ratio.title = t('trial.conversionRatioHint');
 
     const pauseLabel = this.pausing
@@ -416,6 +448,9 @@ export class TrialPanel {
       clusterShortSide,
       minStructures: Math.floor(Number(this.minStructures.value) || 0),
       minSpawners: Math.floor(Number(this.minSpawners.value) || 0),
+      maxStructures: MAX_TRIAL_STRUCTURES,
+      strictMode: this.strictMode.checked,
+      strictMargin: Math.floor(Number(this.strictMargin.value) || 0),
       // 结果上限由产品固定为 1,000，不再暴露输入。
       limit: DEFAULT_LIMIT,
       conversionRatio: clampRatio(Number(this.ratio.value)),
@@ -460,7 +495,25 @@ export class TrialPanel {
       await showNotice(t('common.error.bad-bounds'));
       return null;
     }
-    if (request.minStructures < 1 || request.minSpawners < 0) {
+    // 统计窗口面积上限 512×512：矩形=长×短，圆形=πr²。
+    if (this.windowArea(request) > MAX_WINDOW_AREA + 1e-9) {
+      await showNotice(t('trial.windowTooLarge', { area: MAX_WINDOW_AREA }));
+      return null;
+    }
+    if (request.strictMode) {
+      const halfX = request.clusterCircle ? request.clusterRadius : Math.floor(request.clusterLongSide / 2);
+      const halfZ = request.clusterCircle ? request.clusterRadius : Math.floor(request.clusterShortSide / 2);
+      if (request.strictMargin < 0 || request.strictMargin > MAX_STRICT_MARGIN
+        || halfX <= request.strictMargin || halfZ <= request.strictMargin) {
+        await showNotice(t('trial.badStrictMargin'));
+        return null;
+      }
+    }
+    if (request.minStructures < 1 || request.minStructures > MAX_TRIAL_STRUCTURES) {
+      await showNotice(t('trial.badStructures'));
+      return null;
+    }
+    if (request.minSpawners < 0) {
       await showNotice(t('common.error.bad-bounds'));
       return null;
     }

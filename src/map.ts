@@ -4,9 +4,13 @@ import {
   call,
   type Bounds3,
   type FeatureInfo,
+  type GeodeChunkInfo,
   type McVersion,
   type Placed,
   type StructureBoundsData,
+  type TrialChamberInfo,
+  type TrialFrame,
+  type TrialSpawner,
 } from './native';
 import { type MapSessionData } from './session';
 
@@ -79,6 +83,26 @@ const MAX_PENDING = 96;
 const ICON_SIZE = 20;
 /** Ocean monuments are 58x58 blocks and centered on the structure position. */
 const MONUMENT_SIZE = 58;
+/**
+ * Trial chambers: only the host rooms that contain at least one cage are drawn
+ * (from 1:4); cage columns appear at 1:1. No chamber-wide bounds box is drawn.
+ */
+const TRIAL_FRAME_MIN_PPB = 0.25;
+const TRIAL_CAGE_MIN_PPB = 1;
+const TRIAL_DETAIL_BATCH = 8;
+const TRIAL_DETAIL_MARGIN = 128;
+const TRIAL_DETAIL_DEBOUNCE = 150;
+/** Keep the parsed detail cache bounded while panning at 1:4. */
+const TRIAL_DETAIL_CACHE = 600;
+const TRIAL_FRAME_MIN_PX = 6;
+const TRIAL_CAGE_HIT_PX = 7;
+const TRIAL_CAGE_HOVER_PX = 6;
+const TRIAL_CAGE_RADIUS = 2.5;
+const TRIAL_FRAME_STROKE = 'rgba(208, 162, 74, 0.9)';
+const TRIAL_FRAME_FILL = 'rgba(208, 162, 74, 0.06)';
+const TRIAL_CAGE_FAST = '#ffd166';
+const TRIAL_CAGE_SLOW = '#7fd0c8';
+const TRIAL_CAGE_EDGE = 'rgba(20, 20, 20, 0.8)';
 const SESSION_NAME = 'map';
 const DEFAULT_FEATURES = [
   'swamp_hut',
@@ -124,6 +148,30 @@ interface SelectedStructure {
   variant: number;
   large?: Bounds3;
   details: DetailState;
+  /** Set when the user clicked a trial cage column instead of the chamber icon. */
+  cage?: TrialCageColumn;
+  /** Geode icon: generate that chunk and show its budding-amethyst count. */
+  geode?: { state: 'pending' | 'ready' | 'failed'; budding?: number };
+}
+
+/** All cages sharing one XZ column; drawn as a single point, listed Y by Y. */
+interface TrialCageColumn {
+  x: number;
+  z: number;
+  entries: TrialSpawner[];
+  slow: boolean;
+  mixed: boolean;
+}
+
+interface TrialChamberDetail {
+  exists: boolean;
+  pieces: number;
+  frames: TrialFrame[];
+  spawners: TrialSpawner[];
+  /** Cages aggregated by XZ for drawing and hit-testing. */
+  cages: TrialCageColumn[];
+  /** Frames union, computed once for whole-chamber culling. */
+  extent?: { minX: number; minZ: number; maxX: number; maxZ: number };
 }
 
 function randomMcSeed(): string {
@@ -243,6 +291,15 @@ export class MapView {
   private slimeFlight = false;
   private spawnOverlay: { x: number; z: number; radii?: number[] } | null = null;
   private areaOverlay: MapAreaOverlay | null = null;
+  private trialTypeId = -1;
+  private trialDetail = new Map<string, TrialChamberDetail>();
+  private trialInflight = new Set<string>();
+  private trialEpoch = 0;
+  private trialView = 0;
+  private trialTimer = 0;
+  private trialFailed = false;
+  private trialHover: TrialCageColumn | null = null;
+  private biomeName = '';
   private saveTimer = 0;
   private drawing = false;
   private drawQueued = false;
@@ -306,6 +363,7 @@ export class MapView {
   async load(versions: McVersion[], features: FeatureInfo[]): Promise<void> {
     this.versions = mapVersions(versions);
     this.features = features;
+    this.trialTypeId = features.find((feature) => feature.key === 'trial_chambers')?.id ?? -1;
     this.version.innerHTML = this.versions.map((item) => `<option value="${item.id}">${item.name}</option>`).join('');
     const session = await this.loadSession();
     const preferred = (session?.version && this.versions.find((item) => item.name === session.version))
@@ -348,6 +406,12 @@ export class MapView {
   getVersionName(): string {
     const version = this.versions.find((item) => String(item.id) === this.version.value);
     return version?.name ?? '';
+  }
+
+  /** 当前地图 Y；带 dimension 但没传 y 时 jumpTo 会重置，结果跳转需显式保留。 */
+  getY(): number {
+    const value = Number(this.y.value);
+    return Number.isFinite(value) ? value : 64;
   }
 
   clearAreaOverlay(): void {
@@ -534,9 +598,11 @@ export class MapView {
       this.queueFeatures();
       this.onSeedChange(this.getSeed());
     });
-    this.seed.addEventListener('input', () => {
-      this.persistSession();
-      this.onSeedChange(this.getSeed());
+    // 输入过程中不做跳图/同步；失焦或回车后再提交。
+    this.seed.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      this.seed.dispatchEvent(new Event('change', { bubbles: true }));
     });
     this.grid.addEventListener('change', () => {
       localStorage.setItem('aio.grid', this.grid.checked ? '1' : '0');
@@ -574,6 +640,7 @@ export class MapView {
     this.canvas.addEventListener('pointermove', (event) => {
       const world = this.screenToWorld(event.offsetX, event.offsetY);
       this.pointer = world;
+      this.updateTrialHover(event.offsetX, event.offsetY);
       if (this.press && !this.press.moved) {
         const dx = event.clientX - this.press.x;
         const dy = event.clientY - this.press.y;
@@ -619,6 +686,7 @@ export class MapView {
       this.pending.clear();
     }
     this.lastActiveScale = next;
+    this.trialHover = null;
     this.schedule();
     this.queueFeatures();
   }
@@ -664,6 +732,7 @@ export class MapView {
         else {
           this.enabled.delete(id);
           this.placed = this.placed.filter((item) => item.type !== id);
+          if (id === this.trialTypeId) this.clearTrialDetail();
           if (this.selected?.type === id) this.clearSelection();
         }
         if (id === -2) this.slimeCanvas = null;
@@ -691,7 +760,7 @@ export class MapView {
     this.queueDraw();
   }
 
-  private selectStructure(item: Placed): void {
+  private selectStructure(item: Placed, cage?: TrialCageColumn): void {
     const feature = this.features.find((entry) => entry.id === item.type);
     if (!feature) return;
 
@@ -702,12 +771,56 @@ export class MapView {
       z: item.z,
       variant: item.variant ?? 0,
       details: 'none',
+      cage,
     };
     this.selected = selected;
     const token = ++this.selectGen;
 
     if (feature.key === 'monument') {
       selected.details = 'ready';
+    } else if (feature.key === 'trial_chambers') {
+      if (!this.trialDetailAllowed()) {
+        // Large biomes / hidden layer: stay silent, no request and no extra text.
+        selected.details = 'none';
+      } else if (this.trialDetailAt(item.x, item.z)) {
+        selected.details = 'ready';
+      } else {
+        selected.details = 'pending';
+        void call<TrialChamberInfo[]>('trialChambers', {
+          ...this.state(),
+          chambers: [{ x: item.x, z: item.z }],
+        }).then((list) => {
+          if (token !== this.selectGen || this.selected !== selected) return;
+          for (const info of list) this.trialDetail.set(this.trialKey(info.x, info.z), this.compactTrial(info));
+          selected.details = this.trialDetailAt(item.x, item.z) ? 'ready' : 'failed';
+          this.renderSelectedInfo();
+          this.queueDraw();
+        }).catch(() => {
+          if (token !== this.selectGen || this.selected !== selected) return;
+          selected.details = 'failed';
+          this.renderSelectedInfo();
+          this.queueDraw();
+        });
+      }
+    } else if (feature.key === 'geode') {
+      selected.details = 'pending';
+      selected.geode = { state: 'pending' };
+      void call<GeodeChunkInfo>('geodeChunk', {
+        version: this.getVersionName(),
+        seed: this.getSeed(),
+        x: item.x,
+        z: item.z,
+      }).then((info) => {
+        if (token !== this.selectGen || this.selected !== selected) return;
+        selected.geode = { state: 'ready', budding: info.budding };
+        selected.details = 'ready';
+        this.renderSelectedInfo();
+      }).catch(() => {
+        if (token !== this.selectGen || this.selected !== selected) return;
+        selected.geode = { state: 'failed' };
+        selected.details = 'failed';
+        this.renderSelectedInfo();
+      });
     } else if (feature.key === 'fortress') {
       if (item.large) {
         selected.large = item.large;
@@ -752,12 +865,36 @@ export class MapView {
     const icon = this.structureIconName(selected.key, selected.variant);
     this.infoIcon.src = icon ? `/icons/${icon}.png` : '';
     this.infoIcon.style.display = icon ? '' : 'none';
-    this.infoName.textContent = structureLabel(selected.key);
+    let name = structureLabel(selected.key);
+    this.infoName.textContent = name;
     this.infoCoords.textContent = `(${selected.x}, ${selected.z})`;
 
     const rows: string[] = [];
     if (selected.large) {
       rows.push(`<div>${this.boxSizeText(selected.large)}</div>`);
+    } else if (selected.key === 'trial_chambers') {
+      if (!this.trialDetailAllowed()) {
+        // Large biomes: silent by design (no request, no drawing, no hint).
+      } else {
+        const detail = this.trialDetailAt(selected.x, selected.z);
+        if (detail) {
+          if (!detail.exists) {
+            rows.push(`<div>${escapeText(t('common.map.trialNotGenerated'))}</div>`);
+          } else {
+            const total = detail.spawners.length;
+            const fast = detail.spawners.filter((spawner) => !spawner.slow).length;
+            const slow = total - fast;
+            rows.push(`<div>${escapeText(t('common.map.trialCages', { total, fast, slow }))}</div>`);
+            if (selected.cage) {
+              for (const line of this.trialCageLines(selected.cage)) {
+                rows.push(`<div>${escapeText(line)}</div>`);
+              }
+            }
+          }
+        }
+      }
+    } else if (selected.key === 'geode' && selected.geode?.state === 'ready') {
+      rows.push(`<div>${escapeText(t('common.map.geodeBudding', { count: selected.geode.budding ?? 0 }))}</div>`);
     } else if (selected.details === 'pending') {
       rows.push(`<div>${escapeText(t('common.map.calculating'))}</div>`);
     } else if (selected.details === 'failed') {
@@ -767,6 +904,11 @@ export class MapView {
   }
 
   private selectAt(screenX: number, screenY: number): void {
+    const cage = this.findTrialCage(screenX, screenY, TRIAL_CAGE_HIT_PX);
+    if (cage) {
+      this.selectStructure(cage.item, cage.cage);
+      return;
+    }
     const radius = ICON_SIZE / 2 + 6;
     let best: Placed | null = null;
     let bestDistance = radius * radius;
@@ -878,9 +1020,20 @@ export class MapView {
       this.slimeCanvas = null;
       this.slimeFlight = false;
       this.placed = [];
+      this.clearTrialDetail();
       this.clearSelection();
     }
     this.queueDraw();
+  }
+
+  /** Drop cached chamber layouts when the world/version changes or the layer is turned off. */
+  private clearTrialDetail(): void {
+    this.trialEpoch += 1;
+    this.trialDetail.clear();
+    this.trialInflight.clear();
+    this.trialHover = null;
+    this.trialFailed = false;
+    window.clearTimeout(this.trialTimer);
   }
 
   private queueDraw(): void {
@@ -894,6 +1047,228 @@ export class MapView {
   private queueFeatures(): void {
     window.clearTimeout(this.featureTimer);
     this.featureTimer = window.setTimeout(() => void this.loadFeatures(), 180);
+    this.queueTrialDetails();
+  }
+
+  private trialKey(x: number, z: number): string {
+    return `${x}|${z}`;
+  }
+
+  /**
+   * Trial map details are only valid for the overworld, without large biomes
+   * (the trial biome bridge has no LARGE_BIOMES flag), and while the layer is on.
+   * Large biomes are skipped silently: no request, no drawing, no hint.
+   */
+  private trialDetailAllowed(): boolean {
+    if (Number(this.dimension.value) !== 0) return false;
+    if (this.large.checked) return false;
+    if (this.trialTypeId < 0 || !this.enabled.has(this.trialTypeId)) return false;
+    return !this.trialFailed;
+  }
+
+  private trialFramesVisible(): boolean {
+    return this.trialDetailAllowed() && this.pixelsPerBlock >= TRIAL_FRAME_MIN_PPB;
+  }
+
+  private trialSpawnersVisible(): boolean {
+    return this.trialDetailAllowed() && this.pixelsPerBlock >= TRIAL_CAGE_MIN_PPB;
+  }
+
+  private queueTrialDetails(): void {
+    window.clearTimeout(this.trialTimer);
+    if (!this.trialFramesVisible()) return;
+    this.trialTimer = window.setTimeout(() => void this.loadTrialDetails(), TRIAL_DETAIL_DEBOUNCE);
+  }
+
+  private trialViewport(): { x0: number; z0: number; x1: number; z1: number } {
+    const view = this.viewBounds();
+    const pad = TRIAL_DETAIL_MARGIN;
+    return { x0: view.x0 - pad, z0: view.z0 - pad, x1: view.x1 + pad, z1: view.z1 + pad };
+  }
+
+  private async loadTrialDetails(): Promise<void> {
+    if (!this.trialFramesVisible()) return;
+    const view = this.trialViewport();
+    const todo: Placed[] = [];
+    for (const item of this.placed) {
+      if (item.type !== this.trialTypeId) continue;
+      if (item.x < view.x0 || item.x > view.x1 || item.z < view.z0 || item.z > view.z1) continue;
+      const key = this.trialKey(item.x, item.z);
+      if (this.trialDetail.has(key) || this.trialInflight.has(key)) continue;
+      todo.push(item);
+    }
+    if (!todo.length) return;
+    const center = this.viewBounds();
+    const midX = (center.x0 + center.x1) / 2;
+    const midZ = (center.z0 + center.z1) / 2;
+    todo.sort((a, b) => {
+      const da = (a.x - midX) ** 2 + (a.z - midZ) ** 2;
+      const db = (b.x - midX) ** 2 + (b.z - midZ) ** 2;
+      return da - db;
+    });
+    const batch = todo.slice(0, TRIAL_DETAIL_BATCH);
+    for (const item of batch) this.trialInflight.add(this.trialKey(item.x, item.z));
+    const epoch = this.trialEpoch;
+    const viewToken = ++this.trialView;
+    try {
+      const list = await call<TrialChamberInfo[]>('trialChambers', {
+        ...this.state(),
+        chambers: batch.map((item) => ({ x: item.x, z: item.z })),
+      });
+      if (epoch !== this.trialEpoch) return;
+      for (const info of list) this.trialDetail.set(this.trialKey(info.x, info.z), this.compactTrial(info));
+      this.trimTrialCache();
+      this.queueDraw();
+      if (list.length < batch.length) {
+        // The engine rejected the version/batch; stop instead of retrying every pan.
+        this.trialFailed = true;
+        return;
+      }
+      // Continue one batch at a time; the view token drops stale continuations.
+      if (viewToken === this.trialView && this.trialFramesVisible()) {
+        this.trialTimer = window.setTimeout(() => void this.loadTrialDetails(), 16);
+      }
+    } catch {
+      // A failed op must not retry on every pan.
+      if (epoch === this.trialEpoch) this.trialFailed = true;
+    } finally {
+      for (const item of batch) this.trialInflight.delete(this.trialKey(item.x, item.z));
+    }
+  }
+
+  /** Aggregate cages by XZ and pre-compute the frame extent used for culling. */
+  private compactTrial(info: TrialChamberInfo): TrialChamberDetail {
+    const columns = new Map<string, TrialCageColumn>();
+    for (const spawner of info.spawners) {
+      const key = this.trialKey(spawner.x, spawner.z);
+      let column = columns.get(key);
+      if (!column) {
+        column = { x: spawner.x, z: spawner.z, entries: [], slow: spawner.slow, mixed: false };
+        columns.set(key, column);
+      }
+      column.entries.push(spawner);
+      if (spawner.slow !== column.slow) column.mixed = true;
+    }
+    const cages = [...columns.values()];
+    for (const column of cages) column.entries.sort((a, b) => a.y - b.y);
+
+    let extent: TrialChamberDetail['extent'];
+    if (info.frames.length) {
+      let minX = Number.POSITIVE_INFINITY;
+      let minZ = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxZ = Number.NEGATIVE_INFINITY;
+      for (const frame of info.frames) {
+        if (frame.minX < minX) minX = frame.minX;
+        if (frame.minZ < minZ) minZ = frame.minZ;
+        if (frame.maxX > maxX) maxX = frame.maxX;
+        if (frame.maxZ > maxZ) maxZ = frame.maxZ;
+      }
+      if (Number.isFinite(minX)) extent = { minX, minZ, maxX, maxZ };
+    }
+    return {
+      exists: info.exists,
+      pieces: info.pieces,
+      frames: info.frames,
+      spawners: info.spawners,
+      cages,
+      extent,
+    };
+  }
+
+  private trialDetailAt(x: number, z: number): TrialChamberDetail | undefined {
+    return this.trialDetail.get(this.trialKey(x, z));
+  }
+
+  /** Drop off-screen chambers when panning accumulates too many parsed layouts. */
+  private trimTrialCache(): void {
+    if (this.trialDetail.size <= TRIAL_DETAIL_CACHE) return;
+    const view = this.trialViewport();
+    for (const [key, detail] of [...this.trialDetail]) {
+      if (this.trialInflight.has(key)) continue;
+      if (detail.extent) {
+        const e = detail.extent;
+        if (e.maxX < view.x0 || e.minX > view.x1 || e.maxZ < view.z0 || e.minZ > view.z1) {
+          this.trialDetail.delete(key);
+        }
+      }
+    }
+    if (this.trialDetail.size > TRIAL_DETAIL_CACHE) this.trialDetail.clear();
+    this.trialHover = null;
+  }
+
+  /** Loaded chambers whose frame extent intersects the viewport. */
+  private visibleTrialChambers(): Placed[] {
+    if (!this.trialDetailAllowed()) return [];
+    const view = this.viewBounds();
+    const out: Placed[] = [];
+    for (const item of this.placed) {
+      if (item.type !== this.trialTypeId) continue;
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail || !detail.exists || !detail.frames.length) continue;
+      if (detail.extent) {
+        const e = detail.extent;
+        if (e.maxX < view.x0 || e.minX > view.x1 || e.maxZ < view.z0 || e.minZ > view.z1) continue;
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  /** Nearest cage column under the cursor/click, limited to loaded chambers. */
+  private findTrialCage(screenX: number, screenY: number, radiusPx: number): { item: Placed; cage: TrialCageColumn } | null {
+    if (!this.trialSpawnersVisible()) return null;
+    let best: { item: Placed; cage: TrialCageColumn } | null = null;
+    let bestDistance = radiusPx * radiusPx;
+    for (const item of this.visibleTrialChambers()) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail) continue;
+      for (const cage of detail.cages) {
+        const point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
+        const dx = point.x - screenX;
+        const dy = point.y - screenY;
+        const distance = dx * dx + dy * dy;
+        if (distance <= bestDistance) {
+          bestDistance = distance;
+          best = { item, cage };
+        }
+      }
+    }
+    return best;
+  }
+
+  private updateTrialHover(screenX: number, screenY: number): void {
+    const hit = this.findTrialCage(screenX, screenY, TRIAL_CAGE_HOVER_PX);
+    const next = hit?.cage ?? null;
+    const same = next === null
+      ? this.trialHover === null
+      : this.trialHover !== null
+        && this.trialHover.x === next.x
+        && this.trialHover.z === next.z
+        && this.trialHover.slow === next.slow
+        && this.trialHover.entries.length === next.entries.length;
+    if (same) return;
+    this.trialHover = next;
+    this.syncReadout();
+    this.queueDraw();
+  }
+
+  /** Cage detail lines for the readout and the info card (one line per Y when mixed). */
+  private trialCageLines(column: TrialCageColumn): string[] {
+    if (!column.entries.length) return [];
+    const kindOf = (slow: boolean) => t(slow ? 'common.map.trialCageSlow' : 'common.map.trialCageFast');
+    if (column.mixed) {
+      return column.entries.map((entry) => t('common.map.trialCageAt', {
+        kind: kindOf(entry.slow), x: entry.x, y: entry.y, z: entry.z,
+      }));
+    }
+    const kind = kindOf(column.slow);
+    if (column.entries.length === 1) {
+      const entry = column.entries[0];
+      return [t('common.map.trialCageAt', { kind, x: entry.x, y: entry.y, z: entry.z })];
+    }
+    const ys = column.entries.map((entry) => entry.y).join('、');
+    return [t('common.map.trialCageColumn', { kind, x: column.x, z: column.z, ys })];
   }
 
   private tileKey(state: ReturnType<MapView['state']>, scale: number, x: number, z: number): string {
@@ -931,13 +1306,23 @@ export class MapView {
       this.drawSlime(ctx, state);
       this.drawSpawnCircles(ctx);
       this.drawStructureFrames(ctx);
+      this.drawTrialFrames(ctx);
+      this.drawTrialSpawners(ctx);
       this.drawPlaced(ctx);
       this.drawSelection(ctx);
-      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`;
+      this.syncReadout();
     } finally {
       this.drawing = false;
       if (this.drawQueued) this.queueDraw();
     }
+  }
+
+  /** Compose the pointer readout from the current biome, hovered cage and coordinates. */
+  private syncReadout(): void {
+    const parts = [`${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`];
+    if (this.biomeName) parts.push(biomeLabel(this.biomeName));
+    if (this.trialHover) parts.push(...this.trialCageLines(this.trialHover));
+    this.readout.textContent = parts.join('  ');
   }
 
   private drawSpawnCircles(ctx: CanvasRenderingContext2D): void {
@@ -1238,6 +1623,7 @@ export class MapView {
       });
       if (token !== this.featureGen) return;
       this.placed = placed;
+      this.queueTrialDetails();
       this.queueDraw();
     } catch {
       if (token !== this.featureGen) return;
@@ -1363,14 +1749,120 @@ export class MapView {
   private drawSelection(ctx: CanvasRenderingContext2D): void {
     const selected = this.selected;
     if (!selected) return;
-    const point = this.worldToScreen(selected.x, selected.z);
+    // The cage ring only makes sense while cage points are actually drawn.
+    const cage = selected.cage && this.trialSpawnersVisible() ? selected.cage : null;
+    const point = cage
+      ? this.worldToScreen(cage.x + 0.5, cage.z + 0.5)
+      : this.worldToScreen(selected.x, selected.z);
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, ICON_SIZE / 2 + 5, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, cage ? 5 : ICON_SIZE / 2 + 5, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  /** Draw only the host rooms that contain cages; no chamber-wide bounds box. */
+  private drawTrialFrames(ctx: CanvasRenderingContext2D): void {
+    if (!this.trialFramesVisible()) return;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = TRIAL_FRAME_STROKE;
+    ctx.fillStyle = TRIAL_FRAME_FILL;
+    for (const item of this.visibleTrialChambers()) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail || !detail.frames.length) continue;
+      ctx.beginPath();
+      let drawn = 0;
+      for (const frame of detail.frames) {
+        const topLeft = this.worldToScreen(frame.minX, frame.minZ);
+        const bottomRight = this.worldToScreen(frame.maxX + 1, frame.maxZ + 1);
+        const width = bottomRight.x - topLeft.x;
+        const height = bottomRight.y - topLeft.y;
+        if (!(width > 0) || !(height > 0)) continue;
+        if (Math.min(width, height) < TRIAL_FRAME_MIN_PX) continue;
+        if (topLeft.x > this.canvas.width || topLeft.y > this.canvas.height
+          || topLeft.x + width < 0 || topLeft.y + height < 0) continue;
+        ctx.rect(topLeft.x, topLeft.y, width, height);
+        drawn += 1;
+      }
+      if (!drawn) continue;
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Cage columns at 1:1: slow as hollow rings, fast as filled dots, one point per XZ. */
+  private drawTrialSpawners(ctx: CanvasRenderingContext2D): void {
+    if (!this.trialSpawnersVisible()) return;
+    const chambers = this.visibleTrialChambers();
+    ctx.save();
+    // Slow rings first so a fast dot never hides a slow one.
+    ctx.strokeStyle = TRIAL_CAGE_SLOW;
+    ctx.lineWidth = 1.5;
+    for (const item of chambers) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail) continue;
+      for (const cage of detail.cages) {
+        if (!cage.slow && !cage.mixed) continue;
+        const point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
+        if (!this.cageOnScreen(point)) continue;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, TRIAL_CAGE_RADIUS, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    // Fast discs (on a mixed column the dot sits inside the ring).
+    ctx.fillStyle = TRIAL_CAGE_FAST;
+    ctx.strokeStyle = TRIAL_CAGE_EDGE;
+    ctx.lineWidth = 1;
+    for (const item of chambers) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail) continue;
+      for (const cage of detail.cages) {
+        if (cage.slow && !cage.mixed) continue;
+        const point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
+        if (!this.cageOnScreen(point)) continue;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, TRIAL_CAGE_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    // ×N badge: one point is drawn per XZ even when several cages share the column.
+    ctx.font = '9px "Segoe UI", sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    for (const item of chambers) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail) continue;
+      for (const cage of detail.cages) {
+        if (cage.entries.length <= 1) continue;
+        const point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
+        if (!this.cageOnScreen(point)) continue;
+        const label = `×${cage.entries.length}`;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.strokeText(label, point.x + 3, point.y - 3);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, point.x + 3, point.y - 3);
+      }
+    }
+    if (this.trialHover) {
+      const point = this.worldToScreen(this.trialHover.x + 0.5, this.trialHover.z + 0.5);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private cageOnScreen(point: { x: number; y: number }): boolean {
+    return point.x >= -12 && point.y >= -12
+      && point.x <= this.canvas.width + 12 && point.y <= this.canvas.height + 12;
   }
 
   /**
@@ -1466,9 +1958,10 @@ export class MapView {
         x: Math.round(this.pointer.x),
         z: Math.round(this.pointer.z),
       });
-      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}  ${biomeLabel(biome.name)}`;
+      this.biomeName = biome.name;
     } catch {
-      this.readout.textContent = `${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`;
+      this.biomeName = '';
     }
+    this.syncReadout();
   }
 }

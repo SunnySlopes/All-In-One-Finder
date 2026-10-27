@@ -100,6 +100,43 @@ async function runTrial(start, poll, stop) {
   return normalizeTrial(status);
 }
 
+/** Geode results keep the v3 ranking order; verification flags are part of the baseline. */
+function normalizeGeode(status) {
+  return {
+    done: !!status.done,
+    error: status.error || '',
+    seedCount: status.seedCount,
+    prefilter: status.prefilter,
+    approximate: !!status.approximate,
+    phaseCount: status.phaseCount,
+    verified: status.verified,
+    verifyMismatch: status.verifyMismatch,
+    hits: (status.hits || []).map(canon),
+  };
+}
+
+async function runGeode(start, poll, stop) {
+  try {
+    start();
+  } catch (error) {
+    return { startError: error && error.message ? error.message : String(error) };
+  }
+  const started = Date.now();
+  let status = null;
+  while (Date.now() - started < timeoutMs) {
+    status = poll();
+    if (status.done || status.error) break;
+    await sleep(50);
+  }
+  if (!status || (!status.done && !status.error)) {
+    try { stop(); } catch {}
+    await sleep(300);
+    return { timeout: true, last: status ? normalizeGeode(status) : null };
+  }
+  try { stop(); } catch {}
+  return normalizeGeode(status);
+}
+
 const versions = addon.versions();
 const features = addon.features();
 const mc = (versions.find((item) => item.name === '26.3') || versions[versions.length - 1]).id;
@@ -254,7 +291,8 @@ cases.trialCircleWindow = await runTrial(
 cases.trialRectWindow = await runTrial(
   () => addon.trialStart({
     generation: 3, threads: 4, minX: -3000, maxX: 2999, minZ: -3000, maxZ: 2999, fullWorld: false,
-    clusterCircle: false, clusterRadius: 320, clusterLongSide: 640, clusterShortSide: 320,
+    // The app caps the window at 512×512 (side ≤512); keep this case rectangular but legal.
+    clusterCircle: false, clusterRadius: 256, clusterLongSide: 512, clusterShortSide: 256,
     minStructures: 2, minSpawners: 20, limit: 100,
     conversionRatio: 1 / 6, seeds: ['0'],
   }),
@@ -279,6 +317,67 @@ cases.trialList = await runTrial(
     conversionRatio: 1, seeds: ['0', '12345'],
   }),
   () => addon.trialPoll(), () => addon.trialStop(),
+);
+
+// Geode engine: exact rectangle, 1.18/1.19 version paths, approximate + verification and list mode.
+const geodeBase = {
+  threads: 8, model: 'terrain', tickRadius: 128, simulationDistance: 10,
+  minGeodes: 1, minBudding: 1, allowGpu: true, resume: true,
+};
+cases.geodeRect = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '26.3', minX: -3000, maxX: 1000, minZ: -1500, maxZ: 2500,
+    autoBudget: false, budget: 0, verifyTop: 0, seeds: ['0'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
+);
+
+cases.geode118 = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '1.18.2', minX: -2048, maxX: 2047, minZ: -2048, maxZ: 2047,
+    autoBudget: false, budget: 0, verifyTop: 0, seeds: ['0'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
+);
+
+cases.geode119 = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '1.19.2', minX: -2048, maxX: 2047, minZ: -2048, maxZ: 2047,
+    autoBudget: false, budget: 0, verifyTop: 0, seeds: ['0'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
+);
+
+cases.geode1214 = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '1.21.4', minX: -2048, maxX: 2047, minZ: -2048, maxZ: 2047,
+    autoBudget: false, budget: 0, verifyTop: 0, seeds: ['0'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
+);
+
+cases.geode1215 = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '1.21.5', minX: -2048, maxX: 2047, minZ: -2048, maxZ: 2047,
+    autoBudget: false, budget: 0, verifyTop: 0, seeds: ['0'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
+);
+
+cases.geodeApproxVerify = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '26.3', minX: -16384, maxX: 16383, minZ: -16384, maxZ: 16383,
+    autoBudget: false, budget: 5000, verifyTop: 20, seeds: ['0'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
+);
+
+cases.geodeList = await runGeode(
+  () => addon.geodeStart({
+    ...geodeBase, version: '26.3', minX: -2000, maxX: 1999, minZ: -2000, maxZ: 1999,
+    autoBudget: false, budget: 0, verifyTop: 0, seeds: ['0', '12345'],
+  }),
+  () => addon.geodePoll(), () => addon.geodeStop(),
 );
 
 // Slowest case goes last so a timeout cannot leave later cases "busy".

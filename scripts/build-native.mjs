@@ -201,7 +201,17 @@ export function buildNative() {
   if (!fs.existsSync(winpthread)) {
     throw new Error(`libwinpthread-1.dll not found at ${winpthread}`);
   }
-  fs.copyFileSync(winpthread, path.join(buildDir, 'libwinpthread-1.dll'));
+  const winpthreadTarget = path.join(buildDir, 'libwinpthread-1.dll');
+  try {
+    fs.copyFileSync(winpthread, winpthreadTarget);
+  } catch (error) {
+    // 已运行的应用会锁住 build 目录里的运行库；目标已存在时沿用旧副本即可，
+    // 不能因为一次复制失败就让整个 native 构建看起来失败。
+    if (!fs.existsSync(winpthreadTarget) || !['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) {
+      throw error;
+    }
+    console.warn(`libwinpthread-1.dll is in use; keeping existing ${winpthreadTarget}`);
+  }
 }
 
 const invoked = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

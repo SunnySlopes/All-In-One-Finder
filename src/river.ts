@@ -147,6 +147,8 @@ export class RiverPanel {
   }
 
   setSeedFromMap(seed: string): void {
+    // 只有“单种子”来源的 tab 才跟随地图/其他单种子页面的种子。
+    if (this.seedMode !== 'single') return;
     if (!seed.trim()) return;
     this.seed = seed.trim();
     const input = this.root.querySelector<HTMLInputElement>('#rv-seed');

@@ -1,11 +1,13 @@
 #include "double_monument_host.h"
 #include "flower_host.h"
 #include "fortress_host.h"
+#include "geode_host.h"
 #include "lowy_host.h"
 #include "map_service.h"
 #include "multi_monument_host.h"
 #include "river_host.h"
 #include "slime_host.h"
+#include "trial_detail.h"
 #include "trial_host.h"
 #include "witch_host.h"
 
@@ -623,6 +625,14 @@ Napi::Value TrialStart(const Napi::CallbackInfo &info)
     request.minSpawners = args.Has("minSpawners")
         ? args.Get("minSpawners").As<Napi::Number>().Int32Value()
         : 50;
+    // 产品联数上限 4；请求可调低，宿主不会再放宽超过 4。
+    request.maxStructures = args.Has("maxStructures")
+        ? args.Get("maxStructures").As<Napi::Number>().Int32Value()
+        : 4;
+    request.strictMode = readBool(args, "strictMode");
+    request.strictMargin = args.Has("strictMargin")
+        ? args.Get("strictMargin").As<Napi::Number>().Int32Value()
+        : 0;
     request.limit = args.Has("limit") ? args.Get("limit").As<Napi::Number>().Int32Value() : 1000;
     request.conversionRatio = args.Has("conversionRatio")
         ? args.Get("conversionRatio").As<Napi::Number>().DoubleValue()
@@ -692,6 +702,188 @@ Napi::Value TrialStop(const Napi::CallbackInfo &info)
 {
     trialStop();
     return info.Env().Undefined();
+}
+
+/** Per-chamber host-room frames + cage positions for the map's trial overlay. */
+Napi::Value TrialChambers(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Napi::Object args = info[0].As<Napi::Object>();
+    const int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    const int64_t seed = readSeed(args.Get("seed"), true);
+    Napi::Array requested = args.Get("chambers").As<Napi::Array>();
+    // The map requests at most a few dozen per batch; this is a safety valve.
+    if (requested.Length() > 256) throw Napi::Error::New(env, "too-many-chambers");
+
+    std::vector<std::pair<int, int>> chambers;
+    chambers.reserve(requested.Length());
+    for (uint32_t i = 0; i < requested.Length(); i++) {
+        Napi::Object item = requested.Get(i).As<Napi::Object>();
+        chambers.emplace_back(item.Get("x").As<Napi::Number>().Int32Value(),
+                              item.Get("z").As<Napi::Number>().Int32Value());
+    }
+
+    const auto details = trialChambers(mc, static_cast<uint64_t>(seed), chambers);
+    Napi::Array out = Napi::Array::New(env, details.size());
+    for (size_t i = 0; i < details.size(); i++) {
+        const auto &detail = details[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("x", detail.x);
+        item.Set("z", detail.z);
+        item.Set("chunkX", detail.chunkX);
+        item.Set("chunkZ", detail.chunkZ);
+        item.Set("exists", detail.exists);
+        item.Set("pieces", detail.pieces);
+        Napi::Array frames = Napi::Array::New(env, detail.frames.size());
+        for (size_t f = 0; f < detail.frames.size(); f++) {
+            Napi::Object frame = BoxToObject(env, detail.frames[f].box);
+            frame.Set("spawners", detail.frames[f].spawners);
+            frame.Set("slowSpawners", detail.frames[f].slowSpawners);
+            frames.Set(f, frame);
+        }
+        item.Set("frames", frames);
+        Napi::Array spawners = Napi::Array::New(env, detail.spawners.size());
+        for (size_t c = 0; c < detail.spawners.size(); c++) {
+            Napi::Object spawner = Napi::Object::New(env);
+            spawner.Set("x", detail.spawners[c].x);
+            spawner.Set("y", detail.spawners[c].y);
+            spawner.Set("z", detail.spawners[c].z);
+            spawner.Set("slow", detail.spawners[c].slow);
+            spawners.Set(c, spawner);
+        }
+        item.Set("spawners", spawners);
+        out.Set(i, item);
+    }
+    return out;
+}
+
+Napi::Value GeodeStart(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    GeodeRequest request;
+    request.version = args.Has("version") ? args.Get("version").As<Napi::String>().Utf8Value() : "26.3";
+    request.threads = args.Has("threads") ? args.Get("threads").As<Napi::Number>().Int32Value() : 8;
+    request.model = args.Has("model") ? args.Get("model").As<Napi::String>().Utf8Value() : "terrain";
+    const bool anyBounds = args.Has("minX") || args.Has("maxX") || args.Has("minZ") || args.Has("maxZ");
+    const bool allBounds = args.Has("minX") && args.Has("maxX") && args.Has("minZ") && args.Has("maxZ");
+    if (anyBounds && !allBounds) {
+        throw Napi::Error::New(info.Env(), "bad-bounds");
+    }
+    if (allBounds) {
+        request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
+        request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
+        request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
+        request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
+    } else if (args.Has("side")) {
+        const int side = args.Get("side").As<Napi::Number>().Int32Value();
+        const int min = -side / 2;
+        request.minX = min;
+        request.maxX = min + side - 1;
+        request.minZ = min;
+        request.maxZ = min + side - 1;
+    }
+    request.fullWorld = readBool(args, "fullWorld");
+    request.tickRadius = args.Has("tickRadius") ? args.Get("tickRadius").As<Napi::Number>().Int32Value() : 128;
+    request.simulationDistance = args.Has("simulationDistance")
+        ? args.Get("simulationDistance").As<Napi::Number>().Int32Value()
+        : 10;
+    request.minGeodes = args.Has("minGeodes") ? args.Get("minGeodes").As<Napi::Number>().Int32Value() : 1;
+    request.minBudding = args.Has("minBudding") ? args.Get("minBudding").As<Napi::Number>().Int32Value() : 1;
+    request.autoBudget = args.Has("autoBudget") ? args.Get("autoBudget").As<Napi::Boolean>().Value() : true;
+    request.budget = args.Has("budget") ? args.Get("budget").As<Napi::Number>().Int32Value() : 0;
+    request.verifyTop = args.Has("verifyTop") ? args.Get("verifyTop").As<Napi::Number>().Int32Value() : 20;
+    request.allowGpu = args.Has("allowGpu") ? args.Get("allowGpu").As<Napi::Boolean>().Value() : true;
+    request.resume = args.Has("resume") ? args.Get("resume").As<Napi::Boolean>().Value() : true;
+    request.seeds = readSeeds(info.Env(), args.Get("seeds"));
+    std::string error = geodeStart(request);
+    if (!error.empty()) throw Napi::Error::New(info.Env(), error);
+    return info.Env().Undefined();
+}
+
+Napi::Object geodeStatusToObject(Napi::Env env, const GeodeStatus &status)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("running", status.running);
+    out.Set("done", status.done);
+    out.Set("paused", status.paused);
+    out.Set("pausing", status.pausing);
+    out.Set("stopping", status.stopping);
+    out.Set("stopped", status.stopped);
+    out.Set("truncated", status.truncated);
+    out.Set("phase", status.phase);
+    out.Set("phaseIndex", status.phaseIndex);
+    out.Set("phaseCount", status.phaseCount);
+    out.Set("current", Napi::Number::New(env, static_cast<double>(status.current)));
+    out.Set("total", Napi::Number::New(env, static_cast<double>(status.total)));
+    out.Set("verifyDone", Napi::Number::New(env, static_cast<double>(status.verifyDone)));
+    out.Set("verifyTotal", Napi::Number::New(env, static_cast<double>(status.verifyTotal)));
+    out.Set("verified", status.verified);
+    out.Set("verifyMismatch", status.verifyMismatch);
+    out.Set("seedIndex", status.seedIndex);
+    out.Set("seedCount", status.seedCount);
+    out.Set("autoBudget", status.autoBudget);
+    out.Set("prefilter", status.prefilter);
+    out.Set("resumed", status.resumed);
+    out.Set("etaSeconds", status.etaSeconds);
+    out.Set("scanBackend", status.scanBackend);
+    out.Set("approximate", status.approximate);
+    out.Set("backend", status.backend);
+    out.Set("elapsedMs", status.elapsedMs);
+    out.Set("error", status.error);
+    Napi::Array hits = Napi::Array::New(env, status.hits.size());
+    for (size_t i = 0; i < status.hits.size(); i++) {
+        const auto &hit = status.hits[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("seed", Napi::BigInt::New(env, hit.seed));
+        item.Set("x", hit.x);
+        item.Set("z", hit.z);
+        item.Set("budding", hit.budding);
+        item.Set("geodes", hit.geodes);
+        item.Set("verified", hit.verified);
+        item.Set("listedBudding", hit.listedBudding);
+        item.Set("listedGeodes", hit.listedGeodes);
+        hits.Set(i, item);
+    }
+    out.Set("hits", hits);
+    return out;
+}
+
+Napi::Value GeodePoll(const Napi::CallbackInfo &info)
+{
+    return geodeStatusToObject(info.Env(), geodePoll());
+}
+
+Napi::Value GeodePause(const Napi::CallbackInfo &info)
+{
+    geodePause();
+    return info.Env().Undefined();
+}
+
+Napi::Value GeodeResume(const Napi::CallbackInfo &info)
+{
+    geodeResume();
+    return info.Env().Undefined();
+}
+
+Napi::Value GeodeStop(const Napi::CallbackInfo &info)
+{
+    geodeStop();
+    return info.Env().Undefined();
+}
+
+Napi::Value GeodeChunk(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Napi::Object args = info[0].As<Napi::Object>();
+    const std::string version = args.Has("version") ? args.Get("version").As<Napi::String>().Utf8Value() : "26.3";
+    const int64_t seed = readSeed(args.Get("seed"), true);
+    const int x = args.Get("x").As<Napi::Number>().Int32Value();
+    const int z = args.Get("z").As<Napi::Number>().Int32Value();
+    const GeodeChunkSummary summary = geodeChunkSummary(version, seed, x, z);
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("exists", summary.exists);
+    out.Set("budding", summary.budding);
+    return out;
 }
 
 Napi::Value RiverSearchStart(const Napi::CallbackInfo &info)
@@ -987,6 +1179,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("trialPause", Napi::Function::New(env, TrialPause));
     exports.Set("trialResume", Napi::Function::New(env, TrialResume));
     exports.Set("trialStop", Napi::Function::New(env, TrialStop));
+    exports.Set("trialChambers", Napi::Function::New(env, TrialChambers));
+    exports.Set("geodeStart", Napi::Function::New(env, GeodeStart));
+    exports.Set("geodePoll", Napi::Function::New(env, GeodePoll));
+    exports.Set("geodePause", Napi::Function::New(env, GeodePause));
+    exports.Set("geodeResume", Napi::Function::New(env, GeodeResume));
+    exports.Set("geodeStop", Napi::Function::New(env, GeodeStop));
+    exports.Set("geodeChunk", Napi::Function::New(env, GeodeChunk));
     exports.Set("riverSearchStart", Napi::Function::New(env, RiverSearchStart));
     exports.Set("riverSearchPoll", Napi::Function::New(env, RiverSearchPoll));
     exports.Set("riverSearchPause", Napi::Function::New(env, RiverSearchPause));

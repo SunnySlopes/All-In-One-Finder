@@ -25,6 +25,7 @@ set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
 set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
 set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower/jni")
 set(TRIAL "${CMAKE_SOURCE_DIR}/../tools/trial")
+set(GEODE "${CMAKE_SOURCE_DIR}/../tools/geode")
 if (EXISTS "${FLOWER}/cubiomes/biomes.h")
   message(WARNING
     "tools/flower/jni/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
@@ -144,6 +145,40 @@ target_compile_options(trial_bridge PRIVATE
   -ffunction-sections -fdata-sections
 )
 
+# 紫水晶母岩：geode 引擎与试炼共用根 cubiomes；G-UP3 已把 layout 命名空间
+# 和 biome 桥接函数改为 geode_layout / geode_biomes_*，因此两个引擎可同时链接。
+add_library(geode_objs OBJECT
+  "${GEODE}/src/geode.cpp"
+  "${GEODE}/src/search.cpp"
+  "${GEODE}/src/checkpoint.cpp"
+  "${GEODE}/src/coarse_gpu.cpp"
+  "${GEODE}/src/terrain.cpp"
+  "${GEODE}/src/carver.cpp"
+  "${GEODE}/src/structures.cpp"
+  "${GEODE}/src/structure_layout/layout.cpp"
+  "${GEODE}/src/structure_layout/climate263.cpp"
+)
+set_target_properties(geode_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(geode_objs PRIVATE
+  "${GEODE}/src"
+  "${GEODE}/data"
+  "${GEODE}/src/structure_layout"
+  "${CUBI}"
+)
+target_compile_definitions(geode_objs PRIVATE _WIN32)
+target_compile_options(geode_objs PRIVATE
+  -O3 -DNDEBUG -fwrapv -fexceptions -ffp-contract=off -fno-lto
+  -ffunction-sections -fdata-sections
+)
+
+add_library(geode_bridge OBJECT "${GEODE}/src/structure_layout/biome_bridge.c")
+set_target_properties(geode_bridge PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(geode_bridge PRIVATE "${CUBI}")
+target_compile_options(geode_bridge PRIVATE
+  -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
+  -ffunction-sections -fdata-sections
+)
+
 set(HOT_CXX
   addon.cpp
   map_service.cpp
@@ -156,6 +191,8 @@ set(HOT_CXX
   double_monument_host.cpp
   flower_host.cpp
   trial_host.cpp
+  trial_detail.cpp
+  geode_host.cpp
   search_gate.cpp
   "${SLIME}/slime_search.cpp"
   "${SLIMEOPT}/src/geometry.cpp"
@@ -201,6 +238,8 @@ add_library(allinone SHARED
   $<TARGET_OBJECTS:flower_objs>
   $<TARGET_OBJECTS:trial_objs>
   $<TARGET_OBJECTS:trial_bridge>
+  $<TARGET_OBJECTS:geode_objs>
+  $<TARGET_OBJECTS:geode_bridge>
   "${CMAKE_BINARY_DIR}/napi_bind.cpp"
 )
 set_target_properties(allinone PROPERTIES
@@ -215,6 +254,7 @@ target_include_directories(allinone PRIVATE
   "${FLOWER}"
   "${FLOWER}/cts"
   "${TRIAL}/src"
+  "${GEODE}/src"
   "${LOWY}"
   "${SLIMERADAR}"
   "${SLIMEOPT}/include"

@@ -89,11 +89,18 @@
       "overworld": "主世界",
       "nether": "下界",
       "end": "末地",
-      "grid": "坐标网格"
+      "grid": "坐标网格",
+      "trialCages": "总笼数 {total}(普通 {fast} / 慢 {slow})",
+      "trialCageFast": "普通笼子",
+      "trialCageSlow": "慢速笼子",
+      "trialCageAt": "{kind} ({x}, {z}), Y = {y}",
+      "trialCageColumn": "{kind} ({x}, {z}), Y = {ys}",
+      "trialNotGenerated": "该位置未生成密室",
+      "geodeBudding": "母岩数 {count}"
     },
     "error": {
       "bad-seed": "请填写整数种子。",
-      "bad-bounds": "搜索范围无效。",
+      "bad-bounds": "窗口边长过大或过小，有效边长为0~512",
       "area-too-large": "搜索范围超过允许的上限。",
       "unsupported-version": "这个搜索不支持所选版本。",
       "no-seeds": "没有可用的种子。",
@@ -115,7 +122,11 @@
       "bad-level": "搜索条件无效。",
       "fortress-start-failed": "下界要塞搜索启动失败。",
       "multi-monument-start-failed": "多联神殿搜索启动失败。",
-      "double-monument-start-failed": "二联神殿搜索启动失败。"
+      "double-monument-start-failed": "二联神殿搜索启动失败。",
+      "geode-start-failed": "紫水晶搜索启动失败。",
+      "geode-engine-failed": "紫水晶引擎异常。",
+      "geode-verify-failed": "精确复核失败（该条保持未复核）。",
+      "full-map-single-seed": "全图搜索只支持单个种子。"
     },
     "structure": {
       "desert_pyramid": "沙漠神殿",
@@ -340,9 +351,7 @@
       "ne": "东北(+-)"
     },
     "crossHelp": "搜索灵魂沙峡谷中的二联/三联/四联十字路口。",
-    "spanHelp": "搜索大范围尺寸大于要求的长/短边与高度的下界要塞。",
-    "crossingsUnit": "联",
-    "areaLabel": "面积"
+    "spanHelp": "搜索大范围尺寸大于要求的长/短边与高度的下界要塞。"
   },
   "monument": {
     "level": "相邻神殿数",
@@ -354,8 +363,6 @@
       "lowHint": "低效配对会排在最后并优先被截断。"
     },
     "lowEfficiency": "效率会略微损失",
-    "areaLabel": "面积",
-    "groupUnit": "连",
     "ocean": {
       "cold": "冷水",
       "frozen": "冰冻",
@@ -376,7 +383,6 @@
       "1": "气候粗筛",
       "2": "精校验"
     },
-    "phaseProgress": "本阶段 {current}/{total}",
     "overallProgress": "总进度 {current}/{total}",
     "flowerArea": "繁花森林{area}",
     "paleArea": "苍白花园{area}",
@@ -395,13 +401,20 @@
     "clusterShort": "窗口短边",
     "clusterSquareWindow": "正方形窗口",
     "simulationDistance": "模距",
-    "simulationDistanceHint": "模距（8–32）：把窗口长边设为 32×模距+16（最大 1024），并切换为正方形窗口",
+    "simulationDistanceHint": "模距（8–16）：把窗口长边设为 32×模距+16（上限 512），并切换为正方形窗口",
     "badSimulationDistance": "模距需为 8–32 的整数。",
+    "strictMode": "结构离边距离",
+    "strictMargin": "离边格数",
+    "strictMarginHint": "严格模式：试炼密室起点必须离统计窗口边界至少这么多格；贴边密室不计入结构数与笼数。",
+    "badStrictMargin": "离边格数必须小于窗口半宽，请缩小离边格数或放大统计窗口。",
+    "windowTooLarge": "统计窗口不能超过 512×512（等效面积上限 {area} 格²）。",
     "minStructures": "最低密室数",
     "minSpawners": "最低总刷怪笼数",
+    "structuresCapHint": "联数上限固定为 4（二联/三联/四联）；最低密室数只能在 1–4 之间。",
+    "badStructures": "最低密室数需在 1–4 之间。",
     "conversionRatio": "慢速笼折算比例",
     "conversionRatioHint": "范围 0–1（含上下界），超出会自动调整。",
-    "help": "选择“方形”时可编辑窗口长边/短边，选择“圆形”时只能用窗口半径。",
+    "help": "选择“方形”时可编辑窗口长边/短边，选择“圆形”时只能用窗口半径；窗口边长上限 512、圆半径上限 256。勾选“结构离边距离”后，结构起点需离统计窗口边界至少“离边格数”格（默认 0）。结果联数上限为 4。",
     "phase": {
       "0": "准备",
       "1": "分片扫描",
@@ -421,5 +434,40 @@
     "fastSpawners": "其中快速笼 {count}",
     "slowSpawners": "慢速笼 {count}",
     "structures": "结构数 {count}"
+  },
+  "geode": {
+    "tickRadius": "tick 半径（1.21.4-）",
+    "simulationDistance": "模距（1.21.5+）",
+    "activityLegacy": "1.21.4-：tick 半径圆形，区块中心严格圆形",
+    "activityModern": "1.21.5+：玩家区块 + 模拟距离方形",
+    "rangeLargeHint": "范围较大，耗时明显增加；建议保持自动预算。",
+    "minGeodes": "最低晶洞",
+    "minBudding": "最低母岩",
+    "help": "候选预算由搜索范围自动决定；结果数值为模型内估计，不代表游戏内实测。",
+    "fullMapSingleSeed": "全图搜索只支持单个种子。",
+    "phaseLine": "阶段 {index}/{count} {phase}",
+    "paused": "已暂停",
+    "pausing": "暂停中（等待当前工作单元）",
+    "pausingButton": "暂停中…",
+    "stopping": "停止中…",
+    "stoppingButton": "停止中…",
+    "stoppingEta": "停止中：等待当前工作单元结束",
+    "pausingEta": "暂停中：等待当前工作单元到检查点",
+    "phase": {
+      "scan": "扫描",
+      "simulate": "模拟",
+      "rank": "排名",
+      "verify": "精确复核",
+      "done": "完成"
+    },
+    "card": {
+      "budding": "母岩数 {count}",
+      "geodes": "晶洞数 {count}",
+      "verified": "已复核",
+      "approximate": "近似候选",
+      "listed": "榜单 {count}"
+    },
+    "stopped": "已停止，结果已清空。",
+    "stoppedProgress": "已停止"
   }
 }

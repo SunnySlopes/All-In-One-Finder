@@ -63,6 +63,14 @@ struct TrialRequest {
     int clusterShortSide = 320;
     int minStructures = 2;
     int minSpawners = 50;
+    /** 联数上限：结果中参与统计的密室数不得超过该值；0 = 不限制。产品固定为 4。 */
+    int maxStructures = 4;
+    /**
+     * 严格模式：只有起点距统计窗口边界至少 strictMargin 格的密室才计入结构数；
+     * 贴边密室整间剔除，但笼子仍按完整窗口统计。
+     */
+    bool strictMode = false;
+    int strictMargin = 0;
     int limit = 1000;
     double conversionRatio = 1.0 / 6.0;
     std::vector<int64_t> seeds;

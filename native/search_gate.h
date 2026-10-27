@@ -21,6 +21,7 @@ enum class SearchOwner {
     DoubleMonument,
     Flower,
     Trial,
+    Geode,
 };
 
 /** true = 拿到闸门；false = 已有搜索正在运行。 */

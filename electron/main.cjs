@@ -543,8 +543,8 @@ function appIconPath() {
 function createWindow() {
   const icon = appIconPath();
   win = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: 1500,
+    height: 1000,
     show: false,
     backgroundColor: '#121418',
     ...(icon ? { icon } : {}),
