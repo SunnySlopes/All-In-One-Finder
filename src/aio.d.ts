@@ -2,6 +2,8 @@ export {};
 
 declare global {
   interface Window {
+    /** Called by the native host on window close to persist the latest map session. */
+    __AIO_SESSION_B64__?: () => string;
     aio: {
       /** System UI language mapped to a supported locale (undefined outside Electron). */
       initialLocale?: 'zh' | 'en';

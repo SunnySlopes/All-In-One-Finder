@@ -33,6 +33,8 @@ constexpr int kMaxThreads = 256;
 constexpr int kOutputLimit = 1000;
 constexpr int kWorldLimit = 30000000;
 constexpr long long kMaxArea = 30000000LL * 30000000LL;
+/** 产品层限制：两个下界要塞搜索器的矩形等效面积上限 262144×262144。 */
+constexpr long long kMaxEquivalentArea = 262144LL * 262144LL;
 
 std::mutex gMu;
 std::thread gThread;
@@ -179,6 +181,7 @@ std::string fortressStart(const FortressRequest &request)
     const long long height = static_cast<long long>(request.maxZ) - request.minZ + 1;
     const long long rectArea = width * height;
     if (rectArea <= 0) return "bad-bounds";
+    if (rectArea > kMaxEquivalentArea) return "area-too-large";
 
     const int centerX = static_cast<int>((static_cast<long long>(request.minX) + request.maxX) / 2);
     const int centerZ = static_cast<int>((static_cast<long long>(request.minZ) + request.maxZ) / 2);

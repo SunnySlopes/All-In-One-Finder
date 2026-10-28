@@ -1,6 +1,6 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
-import { call, type McVersion, type TrialStatus } from './native';
+import { call, type TrialStatus } from './native';
 import { escapeAttr, formatDuration, messageOf } from './panel-utils';
 import type { ResultsColumn, TrialWindowView } from './results';
 
@@ -126,7 +126,6 @@ export class TrialPanel {
     longSide: DEFAULT_CLUSTER_LONG,
     shortSide: DEFAULT_CLUSTER_SHORT,
   };
-  private versions: McVersion[] = [];
   private results: ResultsColumn | null = null;
   private seed = '';
   private seedText = '';
@@ -136,6 +135,7 @@ export class TrialPanel {
   private pollTimer = 0;
   private searchStartedAt = 0;
   private shownError = '';
+  private shownCheckpointWarning = false;
   private savedRequest: TrialStartArgs | null = null;
 
   constructor() {
@@ -262,8 +262,7 @@ export class TrialPanel {
     if (input) input.value = this.seed;
   }
 
-  load(versions: McVersion[]): void {
-    this.versions = versions;
+  load(): void {
     this.render();
   }
 
@@ -577,6 +576,7 @@ export class TrialPanel {
       this.paused = false;
       this.pausing = false;
       this.shownError = '';
+      this.shownCheckpointWarning = false;
       this.searchStartedAt = Date.now();
       this.render();
       this.poll();
@@ -600,6 +600,7 @@ export class TrialPanel {
         this.paused = false;
         this.pausing = false;
         this.running = true;
+        this.shownCheckpointWarning = false;
         this.render();
         this.poll();
       } catch (error) {
@@ -648,6 +649,10 @@ export class TrialPanel {
         this.pausing = status.pausing;
         if (changed) this.render();
         this.updateProgress(status);
+        if (status.paused && status.checkpointFailed && !this.shownCheckpointWarning) {
+          this.shownCheckpointWarning = true;
+          showNotice(t('trial.pauseCheckpointFailed'));
+        }
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;

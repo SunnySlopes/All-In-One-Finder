@@ -93,6 +93,15 @@ function pushSeedToSingleTabs(seed: string): void {
 
 map.onSeedChange = (seed) => pushSeedToSingleTabs(seed);
 
+// 原生宿主在关闭窗口前调用它，把当前地图状态同步落盘，避免异步 session 写入被关闭流程截断。
+window.__AIO_SESSION_B64__ = () => {
+  if (!map.hasLoaded()) return '';
+  const bytes = new TextEncoder().encode(JSON.stringify(map.exportSnapshot()));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+};
+
 // 单种子页面改种子：失焦或回车后，同步地图画布和其他所有单种子 tab。
 panel.addEventListener('change', (event) => {
   if (current === 'map') return; // 地图自己的 onSeedChange 已处理
@@ -113,6 +122,17 @@ panel.addEventListener('keydown', (event) => {
   if ((event as KeyboardEvent).key !== 'Enter') return;
   event.preventDefault();
   input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
+// 输入过程中先同步到 session；用户不按回车直接关窗口也不会丢掉新种子。
+panel.addEventListener('input', (event) => {
+  if (current === 'map') return;
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.id.endsWith('-seed')) return;
+  const mode = panel.querySelector<HTMLSelectElement>('select[id$="-seed-mode"]');
+  if (mode && mode.value !== 'single') return;
+  const seed = input.value.trim();
+  if (seed) map.setSeedDraft(seed);
 });
 
 function setWindowTitle(): void {
@@ -361,9 +381,9 @@ void Promise.all([
   });
   search.load(versions);
   slime.load(versions);
-  witch.load(versions);
+  witch.load();
   flower.load(versions);
-  trial.load(versions);
+  trial.load();
   geode.load(versions);
   river.load(versions);
   fortressCross.load(versions);

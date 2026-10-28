@@ -1,6 +1,6 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
-import { call, type McVersion, type WitchStatus } from './native';
+import { call, type WitchStatus } from './native';
 import { escapeAttr, formatDuration, messageOf } from './panel-utils';
 import type { ResultsColumn } from './results';
 
@@ -55,7 +55,6 @@ export class WitchPanel {
   private seedMode: SeedMode = 'single';
   private versionGroup: WitchVersionGroup = 2;
   private searchVersion: WitchVersionGroup = 2;
-  private versions: McVersion[] = [];
   private results: ResultsColumn | null = null;
   private seed = '';
   private seedText = '';
@@ -161,8 +160,7 @@ export class WitchPanel {
     if (input) input.value = this.seed;
   }
 
-  load(versions: McVersion[]): void {
-    this.versions = versions;
+  load(): void {
     this.render();
   }
 

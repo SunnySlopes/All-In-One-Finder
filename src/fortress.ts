@@ -12,7 +12,9 @@ type BorderState = 'none' | 'nw' | 'sw' | 'se' | 'ne';
 
 const DEFAULT_SIDE = 32768;
 const DEFAULT_LIST_SIDE = 2048;
-const BOUNDARY_SIDE = 7500001;
+/** 两个下界要塞搜索器共用的范围上限：等效面积 262144×262144。 */
+const MAX_EQUIVALENT_AREA = 262144 * 262144;
+const MAX_SQUARE_SIDE = 262144;
 const WORLD_COORD = 30000000;
 const DEFAULT_SPAN_LONG = 240;
 const DEFAULT_SPAN_SHORT = 240;
@@ -92,11 +94,11 @@ export class FortressPanel {
         </div>
         <div class="square-row">
           <label class="feature"><input id="f-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
-          <input id="f-side" type="number" value="${DEFAULT_SIDE}" />
+          <input id="f-side" type="number" min="1" max="${MAX_SQUARE_SIDE}" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
           <button id="f-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="f-border" type="button" data-i18n="common.search.border"></button>
+          <button id="f-border" type="button" data-i18n="fortress.maxRange"></button>
           <button id="f-bordermode" type="button" hidden></button>
         </div>
         <div id="f-params"></div>
@@ -116,7 +118,7 @@ export class FortressPanel {
     this.square.addEventListener('change', () => this.applySquare());
     this.side.addEventListener('input', () => this.applySquare());
     this.root.querySelector('#f-reset')!.addEventListener('click', () => this.resetDefaultArea());
-    this.root.querySelector('#f-border')!.addEventListener('click', () => this.resetWorldBorder());
+    this.root.querySelector('#f-border')!.addEventListener('click', () => this.resetMaxRange());
     this.root.querySelector('#f-bordermode')!.addEventListener('click', () => this.advanceBorder());
     this.seedModeSelect.addEventListener('change', () => {
       this.seedMode = this.seedModeSelect.value as SeedMode;
@@ -160,10 +162,10 @@ export class FortressPanel {
     this.render();
   }
 
-  private resetWorldBorder(): void {
+  private resetMaxRange(): void {
     this.border = 'none';
     this.square.checked = true;
-    this.side.value = String(BOUNDARY_SIDE);
+    this.side.value = String(MAX_SQUARE_SIDE);
     this.applySquare();
     this.render();
   }
@@ -333,6 +335,13 @@ export class FortressPanel {
       || minX < -WORLD_COORD || maxX > WORLD_COORD
       || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
       await showNotice(t('common.error.bad-bounds'));
+      return;
+    }
+
+    const width = maxX - minX + 1;
+    const height = maxZ - minZ + 1;
+    if (width * height > MAX_EQUIVALENT_AREA) {
+      await showNotice(t('fortress.areaTooLarge'));
       return;
     }
 

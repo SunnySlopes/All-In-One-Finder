@@ -65,6 +65,8 @@ export class SearchPanel {
   private phaseStartedAt = 0;
   private searchStartedAt = 0;
   private lastPhase = Number.NaN;
+  /** 最近一次轮询结果；render() 重建页脚后据此恢复进度，避免完成瞬间被清空。 */
+  private lastStatus: SearchStatus | null = null;
   private results: ResultsColumn | null = null;
   onNavigate: (id: SearcherId) => void = () => {};
 
@@ -135,6 +137,7 @@ export class SearchPanel {
     const changed = this.searcher !== id;
     this.searcher = id;
     if (id === 'LowYPitDripstoneCave') this.seedMode = 'single';
+    if (changed) this.lastStatus = null;
     if (changed) this.resetDefaultArea();
     this.render();
   }
@@ -343,6 +346,7 @@ export class SearchPanel {
     this.footer.querySelector('#s-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#s-stop')?.addEventListener('click', () => void call('searchStop'));
     applyI18n(this.root);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private readFields(): void {
@@ -462,6 +466,7 @@ export class SearchPanel {
       this.results?.clear(this.searcher, listMode);
       this.running = true;
       this.paused = false;
+      this.lastStatus = null;
       this.searchStartedAt = Date.now();
       this.phaseStartedAt = Date.now();
       this.lastPhase = Number.NaN;
@@ -489,23 +494,14 @@ export class SearchPanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<SearchStatus>('searchPoll');
+        this.lastStatus = status;
         this.running = status.running;
         this.paused = status.paused;
         if (status.phase !== this.lastPhase) {
           this.lastPhase = status.phase;
           this.phaseStartedAt = Date.now();
         }
-        const progress = this.footer.querySelector('#s-progress');
-        const eta = this.footer.querySelector('#s-eta');
-        const elapsed = this.footer.querySelector('#s-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#s-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
-        if (bar) {
-          const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
-          bar.style.width = `${pct}%`;
-        }
+        this.paintStatus(status);
         const listMode = this.pageId() === 'lowy-list';
         this.results?.setHits(status.hits, this.searcher, listMode);
         if (status.done) {
@@ -533,10 +529,35 @@ export class SearchPanel {
     return t('dripstonecave.stage.1');
   }
 
+  /** 把一次状态写入页脚；render() 重建页脚后会再用 lastStatus 调用它恢复进度。 */
+  private paintStatus(status: SearchStatus): void {
+    const progress = this.footer.querySelector('#s-progress');
+    const eta = this.footer.querySelector('#s-eta');
+    const elapsed = this.footer.querySelector('#s-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#s-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) {
+      elapsed.textContent = t('common.searchExtra.elapsed', {
+        time: formatDuration(Date.now() - this.searchStartedAt),
+      });
+    }
+    if (bar) {
+      const complete = status.done && (status.total <= 0 || status.current >= status.total);
+      const pct = complete
+        ? 100
+        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      bar.style.width = `${pct}%`;
+    }
+  }
+
   private progressText(status: SearchStatus): string {
     const phase = this.stageLabel(status.phase);
     const seeds = status.seedCount > 1 ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} ` : '';
-    const pct = status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
+    const complete = status.done && (status.total <= 0 || status.current >= status.total);
+    const pct = complete
+      ? 100
+      : status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
     return `${seeds}${phase} ${status.current}/${status.total} (${pct}%)${status.error ? ` ${t(`common.error.${status.error}`) || status.error}` : ''}`;
   }
 

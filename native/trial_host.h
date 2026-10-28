@@ -43,6 +43,8 @@ struct TrialStatus {
     int seedCount = 0;
     /** At least one seed hit the per-seed limit, so results may be truncated. */
     bool truncated = false;
+    /** Pause/stop asked the engine to save a checkpoint and that write failed. */
+    bool checkpointFailed = false;
     std::string error;
     std::vector<TrialHit> hits;
 };

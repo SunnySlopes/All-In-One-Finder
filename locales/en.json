@@ -101,6 +101,7 @@
     "error": {
       "bad-seed": "Enter an integer seed.",
       "save-failed": "Save failed: cannot write to the selected location. Try another folder.",
+      "session-save-failed": "Session save failed: cannot write to local AppData. Check the folder permissions.",
       "bad-bounds": "The window size is invalid. Change them between 0 and 512.",
       "area-too-large": "The search box is larger than the allowed maximum.",
       "unsupported-version": "This version is not supported by the search.",
@@ -344,6 +345,7 @@
     "spanSquare": "Square",
     "minHeight": "Min height",
     "border": "Border mode",
+    "maxRange": "Reset to maximum range",
     "borderState": {
       "none": "None",
       "nw": "NW (--)",
@@ -351,8 +353,9 @@
       "se": "SE (++)",
       "ne": "NE (+-)"
     },
-    "crossHelp": "Finds 2/3/4-crossing layouts in soul sand valleys.",
-    "spanHelp": "Finds nether fortresses whose large-range long/short edges and height all exceed the required minimums."
+    "areaTooLarge": "Search area must not exceed 262144 × 262144 equivalent area.",
+    "crossHelp": "Finds 2/3/4-crossing layouts in soul sand valleys. Maximum search area is 262144 × 262144 equivalent area.",
+    "spanHelp": "Finds nether fortresses whose large-range long/short edges and height all exceed the required minimums. Maximum search area is 262144 × 262144 equivalent area."
   },
   "monument": {
     "level": "Monuments",
@@ -426,6 +429,7 @@
     "pausing": "Pausing (waiting for the current shard)",
     "pausingButton": "Pausing…",
     "pausingEta": "Pausing: waiting for the current shard",
+    "pauseCheckpointFailed": "Failed to save the checkpoint while pausing; this run cannot resume from it, but the search can continue normally.",
     "restartNotice": "Search settings changed, so the checkpoint cannot resume; restarting from the beginning.",
     "truncated": "Reached the per-seed limit of {limit}; results may be truncated.",
     "slowWarning": "The chamber/spawner thresholds you entered are too low and will slow the search down. We recommend at least 3 trial chambers and 50 converted spawners. Do you want to adjust them?",

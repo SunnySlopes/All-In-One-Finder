@@ -11,6 +11,7 @@
 #include <objbase.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 #include <WebView2.h>
 
@@ -30,6 +31,7 @@
 
 #include "com_ptr.h"
 #include "engine_server.h"
+#include "version.h"
 
 // shell32: stable taskbar identity so the pinned/taskbar icon is ours, not a generic one.
 extern "C" HRESULT WINAPI SetCurrentProcessExplicitAppUserModelID(PCWSTR appId);
@@ -42,6 +44,8 @@ constexpr wchar_t kVirtualHost[] = L"app.local";
 
 constexpr UINT kSmokeTimer = 1;
 constexpr UINT kSmokeTimeoutMs = 30000;
+constexpr UINT kSessionTimer = 2;
+constexpr UINT kSessionIntervalMs = 5000;
 constexpr UINT WM_APP_ENGINE = WM_APP + 1;
 
 constexpr int ID_IMPORT = 1001;
@@ -72,6 +76,7 @@ HWND g_hwnd = nullptr;
 bool g_smokeDone = false;
 int g_exitCode = 0; // normal window close exits 0; failures set an explicit code
 bool g_tempProfileTried = false; /* one retry with a profile under %TEMP% */
+bool g_closeSavePending = false;
 
 aio::ComPtr<ICoreWebView2Environment> g_env;aio::ComPtr<ICoreWebView2Controller> g_controller;
 aio::ComPtr<ICoreWebView2> g_webview;
@@ -154,6 +159,19 @@ bool ensureDir(const std::wstring &dir)
     return GetLastError() == ERROR_ALREADY_EXISTS;
 }
 
+/** A directory that exists is not necessarily writable; probe with a real file. */
+bool writableDir(const std::wstring &dir)
+{
+    if (!ensureDir(dir)) return false;
+    const std::wstring probe =
+        joinPath(dir, L".aio-write-probe-" + std::to_wstring(GetCurrentProcessId()) + L".tmp");
+    HANDLE file = CreateFileW(probe.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    CloseHandle(file);
+    return true;
+}
+
 bool readFileBytes(const std::wstring &path, std::string &out)
 {
     std::ifstream file(path.c_str(), std::ios::binary);
@@ -171,10 +189,28 @@ bool writeFileBytes(const std::wstring &path, const std::string &data, bool crea
         const size_t slash = path.find_last_of(L"\\/");
         if (slash != std::wstring::npos) ensureDir(path.substr(0, slash));
     }
-    std::ofstream file(path.c_str(), std::ios::binary | std::ios::trunc);
-    if (!file) return false;
-    file.write(data.data(), static_cast<std::streamsize>(data.size()));
-    return static_cast<bool>(file);
+    // Write a sibling temp file and replace atomically: closing the app mid-write
+    // must not leave a truncated session file that fails to parse on next launch.
+    const std::wstring temporary = path + L".tmp";
+    {
+        std::ofstream file(temporary.c_str(), std::ios::binary | std::ios::trunc);
+        if (!file) return false;
+        file.write(data.data(), static_cast<std::streamsize>(data.size()));
+        file.flush();
+        if (!file)
+        {
+            file.close();
+            DeleteFileW(temporary.c_str());
+            return false;
+        }
+        file.close();
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        DeleteFileW(temporary.c_str());
+        return false;
+    }
+    return true;
 }
 
 const char kB64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -659,6 +695,60 @@ public:
     }
 };
 
+/**
+ * Asks the page for its latest session as base64 and writes it. Used by the
+ * periodic autosave timer and by WM_CLOSE (close=true). This closes the race
+ * where the debounced write-session message is still in flight when the
+ * WebView is torn down.
+ */
+class SessionSaveHandler final
+    : public aio::ComHandler<ICoreWebView2ExecuteScriptCompletedHandler,
+                             aio::iid::ExecuteScriptCompletedHandler>
+{
+public:
+    explicit SessionSaveHandler(bool close) : close_(close) {}
+
+    HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, LPCWSTR json) override
+    {
+        if (SUCCEEDED(result) && json)
+        {
+            std::wstring text(json);
+            if (text.size() >= 2 && text.front() == L'"' && text.back() == L'"')
+                text = text.substr(1, text.size() - 2);
+            if (!text.empty() && text != L"null")
+            {
+                const std::string decoded = base64Decode(wideToUtf8(text));
+                // Only replace the session when the page returned real session JSON.
+                if (decoded.size() > 2 && decoded.front() == '{' && decoded.find("\"seed\"") != std::string::npos)
+                    writeFileBytes(sessionFile(L"map"), decoded, true);
+            }
+        }
+        if (close_ && g_hwnd) DestroyWindow(g_hwnd);
+        return S_OK;
+    }
+
+private:
+    bool close_ = false;
+};
+
+void saveSession(bool close)
+{
+    if (!g_webview)
+    {
+        if (close && g_hwnd) DestroyWindow(g_hwnd);
+        return;
+    }
+    if (close) g_closeSavePending = true;
+    const HRESULT requested = g_webview->ExecuteScript(
+        L"window.__AIO_SESSION_B64__ ? window.__AIO_SESSION_B64__() : null",
+        new SessionSaveHandler(close));
+    if (FAILED(requested) && close)
+    {
+        g_closeSavePending = false;
+        if (g_hwnd) DestroyWindow(g_hwnd);
+    }
+}
+
 bool retryWithTempProfile(); /* defined after EnvHandler */
 
 class ControllerHandler final : public aio::ComHandler<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
@@ -854,6 +944,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
             g_exitCode = 1;
             DestroyWindow(hwnd);
         }
+        else if (wParam == kSessionTimer)
+        {
+            saveSession(false);
+        }
         return 0;
     case WM_COMMAND:
         switch (LOWORD(wParam))
@@ -894,6 +988,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_CLOSE:
         std::fwprintf(stderr, L"[host] WM_CLOSE\n");
         std::fflush(stderr);
+        if (!g_closeSavePending)
+        {
+            saveSession(true);
+            return 0;
+        }
         DestroyWindow(hwnd);
         return 0;
     case WM_DESTROY:
@@ -932,7 +1031,65 @@ std::wstring localAppDataDir()
         base = value;
         free(value);
     }
+    if (base.empty())
+    {
+        // Environment can be sanitized by a launcher; ask Windows directly.
+        wchar_t fallback[MAX_PATH] = {};
+        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, nullptr,
+                                       SHGFP_TYPE_CURRENT, fallback)))
+            base = fallback;
+    }
     return base.empty() ? L"." : joinPath(base, L"All-In-One Finder");
+}
+
+std::wstring envPath(const wchar_t *name)
+{
+    wchar_t *value = nullptr;
+    size_t length = 0;
+    std::wstring out;
+    if (_wdupenv_s(&value, &length, name) == 0 && value)
+    {
+        out = value;
+        free(value);
+    }
+    return out;
+}
+
+/**
+ * Pick a writable, persistent app-data base. LocalAppData is tried first, then
+ * Roaming AppData, the portable exe's own folder, Documents and finally TEMP.
+ * An existing session always wins, so a fallback used once keeps being reused.
+ *
+ * AIO_SESSION_BASE can force a base directory for unusual environments.
+ */
+std::wstring appDataBaseDir(const std::wstring &portableDir)
+{
+    std::vector<std::wstring> candidates;
+    if (const auto overrideDir = envPath(L"AIO_SESSION_BASE"); !overrideDir.empty())
+        candidates.push_back(overrideDir);
+    candidates.push_back(localAppDataDir());
+    if (const auto roaming = envPath(L"APPDATA"); !roaming.empty())
+        candidates.push_back(joinPath(roaming, L"All-In-One Finder"));
+    if (!portableDir.empty())
+        candidates.push_back(joinPath(portableDir, L"All-In-One Finder Data"));
+    wchar_t documents[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, documents)))
+        candidates.push_back(joinPath(documents, L"All-In-One Finder"));
+    wchar_t temp[MAX_PATH] = {};
+    if (GetTempPathW(MAX_PATH, temp))
+        candidates.push_back(joinPath(temp, L"All-In-One Finder"));
+
+    const auto hasSession = [](const std::wstring &base) {
+        return GetFileAttributesW(joinPath(joinPath(base, L"session"), L"map.json").c_str()) !=
+               INVALID_FILE_ATTRIBUTES;
+    };
+    for (const auto &candidate : candidates)
+        if (hasSession(candidate) && writableDir(joinPath(candidate, L"session")))
+            return candidate;
+    for (const auto &candidate : candidates)
+        if (writableDir(joinPath(candidate, L"session")))
+            return candidate;
+    return localAppDataDir();
 }
 
 bool parseArgs(Config &config)
@@ -988,12 +1145,31 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return 2;
     }
 
-    // Session data lives under the user profile: always writable, independent of
-    // where the exe was moved (Downloads, Program Files, sync/network folders).
-    const std::wstring userBase = localAppDataDir();
+    // Session data lives under a writable per-user base. LocalAppData is preferred,
+    // but locked-down environments may block it; appDataBaseDir() falls back to
+    // Roaming AppData / Documents so the session still survives restarts.
+    const std::wstring userBase = appDataBaseDir(config.portableDir);
+    ensureDir(userBase);
     const std::wstring sessionRoot = joinPath(userBase, L"session");
-    ensureDir(sessionRoot);
+    const bool sessionDirOk = ensureDir(sessionRoot);
+    const DWORD sessionError = sessionDirOk ? 0 : GetLastError();
     g_sessionDir = sessionRoot;
+    {
+        const std::string startup = "version=" AIO_VERSION_STRING "\r\nexe=" + wideToUtf8(exePath()) +
+                                    "\r\nbase=" + wideToUtf8(userBase) +
+                                    "\r\nsession=" + wideToUtf8(sessionRoot) +
+                                    "\r\nsession-dir-ok=" + (sessionDirOk ? "1" : "0") +
+                                    "\r\nsession-error=" + std::to_string(static_cast<unsigned long>(sessionError)) +
+                                    "\r\n";
+        writeFileBytes(joinPath(userBase, L"host-startup.log"), startup, true);
+    }
+    if (!sessionDirOk)
+    {
+        const std::wstring message = L"无法创建 session 目录，session 将无法保存：\n" + sessionRoot +
+                                     L"\n\n错误码：" + std::to_wstring(static_cast<unsigned long>(sessionError)) +
+                                     L"\n\n可设置环境变量 AIO_SESSION_BASE 指向一个可写目录后重试。";
+        MessageBoxW(nullptr, message.c_str(), kWindowTitle, MB_ICONERROR);
+    }
 
     // Older portable builds kept the session next to the exe; adopt it once.
     const std::wstring legacySession = joinPath(config.portableDir, L"session\\map.json");
@@ -1010,12 +1186,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     wchar_t profileName[64] = {};
     _snwprintf_s(profileName, _countof(profileName), _TRUNCATE, L"profiles\\p%lu-%llu",
                  GetCurrentProcessId(), static_cast<unsigned long long>(GetTickCount64()));
-    g_userDataDir = joinPath(localAppDataDir(), std::wstring(profileName) + L"\\WebView2");
+    g_userDataDir = joinPath(userBase, std::wstring(profileName) + L"\\WebView2");
     ensureDir(g_userDataDir);
     {
         // Keep the per-process WebView2 profiles from growing forever.
         std::error_code ec;
-        const std::filesystem::path root = std::filesystem::path(localAppDataDir()) / L"profiles";
+        const std::filesystem::path root = std::filesystem::path(userBase) / L"profiles";
         if (std::filesystem::exists(root, ec))
         {
             const auto now = std::filesystem::file_time_type::clock::now();
@@ -1120,6 +1296,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     installMenu();
     ShowWindow(g_hwnd, SW_SHOWNORMAL);
     UpdateWindow(g_hwnd);
+    SetTimer(g_hwnd, kSessionTimer, kSessionIntervalMs, nullptr);
     if (config.smoke) SetTimer(g_hwnd, kSmokeTimer, kSmokeTimeoutMs, nullptr);
 
     if (FAILED(g_createEnv(nullptr, g_userDataDir.c_str(), nullptr, new EnvHandler())))

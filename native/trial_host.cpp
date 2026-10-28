@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -76,6 +77,18 @@ std::string ansiPath(const std::filesystem::path &path)
     WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, out.data(), length, nullptr, nullptr);
     return out;
 }
+
+/** Read an environment variable as UTF-16 so non-ASCII AppData paths stay intact. */
+std::wstring envWide(const wchar_t *name)
+{
+    const DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
+    if (length == 0) return {};
+    std::wstring value(length, L'\0');
+    const DWORD written = GetEnvironmentVariableW(name, value.data(), length);
+    if (written == 0) return {};
+    value.resize(written);
+    return value;
+}
 #else
 std::string ansiPath(const std::filesystem::path &path)
 {
@@ -83,17 +96,23 @@ std::string ansiPath(const std::filesystem::path &path)
 }
 #endif
 
-std::filesystem::path utf8Path(const char *text)
-{
-    return std::filesystem::path(reinterpret_cast<const char8_t *>(text));
-}
-
 std::filesystem::path checkpointDirectory()
 {
+#ifdef _WIN32
+    if (const auto explicitDir = envWide(L"AIO_TRIAL_CHECKPOINTS"); !explicitDir.empty())
+        return std::filesystem::path(explicitDir);
+    if (const auto dataDir = envWide(L"AIO_DATA_DIR"); !dataDir.empty())
+        return std::filesystem::path(dataDir) / L"checkpoints" / L"trial-native";
+    // 宿主未提供 AIO_DATA_DIR 时，断点也落到 %LOCALAPPDATA%\All-In-One Finder，
+    // 不再使用 %TEMP%（部分环境不可写或会被清理）。
+    if (const auto local = envWide(L"LOCALAPPDATA"); !local.empty())
+        return std::filesystem::path(local) / L"All-In-One Finder" / L"userdata" / L"checkpoints" / L"trial-native";
+#else
     if (const char *explicitDir = std::getenv("AIO_TRIAL_CHECKPOINTS"); explicitDir && *explicitDir)
-        return utf8Path(explicitDir);
+        return std::filesystem::path(explicitDir);
     if (const char *dataDir = std::getenv("AIO_DATA_DIR"); dataDir && *dataDir)
-        return utf8Path(dataDir) / "checkpoints" / "trial-native";
+        return std::filesystem::path(dataDir) / "checkpoints" / "trial-native";
+#endif
     std::error_code ec;
     const auto temp = std::filesystem::temp_directory_path(ec);
     if (ec) return {};
@@ -106,6 +125,7 @@ std::string checkpointDirectoryText()
     return dir.empty() ? std::string() : ansiPath(dir);
 }
 
+/** Explicit Stop discards resumable trial checkpoints; Pause/close keeps them. */
 void clearCheckpoints()
 {
     const auto dir = checkpointDirectory();
@@ -259,7 +279,9 @@ void job(TrialRequest request, int startSeed)
             cancelled = true;
         } catch (const std::bad_alloc &) {
             error = "out-of-memory";
-        } catch (const std::exception &) {
+        } catch (const std::exception &exception) {
+            std::fprintf(stderr, "[trial] search failed: %s\n", exception.what());
+            std::fflush(stderr);
             error = "trial-start-failed";
         }
 
@@ -303,6 +325,7 @@ void job(TrialRequest request, int startSeed)
         gStatus.pausing = false;
         gStatus.phase = finalPhase;
         gStatus.error = error;
+        gStatus.checkpointFailed = control->checkpoint_failed();
         if (stopped) {
             gCollected.clear();
             gStatus.hits.clear();
@@ -422,9 +445,7 @@ std::string trialStart(const TrialRequest &request)
     normalized.clusterShortSide =
         std::max(1, std::min(normalized.clusterLongSide, normalized.clusterShortSide));
 
-    // A fresh start always discards old checkpoints: only the explicit resume path may
-    // continue from a partially finished search.
-    clearCheckpoints();
+    // 同参数的任务默认从已有断点继续；参数变化时引擎按指纹自动忽略旧断点。
     gStop.store(false);
     gPauseRequested.store(false);
     gPausing.store(false);
@@ -506,6 +527,7 @@ void trialResume()
         gStatus.pausing = false;
         gStatus.phase = 1;
         gStatus.error = "";
+        gStatus.checkpointFailed = false;
         gStatus.seedIndex = start;
     }
     try {
@@ -527,7 +549,7 @@ void trialResume()
 
 void trialStop()
 {
-    bool clearPaused = false;
+    bool pausedStop = false;
     {
         std::lock_guard<std::mutex> lock(gMu);
         if (!gStatus.running) {
@@ -544,10 +566,11 @@ void trialStop()
             gPausing.store(false);
             gTruncated.store(false);
             gPhase.store(2);
-            clearPaused = true;
+            pausedStop = true;
         }
     }
-    if (clearPaused) {
+    // 显式“停止”丢弃断点；暂停/关闭程序仍保留断点以便续跑。
+    if (pausedStop) {
         clearCheckpoints();
         return;
     }

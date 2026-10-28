@@ -30,6 +30,10 @@ inline constexpr GUID CreateControllerCompletedHandler = {
 // MIDL_INTERFACE("b99369f3-9b11-47b5-bc6f-8e7895fcea17")
 inline constexpr GUID AddScriptCompletedHandler = {
     0xB99369F3, 0x9B11, 0x47B5, {0xBC, 0x6F, 0x8E, 0x78, 0x95, 0xFC, 0xEA, 0x17}};
+
+// MIDL_INTERFACE("49511172-cc67-4bca-9923-137112f4c4cc")
+inline constexpr GUID ExecuteScriptCompletedHandler = {
+    0x49511172, 0xCC67, 0x4BCA, {0x99, 0x23, 0x13, 0x71, 0x12, 0xF4, 0xC4, 0xCC}};
 // MIDL_INTERFACE("57213f19-00e6-49fa-8e07-898ea01ecbd2")
 inline constexpr GUID WebMessageReceivedHandler = {
     0x57213F19, 0x00E6, 0x49FA, {0x8E, 0x07, 0x89, 0x8E, 0xA0, 0x1E, 0xCB, 0xD2}};

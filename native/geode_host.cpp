@@ -21,6 +21,13 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -82,6 +89,18 @@ std::string utf8Path(const std::filesystem::path &path)
     const auto text = path.u8string();
     return std::string(reinterpret_cast<const char *>(text.data()), text.size());
 }
+
+/** Read an environment variable as UTF-16 so non-ASCII AppData paths stay intact. */
+std::wstring envWide(const wchar_t *name)
+{
+    const DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
+    if (length == 0) return {};
+    std::wstring value(length, L'\0');
+    const DWORD written = GetEnvironmentVariableW(name, value.data(), length);
+    if (written == 0) return {};
+    value.resize(written);
+    return value;
+}
 #else
 std::string utf8Path(const std::filesystem::path &path)
 {
@@ -91,10 +110,21 @@ std::string utf8Path(const std::filesystem::path &path)
 
 std::filesystem::path checkpointDirectory()
 {
+#ifdef _WIN32
+    if (const auto explicitDir = envWide(L"AIO_GEODE_CHECKPOINTS"); !explicitDir.empty())
+        return std::filesystem::path(explicitDir);
+    if (const auto dataDir = envWide(L"AIO_DATA_DIR"); !dataDir.empty())
+        return std::filesystem::path(dataDir) / L"checkpoints" / L"geode-native";
+    // 宿主未提供 AIO_DATA_DIR 时，断点落到 %LOCALAPPDATA%\All-In-One Finder，
+    // 不再使用 %TEMP%（部分环境不可写或会被清理）。
+    if (const auto local = envWide(L"LOCALAPPDATA"); !local.empty())
+        return std::filesystem::path(local) / L"All-In-One Finder" / L"userdata" / L"checkpoints" / L"geode-native";
+#else
     if (const char *explicitDir = std::getenv("AIO_GEODE_CHECKPOINTS"); explicitDir && *explicitDir)
-        return std::filesystem::path(reinterpret_cast<const char8_t *>(explicitDir));
+        return std::filesystem::path(explicitDir);
     if (const char *dataDir = std::getenv("AIO_DATA_DIR"); dataDir && *dataDir)
-        return std::filesystem::path(reinterpret_cast<const char8_t *>(dataDir)) / "checkpoints" / "geode-native";
+        return std::filesystem::path(dataDir) / "checkpoints" / "geode-native";
+#endif
     std::error_code ec;
     const auto temp = std::filesystem::temp_directory_path(ec);
     if (ec) return {};

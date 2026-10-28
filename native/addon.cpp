@@ -662,6 +662,7 @@ Napi::Object trialStatusToObject(Napi::Env env, const TrialStatus &status)
     out.Set("seedIndex", status.seedIndex);
     out.Set("seedCount", status.seedCount);
     out.Set("truncated", status.truncated);
+    out.Set("checkpointFailed", status.checkpointFailed);
     out.Set("error", status.error);
     Napi::Array hits = Napi::Array::New(env, status.hits.size());
     for (size_t i = 0; i < status.hits.size(); i++) {

@@ -209,6 +209,8 @@ export interface TrialStatus {
   seedIndex: number;
   seedCount: number;
   truncated: boolean;
+  /** Pause/stop asked the engine to save a checkpoint and that write failed. */
+  checkpointFailed: boolean;
   error: string;
   hits: TrialHit[];
 }

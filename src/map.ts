@@ -1,4 +1,4 @@
-import { escapeText } from './dialog';
+import { escapeText, showNotice } from './dialog';
 import { biomeLabel, onLocale, structureLabel, t } from './i18n';
 import {
   call,
@@ -109,6 +109,7 @@ const SESSION_NAME = 'map';
 const DEFAULT_FEATURES = [
   'swamp_hut',
   'village',
+  'outpost',
   'monument',
   'stronghold',
   'spawn',
@@ -137,6 +138,7 @@ interface MapSession {
   dim: number;
   y: number;
   largeBiomes: boolean;
+  grid: boolean;
   features: string[];
 }
 
@@ -197,14 +199,19 @@ function defaultYForDim(dim: number): number {
 function parseSession(raw: string | null): MapSession | null {
   if (!raw) return null;
   try {
-    const data = JSON.parse(raw) as Partial<MapSession>;
+    const data = JSON.parse(raw) as Partial<MapSession> & { mcVersion?: unknown };
     if (typeof data.seed !== 'string' || !data.seed.trim()) return null;
+    // 自动保存文件使用 version（字符串），手动导出的 session 使用 mcVersion。
+    const named = typeof data.version === 'string'
+      ? data.version
+      : typeof data.mcVersion === 'string' ? data.mcVersion : '';
     return {
       seed: data.seed.trim(),
-      version: typeof data.version === 'string' ? data.version : '',
+      version: named,
       dim: Number.isFinite(Number(data.dim)) ? Number(data.dim) : 0,
       y: Number.isFinite(Number(data.y)) ? Number(data.y) : 256,
       largeBiomes: !!data.largeBiomes,
+      grid: data.grid !== false,
       features: Array.isArray(data.features)
         ? data.features.filter((item): item is string => typeof item === 'string')
         : [...DEFAULT_FEATURES],
@@ -303,6 +310,8 @@ export class MapView {
   private trialHover: TrialCageColumn | null = null;
   private biomeName = '';
   private saveTimer = 0;
+  private loaded = false;
+  private saveNoticeShown = false;
   private drawing = false;
   private drawQueued = false;
   onSeedChange: (seed: string) => void = () => {};
@@ -367,6 +376,7 @@ export class MapView {
     this.features = features;
     this.trialTypeId = features.find((feature) => feature.key === 'trial_chambers')?.id ?? -1;
     this.version.innerHTML = this.versions.map((item) => `<option value="${item.id}">${item.name}</option>`).join('');
+    const hadSession = !!window.aio?.hasSession;
     const session = await this.loadSession();
     const preferred = (session?.version && this.versions.find((item) => item.name === session.version))
       || this.versions.find((item) => item.name === '26.3')
@@ -382,6 +392,8 @@ export class MapView {
       else if (Number.isFinite(y)) this.y.value = String(y);
       else this.y.value = String(defaultYForDim(dim));
       this.large.checked = session.largeBiomes;
+      this.grid.checked = session.grid;
+      localStorage.setItem('aio.grid', session.grid ? '1' : '0');
     }
     const enabledKeys = new Set(session?.features ?? DEFAULT_FEATURES);
     this.enabled.clear();
@@ -391,12 +403,20 @@ export class MapView {
     this.renderFeatures();
     this.schedule(true);
     this.queueFeatures();
-    this.persistSession();
+    this.loaded = true;
+    // 没有旧 session 时也立即生成一份，避免用户首次打开后看不到 map.json。
+    // 只有“旧文件存在但读取失败”才不回写，防止用默认值覆盖可恢复的数据。
+    if (session || !hadSession) this.persistSession();
     this.onSeedChange(this.getSeed());
   }
 
   getSeed(): string {
     return this.seed.value.trim();
+  }
+
+  /** 版本/地物列表就绪后才允许自动保存，避免启动瞬间用默认值覆盖旧 session。 */
+  hasLoaded(): boolean {
+    return this.loaded;
   }
 
   /** 女巫小屋搜索开始时的世界预设快照：大型生物群系跟随地图勾选。 */
@@ -441,6 +461,14 @@ export class MapView {
     this.schedule(true);
     this.queueFeatures();
     if (announce) this.onSeedChange(seed.trim());
+  }
+
+  /** 搜索页输入种子时先同步“待保存”的值，不触发地图重绘；失焦/回车仍走 setSeed。 */
+  setSeedDraft(seed: string): void {
+    const value = seed.trim();
+    if (!value) return;
+    this.seed.value = value;
+    this.persistSession();
   }
 
   setY(y: number): void {
@@ -599,6 +627,13 @@ export class MapView {
       this.schedule(true);
       this.queueFeatures();
       this.onSeedChange(this.getSeed());
+    });
+    // 输入过程中也先落盘：用户直接关窗口时不会因为没触发 change 而丢掉新种子。
+    this.seed.addEventListener('input', () => this.persistSession());
+    // 关闭/切后台时立即提交，缩短“最后一次修改还没写回”的窗口。
+    window.addEventListener('pagehide', () => this.flushSession());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.flushSession();
     });
     // 输入过程中不做跳图/同步；失焦或回车后再提交。
     this.seed.addEventListener('keydown', (event) => {
@@ -951,26 +986,26 @@ export class MapView {
     this.saveTimer = window.setTimeout(() => void this.writeSession(), 120);
   }
 
+  /** 关闭/隐藏窗口时跳过防抖立即提交一次。 */
+  private flushSession(): void {
+    window.clearTimeout(this.saveTimer);
+    void this.writeSession();
+  }
+
   private async writeSession(): Promise<void> {
-    const version = this.versions.find((item) => String(item.id) === this.version.value);
-    const dim = Number(this.dimension.value);
-    const y = Number(this.y.value);
-    const session: MapSession = {
-      seed: this.seed.value.trim() || '0',
-      version: version?.name || '',
-      dim: Number.isFinite(dim) ? dim : 0,
-      y: Number.isFinite(y) ? y : 256,
-      largeBiomes: this.large.checked,
-      features: this.features.filter((feature) => this.enabled.has(feature.id)).map((feature) => feature.key),
-    };
-    const text = JSON.stringify(session);
+    if (!this.loaded) return;
+    const text = JSON.stringify(this.exportSnapshot());
     try {
       localStorage.setItem('aio.session', text);
     } catch {
       /* ignore */
     }
     try {
-      await window.aio?.writeSession?.(SESSION_NAME, text);
+      const saved = await window.aio?.writeSession?.(SESSION_NAME, text);
+      if (saved === false && !this.saveNoticeShown) {
+        this.saveNoticeShown = true;
+        showNotice(t('common.error.session-save-failed'));
+      }
     } catch {
       /* ignore */
     }
