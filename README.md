@@ -14,7 +14,7 @@
 - 可选绘制刷怪环（24 / 128）辅助规划挂机点
 - 会话可导出 / 导入；便携版会把会话写在 exe 旁的 `session/` 目录
 
-### 已启用的搜索器
+### 搜索器
 
 | 搜索器 | 用途 |
 | --- | --- |
@@ -29,7 +29,7 @@
 | **下界要塞大范围** | 搜索要塞整体跨度（长/短边、高度），支持主世界边界与四角边境模式 |
 | **试炼刷怪笼** | 按密室统计窗口搜索折算刷怪笼最多的挂机点，支持圆形 / 方形 / 长方形窗口 |
 | **全花种** | 搜索花种与面积综合最优的挂机点，含苍白花园 / 沼泽折算 |
-| **紫水晶母岩** | 矩形四至搜索预计活跃母岩最多的挂机点；1.18.2–26.3；自动候选预算、单种子前 20 条精确复核、全图区域断点与 GPU 粗筛 |
+| **紫水晶母岩** | 矩形四至搜索预计活跃母岩最多的挂机点；1.18–26.3；自动候选预算、单种子前 20 条精确复核、全图区域断点与 GPU 粗筛 |
 
 支持单种子或种子列表、线程数、搜索范围（默认正方形或世界边界）、进度与暂停/停止；结果统一按各搜索器规则排序并截断前 1000 条后导出。
 
@@ -101,10 +101,7 @@ https://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City
 - 二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes
 - 多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes
 - 地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes
-- 试炼刷怪笼：https://github.com/ZCXEDTA/TrialSpawnerFinder、
-https://github.com/qk-yiyihehe/TrialSpawnerFinder、
-https://github.com/SunnySlopes/TrialSpawnerFinder，作者：EDTA、半筝、打野别说话、SunnySlopes
-- 紫水晶母岩：https://github.com/SunnySlopes/GeodeFinderGUI、
-https://github.com/soulsoiledit/geode-finder，作者：soulsoiledit、SunnySlopes
+- 试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native，作者：打野别说话
+- 紫水晶母岩：https://github.com/qk-yiyihehe/geode-native，作者：打野别说话
 - 全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes
 - 其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导

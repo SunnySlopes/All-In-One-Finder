@@ -45,9 +45,12 @@ const VERSION_GROUPS = [
   { engine: '26.3', map: '26.3', label: '26.3+' },
   { engine: '26.2', map: '26.2', label: '1.21.9~26.2' },
   { engine: '1.21.6', map: '1.21.6', label: '1.21.5~1.21.8' },
-  { engine: '1.21.4', map: '1.21.4', label: '1.21.3~1.21.4' },
-  { engine: '1.21.1', map: '1.21.1', label: '1.20.6~1.21.2' },
-  { engine: '1.19.2', map: '1.19', label: '1.19.2~1.19.4' },
+  { engine: '1.21.4', map: '1.21.4', label: '1.21.2~1.21.4' },
+  { engine: '1.21.1', map: '1.21.1', label: '1.21~1.21.1' },
+  { engine: '1.20.6', map: '1.20', label: '1.19.4~1.20.6' },
+  { engine: '1.19.2', map: '1.19.2', label: '1.19~1.19.3' },
+  { engine: '1.18.2', map: '1.18', label: '1.18.2' },
+  { engine: '1.18.1', map: '1.18', label: '1.18~1.18.1' },
 ] as const;
 
 function numericVersion(name: string): [number, number, number] {

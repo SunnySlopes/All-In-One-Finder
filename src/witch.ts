@@ -65,6 +65,8 @@ export class WitchPanel {
   private pollTimer = 0;
   private searchStartedAt = 0;
   private shownError = '';
+  /** 最近一次轮询结果；render() 重建页脚后据此恢复进度，避免完成瞬间被清空。 */
+  private lastStatus: WitchStatus | null = null;
   /** 开始搜索时快照的地图预设（大型生物群系跟随地图勾选）。 */
   getLargeBiomes: () => boolean = () => false;
 
@@ -241,6 +243,7 @@ export class WitchPanel {
     this.footer.querySelector('#w-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#w-stop')?.addEventListener('click', () => void call('witchSearchStop'));
     applyI18n(this.root);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private updateSortButtons(): void {
@@ -332,6 +335,7 @@ export class WitchPanel {
       this.paused = false;
       this.hasResults = false;
       this.shownError = '';
+      this.lastStatus = null;
       this.searchStartedAt = Date.now();
       this.render();
       this.poll();
@@ -356,24 +360,11 @@ export class WitchPanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<WitchStatus>('witchSearchPoll');
+        this.lastStatus = status;
         this.running = status.running;
         this.paused = status.paused;
         this.hasResults = status.hits.length > 0;
-        const progress = this.footer.querySelector('#w-progress');
-        const eta = this.footer.querySelector('#w-eta');
-        const elapsed = this.footer.querySelector('#w-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#w-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) {
-          elapsed.textContent = t('common.searchExtra.elapsed', {
-            time: formatDuration(Date.now() - this.searchStartedAt),
-          });
-        }
-        if (bar) {
-          const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
-          bar.style.width = `${pct}%`;
-        }
+        this.paintStatus(status);
         this.results?.setWitchHits(status.hits, this.searchVersion);
         if (status.done) {
           window.clearInterval(this.pollTimer);
@@ -395,11 +386,36 @@ export class WitchPanel {
     }, 100);
   }
 
+  /** 把一次状态写入页脚；render() 重建页脚后会再用 lastStatus 调用它恢复进度。 */
+  private paintStatus(status: WitchStatus): void {
+    const progress = this.footer.querySelector('#w-progress');
+    const eta = this.footer.querySelector('#w-eta');
+    const elapsed = this.footer.querySelector('#w-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#w-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) {
+      elapsed.textContent = t('common.searchExtra.elapsed', {
+        time: formatDuration(Date.now() - this.searchStartedAt),
+      });
+    }
+    if (bar) {
+      const complete = status.done && (status.total <= 0 || status.current >= status.total);
+      const pct = complete
+        ? 100
+        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      bar.style.width = `${pct}%`;
+    }
+  }
+
   private progressText(status: WitchStatus): string {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
-    const pct = status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
+    const complete = status.done && (status.total <= 0 || status.current >= status.total);
+    const pct = complete
+      ? 100
+      : status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${t('lowyswamphut.progress')} ${status.current}/${status.total} (${pct}%)${error}`;
   }
