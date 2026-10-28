@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "About",
-      "body": "All-In-One Finder 0.1.1\nPermission\nThis software is distributed under the MIT License.\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/qk-yiyihehe/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/qk-yiyihehe/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
+      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHut, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/qk-yiyihehe/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/qk-yiyihehe/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderGUI, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
     },
     "searcher": {
       "map": "Map",
@@ -100,6 +100,7 @@
     },
     "error": {
       "bad-seed": "Enter an integer seed.",
+      "save-failed": "Save failed: cannot write to the selected location. Try another folder.",
       "bad-bounds": "The window size is invalid. Change them between 0 and 512.",
       "area-too-large": "The search box is larger than the allowed maximum.",
       "unsupported-version": "This version is not supported by the search.",
@@ -409,7 +410,7 @@
     "badStrictMargin": "The edge margin must be smaller than half the window; reduce it or enlarge the statistics window.",
     "windowTooLarge": "The statistics window cannot exceed 512×512 (equivalent area limit {area} blocks²).",
     "minStructures": "Min chambers",
-    "minSpawners": "Min spawners",
+    "minSpawners": "Min converted spawners",
     "structuresCapHint": "The linked-chamber cap is fixed at 4 (double/triple/quadruple); min chambers must be 1–4.",
     "badStructures": "The linked-chamber cap is 4: min chambers must be between 1 and 4.",
     "conversionRatio": "Slow-spawner ratio",
@@ -427,7 +428,7 @@
     "pausingEta": "Pausing: waiting for the current shard",
     "restartNotice": "Search settings changed, so the checkpoint cannot resume; restarting from the beginning.",
     "truncated": "Reached the per-seed limit of {limit}; results may be truncated.",
-    "slowWarning": "The chamber/spawner thresholds you entered are too low and will slow the search down. We recommend at least 3 trial chambers and 60 spawners. Do you want to adjust them?",
+    "slowWarning": "The chamber/spawner thresholds you entered are too low and will slow the search down. We recommend at least 3 trial chambers and 50 converted spawners. Do you want to adjust them?",
     "warnAdjust": "Adjust",
     "converted": "Converted spawners {count}",
     "totalSpawners": "Total {count}",
@@ -443,9 +444,15 @@
     "rangeLargeHint": "Large range: runtime increases noticeably; keep the automatic budget.",
     "minGeodes": "Min geodes",
     "minBudding": "Min budding",
-    "help": "The candidate budget is chosen automatically from the search range; values are in-model estimates, not in-game measurements.",
+    "allowGpu": "Allow GPU",
+    "help": "The candidate budget is chosen automatically from the search range; values are in-model estimates, not in-game measurements. Whole-map searches only try the GPU coarse scan when \"Allow GPU\" is checked.",
     "fullMapSingleSeed": "Full map search supports a single seed only.",
     "phaseLine": "Phase {index}/{count} {phase}",
+    "gpuLine": "Using GPU ({device})",
+    "gpuUnknown": "GPU",
+    "gpuFallback": "GPU not used (only whole-map searches with a compatible OpenCL GPU use it; this run uses CPU)",
+    "gpuNoOpencl": "No usable OpenCL driver found; this run uses CPU",
+    "gpuNoDevice": "The GPU does not meet the OpenCL scan requirements (workgroup/local memory); this run uses CPU",
     "paused": "Paused",
     "pausing": "Pausing (waiting for the current work unit)",
     "pausingButton": "Pausing…",

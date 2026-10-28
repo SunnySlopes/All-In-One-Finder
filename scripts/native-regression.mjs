@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -12,11 +12,31 @@ const arg = (name, fallback) => {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 };
 
-const addonPath = path.resolve(arg('--addon', path.join(root, 'native', 'build', 'allinone.node')));
+const addonArg = arg('--addon', '');
+const engineArg = arg('--engine', '');
+// Default backend is the WebView2 engine DLL; --addon still allows comparing
+// against the legacy N-API add-on when one is available.
+const useEngine = !!engineArg || !addonArg;
+const enginePath = useEngine
+  ? path.resolve(engineArg || path.join(root, 'native', 'build-engine', 'aio-engine.exe'))
+  : '';
+const dllPath = path.resolve(arg('--dll', path.join(root, 'native', 'build-engine', 'allinone.dll')));
+const addonPath = addonArg ? path.resolve(addonArg) : path.join(root, 'native', 'build-engine', 'allinone.dll');
 const outPath = path.resolve(arg('--out', path.join(root, 'native-regression-result.json')));
 const timeoutMs = Number(arg('--timeout', '180000'));
-const addon = require(addonPath);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Backend: the WebView2 engine DLL over the length-prefixed JSON protocol (default),
+// or the legacy N-API add-on via --addon. Both expose the same method names.
+let addon;
+let engineClient = null;
+if (enginePath) {
+  const { createEngineClient } = await import('./engine-client.mjs');
+  engineClient = await createEngineClient({ exe: enginePath, dll: dllPath, timeoutMs });
+  addon = engineClient.proxy;
+} else {
+  addon = require(addonPath);
+}
 
 function canon(value) {
   if (typeof value === 'bigint') return value.toString();
@@ -42,23 +62,23 @@ function normalize(status) {
 
 async function runSearch(start, poll, stop) {
   try {
-    start();
+    await start();
   } catch (error) {
     return { startError: error && error.message ? error.message : String(error) };
   }
   const started = Date.now();
   let status = null;
   while (Date.now() - started < timeoutMs) {
-    status = poll();
+    status = await poll();
     if (status.done || status.error) break;
     await sleep(50);
   }
   if (!status || (!status.done && !status.error)) {
-    try { stop(); } catch {}
+    try { await stop(); } catch {}
     await sleep(300);
     return { timeout: true, last: status ? normalize(status) : null };
   }
-  try { stop(); } catch {}
+  try { await stop(); } catch {}
   return normalize(status);
 }
 
@@ -80,23 +100,23 @@ function normalizeTrial(status) {
 
 async function runTrial(start, poll, stop) {
   try {
-    start();
+    await start();
   } catch (error) {
     return { startError: error && error.message ? error.message : String(error) };
   }
   const started = Date.now();
   let status = null;
   while (Date.now() - started < timeoutMs) {
-    status = poll();
+    status = await poll();
     if (status.done || status.error) break;
     await sleep(50);
   }
   if (!status || (!status.done && !status.error)) {
-    try { stop(); } catch {}
+    try { await stop(); } catch {}
     await sleep(300);
     return { timeout: true, last: status ? normalizeTrial(status) : null };
   }
-  try { stop(); } catch {}
+  try { await stop(); } catch {}
   return normalizeTrial(status);
 }
 
@@ -117,28 +137,28 @@ function normalizeGeode(status) {
 
 async function runGeode(start, poll, stop) {
   try {
-    start();
+    await start();
   } catch (error) {
     return { startError: error && error.message ? error.message : String(error) };
   }
   const started = Date.now();
   let status = null;
   while (Date.now() - started < timeoutMs) {
-    status = poll();
+    status = await poll();
     if (status.done || status.error) break;
     await sleep(50);
   }
   if (!status || (!status.done && !status.error)) {
-    try { stop(); } catch {}
+    try { await stop(); } catch {}
     await sleep(300);
     return { timeout: true, last: status ? normalizeGeode(status) : null };
   }
-  try { stop(); } catch {}
+  try { await stop(); } catch {}
   return normalizeGeode(status);
 }
 
-const versions = addon.versions();
-const features = addon.features();
+const versions = await addon.versions();
+const features = await addon.features();
 const mc = (versions.find((item) => item.name === '26.3') || versions[versions.length - 1]).id;
 const newest = versions[versions.length - 1].id;
 const hash = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
@@ -147,20 +167,20 @@ const cases = {};
 cases.basic = {
   versions: canon(versions),
   features: canon(features),
-  biome: canon(addon.biomeAt({ mc, seed: '123', dim: 0, largeBiomes: false, x: 0, y: 64, z: 0 })),
-  weird: addon.weirdness('12345'),
-  structuresOverworld: canon(addon.structures({
+  biome: canon(await addon.biomeAt({ mc, seed: '123', dim: 0, largeBiomes: false, x: 0, y: 64, z: 0 })),
+  weird: await addon.weirdness('12345'),
+  structuresOverworld: canon(await addon.structures({
     mc, seed: '123', dim: 0, largeBiomes: false, x0: -1024, z0: -1024, x1: 1024, z1: 1024,
     types: features.filter((item) => item.dim === 0).map((item) => item.id),
   })),
-  structuresEnd: canon(addon.structures({
+  structuresEnd: canon(await addon.structures({
     mc, seed: '123', dim: 1, largeBiomes: false, x0: -512, z0: -512, x1: 512, z1: 512,
     types: features.filter((item) => item.dim === 1).map((item) => item.id),
   })),
-  tile16: hash(addon.renderTile({
+  tile16: hash(await addon.renderTile({
     mc, seed: '123', dim: 0, largeBiomes: false, scale: 16, x: -256, z: -256, sx: 32, sz: 32, y: 64,
   })),
-  tile1: hash(addon.renderTile({
+  tile1: hash(await addon.renderTile({
     mc, seed: '123', dim: 0, largeBiomes: false, scale: 1, x: -64, z: -64, sx: 64, sz: 64, y: 64,
   })),
 };
@@ -291,7 +311,7 @@ cases.trialCircleWindow = await runTrial(
 cases.trialRectWindow = await runTrial(
   () => addon.trialStart({
     generation: 3, threads: 4, minX: -3000, maxX: 2999, minZ: -3000, maxZ: 2999, fullWorld: false,
-    // The app caps the window at 512×512 (side ≤512); keep this case rectangular but legal.
+    // The app caps the window at 512脳512 (side 鈮?12); keep this case rectangular but legal.
     clusterCircle: false, clusterRadius: 256, clusterLongSide: 512, clusterShortSide: 256,
     minStructures: 2, minSpawners: 20, limit: 100,
     conversionRatio: 1 / 6, seeds: ['0'],
@@ -390,14 +410,17 @@ cases.lowyList = await runSearch(
 );
 
 const payload = {
-  addon: addonPath,
-  addonBytes: fs.statSync(addonPath).size,
-  addonSha256: crypto.createHash('sha256').update(fs.readFileSync(addonPath)).digest('hex'),
+  backend: enginePath ? 'engine' : 'addon',
+  addon: enginePath ? enginePath : addonPath,
+  addonBytes: fs.statSync(enginePath || addonPath).size,
+  addonSha256: crypto.createHash('sha256').update(fs.readFileSync(enginePath || addonPath)).digest('hex'),
   cases,
 };
+if (engineClient) await engineClient.close();
 fs.writeFileSync(outPath, JSON.stringify(payload, null, 2));
 console.log(JSON.stringify({
-  addon: addonPath,
+  backend: payload.backend,
+  addon: payload.addon,
   addonBytes: payload.addonBytes,
   out: outPath,
   cases: Object.fromEntries(Object.entries(cases).map(([key, value]) => [key,
@@ -409,3 +432,4 @@ console.log(JSON.stringify({
 const failed = Object.entries(cases).some(([key, value]) => key !== 'basic' &&
   (!value || value.timeout || value.startError || value.error || !value.done));
 process.exit(failed ? 1 : 0);
+

@@ -1,5 +1,5 @@
 import { parseCoords } from './coords';
-import { escapeText } from './dialog';
+import { escapeText, showNotice } from './dialog';
 import { flowerMapVersion, type FlowerVersionTier } from './flower';
 import type { GeodeView } from './geode';
 import { applyI18n, biomeLabel, t } from './i18n';
@@ -1194,6 +1194,12 @@ export class ResultsColumn {
     });
   }
 
+  private saveText(fileName: string, text: string): void {
+    void window.aio.saveFile(fileName, text).then((ok) => {
+      if (!ok) showNotice(t('common.error.save-failed'));
+    });
+  }
+
   private saveGrouped<T extends { seed: string }>(
     hits: T[],
     fileName: string,
@@ -1204,10 +1210,10 @@ export class ResultsColumn {
       const text = groups
         .map((group) => `${group.seed}\n${group.hits.map(line).join('\n')}`)
         .join('\n\n');
-      void window.aio.saveFile(fileName, text);
+      this.saveText(fileName, text);
       return;
     }
-    void window.aio.saveFile(fileName, hits.map(line).join('\n'));
+    this.saveText(fileName, hits.map(line).join('\n'));
   }
 
   private geodeFileName(hits: GeodeHit[]): string {
@@ -1231,7 +1237,7 @@ export class ResultsColumn {
                   : this.display === 'fortress' ? this.fortressHits
                     : this.hits;
     const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
-    void window.aio.saveFile('seeds.txt', seeds.join('\n'));
+    this.saveText('seeds.txt', seeds.join('\n'));
   }
 }
 

@@ -8,18 +8,35 @@ sourcemaps/
 .vite/
 .cache/
 
-# Native build output
+# Native build output (CMake, Ninja, compiled objects, import/static libs)
 native/build/
-*.node
+native/build-engine/
+native/build-dll/
+native/host/build/
+native/host/stage/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 compile_commands.json
+*.o
+*.obj
+*.dll.a
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.sdf
+*.opensdf
+*.node
 
-# Electron packaging output
+# The WebView2 redistributable loader is required to build; a user-level
+# `*.dll` rule must not drop it from the repository.
+!native/host/third_party/webview2/x64/WebView2Loader.dll
+
+# Packaging / release output
 release/
-release-slim/
 *.exe
 *.nsis.7z
 *.AppImage
@@ -32,10 +49,15 @@ builder-debug.yml
 # Temporary build/probe scripts and captures
 scripts/tmp-*
 
-# Runtime data (portable userdata / sessions next to exe or in project)
+# Runtime data (portable userdata / sessions / checkpoints next to the exe)
 userdata/
+userdata*/
 session/
+session*/
+checkpoints/
 *.log
+*.dmp
+*.etl
 
 # Tests / smoke / coverage
 smoke-result.json
@@ -53,6 +75,8 @@ ehthumbs.db
 *~
 *.swp
 *.swo
+*.bak
+*.tmp
 
 # JetBrains / IntelliJ IDEA
 .idea/
@@ -62,7 +86,18 @@ ehthumbs.db
 *.hprof
 out/
 
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+ipch/
+
 # Local env / secrets
 .env
 .env.*
 !.env.example
+
+# Local-only notes
+docs
+/build.bat

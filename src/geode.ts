@@ -1,4 +1,5 @@
 import { showNotice } from './dialog';
+import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type GeodeStatus, type McVersion } from './native';
 import { escapeAttr, formatDuration, messageOf } from './panel-utils';
@@ -103,6 +104,10 @@ export class GeodePanel {
   private side!: HTMLInputElement;
   private minGeodes!: HTMLInputElement;
   private minBudding!: HTMLInputElement;
+  /** Opt-in GPU coarse scan; unchecked by default, so the engine stays on CPU. */
+  private allowGpu!: HTMLInputElement;
+  /** Whether the current range is the whole world (drives the 40/1600 defaults). */
+  private fullMapMode = false;
   private rangeHint!: HTMLElement;
   private seedMode: SeedMode = 'single';
   private versions: McVersion[] = [];
@@ -174,6 +179,9 @@ export class GeodePanel {
           <input id="g-min-geodes" type="number" min="${MIN_GEODES}" value="20" />
           <label data-i18n="geode.minBudding"></label>
           <input id="g-min-budding" type="number" min="0" value="800" />
+          <div class="span-full">
+            <label class="feature"><input id="g-allow-gpu" type="checkbox" /><span data-i18n="geode.allowGpu"></span></label>
+          </div>
           <div class="span-full hint" data-i18n="geode.help"></div>
         </div>
       </div>
@@ -194,6 +202,7 @@ export class GeodePanel {
     this.side = this.root.querySelector('#g-side')!;
     this.minGeodes = this.root.querySelector('#g-min-geodes')!;
     this.minBudding = this.root.querySelector('#g-min-budding')!;
+    this.allowGpu = this.root.querySelector('#g-allow-gpu')!;
     this.rangeHint = this.root.querySelector('#g-range-hint')!;
     this.threads.value = String(Math.min(MAX_THREADS, navigator.hardwareConcurrency || 8));
     this.populateVersions();
@@ -310,11 +319,20 @@ export class GeodePanel {
   private updateDerived(): void {
     const range = this.currentRange();
     const fullMap = isWorldBounds(range.minX, range.maxX, range.minZ, range.maxZ);
+    this.syncThresholdDefaults(fullMap);
     const half = Math.max(range.maxX - range.minX + 1, range.maxZ - range.minZ + 1) / 2;
     let hint = '';
     if (!fullMap && half > LARGE_RANGE_HALF) hint = t('geode.rangeLargeHint');
     this.rangeHint.textContent = hint;
     this.rangeHint.hidden = !hint;
+  }
+
+  /** Whole-world searches need higher default thresholds; restore 20/800 when leaving. */
+  private syncThresholdDefaults(fullMap: boolean): void {
+    if (fullMap === this.fullMapMode) return;
+    this.fullMapMode = fullMap;
+    this.minGeodes.value = String(fullMap ? 40 : 20);
+    this.minBudding.value = String(fullMap ? 1600 : 800);
   }
 
   private resetRange(): void {
@@ -373,6 +391,7 @@ export class GeodePanel {
       </div>
       <div class="progress-track"><div class="progress-fill" id="g-bar"></div></div>
       <div id="g-progress" class="hint"></div>
+      <div id="g-gpu" class="hint" hidden></div>
       <div id="g-elapsed" class="hint"></div>
       <div id="g-eta" class="hint"></div>
       <div id="g-error" class="hint"></div>
@@ -438,7 +457,7 @@ export class GeodePanel {
       autoBudget: true,
       budget: 0,
       verifyTop: 0,
-      allowGpu: true,
+      allowGpu: this.allowGpu.checked,
       resume: false,
       seeds: listMode ? this.seedText : this.seed,
     };
@@ -645,12 +664,26 @@ export class GeodePanel {
 
   private updateProgress(status: GeodeStatus): void {
     const progress = this.footer.querySelector('#g-progress');
+    const gpu = this.footer.querySelector<HTMLElement>('#g-gpu');
     const elapsed = this.footer.querySelector('#g-elapsed');
     const eta = this.footer.querySelector('#g-eta');
     const error = this.footer.querySelector('#g-error');
     const bar = this.footer.querySelector<HTMLElement>('#g-bar');
     const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
     if (progress) progress.textContent = this.progressText(status);
+    if (gpu) {
+      // Only the phase-1 coarse scan can run on OpenCL; scanBackend flips to "gpu"
+      // as soon as the kernel is built and the batches start. When the user asked
+      // for the GPU but the scan fell back to CPU, say why instead of hiding.
+      const active = status.scanBackend === 'gpu';
+      const waitingCpu = this.allowGpu.checked && status.running && status.phase === 'scan';
+      const device = status.gpuDevice || gpuRendererName() || t('geode.gpuUnknown');
+      const reason = status.gpuReason === 'no-opencl'
+        ? t('geode.gpuNoOpencl')
+        : status.gpuReason === 'no-device' ? t('geode.gpuNoDevice') : t('geode.gpuFallback');
+      gpu.hidden = !(active || waitingCpu);
+      gpu.textContent = active ? t('geode.gpuLine', { device }) : waitingCpu ? reason : '';
+    }
     if (elapsed) {
       const ms = status.elapsedMs > 0 ? status.elapsedMs : Date.now() - this.searchStartedAt;
       elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(ms) });

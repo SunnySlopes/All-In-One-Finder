@@ -33,6 +33,8 @@ struct TrialChamberInfo {
     int chunkZ = 0;
     int pieces = 0;
     bool exists = false;
+    /** Outermost extent of every generated piece, horizontally padded by one block. */
+    Box3i bounds;
     /** Only host rooms with cages, horizontally padded by one block. */
     std::vector<TrialFrame> frames;
     std::vector<TrialSpawner> spawners;

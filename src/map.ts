@@ -84,11 +84,13 @@ const ICON_SIZE = 20;
 /** Ocean monuments are 58x58 blocks and centered on the structure position. */
 const MONUMENT_SIZE = 58;
 /**
- * Trial chambers: only the host rooms that contain at least one cage are drawn
- * (from 1:4); cage columns appear at 1:1. No chamber-wide bounds box is drawn.
+ * Trial chambers: only the whole-trial outline (outermost union of all pieces,
+ * padded by one block) is drawn (from 1:4); cage columns appear at 1:1.
  */
 const TRIAL_FRAME_MIN_PPB = 0.25;
 const TRIAL_CAGE_MIN_PPB = 1;
+/** Geodes generate roughly once per 43 chunks; below 1:1 their icons overlap into noise. */
+const GEODE_ICON_MIN_PPB = 1;
 const TRIAL_DETAIL_BATCH = 8;
 const TRIAL_DETAIL_MARGIN = 128;
 const TRIAL_DETAIL_DEBOUNCE = 150;
@@ -1153,7 +1155,11 @@ export class MapView {
     for (const column of cages) column.entries.sort((a, b) => a.y - b.y);
 
     let extent: TrialChamberDetail['extent'];
-    if (info.frames.length) {
+    const whole = info.bounds;
+    if (whole && whole.maxX > whole.minX && whole.maxZ > whole.minZ) {
+      // Engine-provided outer bounds already include the one-block horizontal pad.
+      extent = { minX: whole.minX, minZ: whole.minZ, maxX: whole.maxX, maxZ: whole.maxZ };
+    } else if (info.frames.length) {
       let minX = Number.POSITIVE_INFINITY;
       let minZ = Number.POSITIVE_INFINITY;
       let maxX = Number.NEGATIVE_INFINITY;
@@ -1197,7 +1203,7 @@ export class MapView {
     this.trialHover = null;
   }
 
-  /** Loaded chambers whose frame extent intersects the viewport. */
+  /** Loaded chambers whose whole-trial extent intersects the viewport. */
   private visibleTrialChambers(): Placed[] {
     if (!this.trialDetailAllowed()) return [];
     const view = this.viewBounds();
@@ -1205,11 +1211,9 @@ export class MapView {
     for (const item of this.placed) {
       if (item.type !== this.trialTypeId) continue;
       const detail = this.trialDetailAt(item.x, item.z);
-      if (!detail || !detail.exists || !detail.frames.length) continue;
-      if (detail.extent) {
-        const e = detail.extent;
-        if (e.maxX < view.x0 || e.minX > view.x1 || e.maxZ < view.z0 || e.minZ > view.z1) continue;
-      }
+      if (!detail || !detail.exists || !detail.extent) continue;
+      const e = detail.extent;
+      if (e.maxX < view.x0 || e.minX > view.x1 || e.maxZ < view.z0 || e.minZ > view.z1) continue;
       out.push(item);
     }
     return out;
@@ -1763,7 +1767,7 @@ export class MapView {
     ctx.restore();
   }
 
-  /** Draw only the host rooms that contain cages; no chamber-wide bounds box. */
+  /** Draw the whole-trial outline (outermost piece union, padded by one block). */
   private drawTrialFrames(ctx: CanvasRenderingContext2D): void {
     if (!this.trialFramesVisible()) return;
     ctx.save();
@@ -1772,22 +1776,18 @@ export class MapView {
     ctx.fillStyle = TRIAL_FRAME_FILL;
     for (const item of this.visibleTrialChambers()) {
       const detail = this.trialDetailAt(item.x, item.z);
-      if (!detail || !detail.frames.length) continue;
+      const extent = detail?.extent;
+      if (!extent) continue;
+      const topLeft = this.worldToScreen(extent.minX, extent.minZ);
+      const bottomRight = this.worldToScreen(extent.maxX + 1, extent.maxZ + 1);
+      const width = bottomRight.x - topLeft.x;
+      const height = bottomRight.y - topLeft.y;
+      if (!(width > 0) || !(height > 0)) continue;
+      if (Math.min(width, height) < TRIAL_FRAME_MIN_PX) continue;
+      if (topLeft.x > this.canvas.width || topLeft.y > this.canvas.height
+        || topLeft.x + width < 0 || topLeft.y + height < 0) continue;
       ctx.beginPath();
-      let drawn = 0;
-      for (const frame of detail.frames) {
-        const topLeft = this.worldToScreen(frame.minX, frame.minZ);
-        const bottomRight = this.worldToScreen(frame.maxX + 1, frame.maxZ + 1);
-        const width = bottomRight.x - topLeft.x;
-        const height = bottomRight.y - topLeft.y;
-        if (!(width > 0) || !(height > 0)) continue;
-        if (Math.min(width, height) < TRIAL_FRAME_MIN_PX) continue;
-        if (topLeft.x > this.canvas.width || topLeft.y > this.canvas.height
-          || topLeft.x + width < 0 || topLeft.y + height < 0) continue;
-        ctx.rect(topLeft.x, topLeft.y, width, height);
-        drawn += 1;
-      }
-      if (!drawn) continue;
+      ctx.rect(topLeft.x, topLeft.y, width, height);
       ctx.fill();
       ctx.stroke();
     }
@@ -1937,6 +1937,7 @@ export class MapView {
     for (const item of this.placed) {
       if (item.type === -2) continue;
       const feature = byId.get(item.type);
+      if (feature?.key === 'geode' && this.pixelsPerBlock < GEODE_ICON_MIN_PPB) continue;
       const point = this.worldToScreen(item.x, item.z);
       const icon = feature ? this.structureIcon(feature.key, item.variant ?? 0) : null;
       if (icon) {

@@ -59,6 +59,10 @@ struct GeodeStatus {
     std::string scanBackend = "cpu"; /* "cpu" | "gpu" */
     bool approximate = false;        /* prefilter > 0 */
     std::string backend = "cpu";
+    /** Why the GPU scan was skipped: "no-opencl" | "no-device" | "" when it ran. */
+    std::string gpuReason;
+    /** CL_DEVICE_NAME when the GPU ran the scan. */
+    std::string gpuDevice;
     double elapsedMs = 0;
     std::string error;
     std::vector<GeodeHit> hits;

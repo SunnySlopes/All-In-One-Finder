@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "关于",
-      "body": "定种多功能搜索器 0.1.1\n许可\n本软件使用MIT许可证进行分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinderGUI、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes\n多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes\n试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native，作者：打野别说话\n紫水晶母岩：https://github.com/qk-yiyihehe/geode-native，作者：打野别说话\n全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
+      "body": "定种多功能搜索器 {version}\n许可\n本软件以 GNU 通用公共许可证第 3 版（GPL-3.0-only）分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinderGUI、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：SunnySlopes\n多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes\n试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native，作者：打野别说话\n紫水晶母岩：https://github.com/qk-yiyihehe/geode-native，作者：打野别说话\n全花农场：https://github.com/SunnySlopes/FlowerFinderGUI，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
     },
     "searcher": {
       "map": "地图",
@@ -100,6 +100,7 @@
     },
     "error": {
       "bad-seed": "请填写整数种子。",
+      "save-failed": "保存失败：无法写入所选位置，请换一个目录再试。",
       "bad-bounds": "窗口边长过大或过小，有效边长为0~512",
       "area-too-large": "搜索范围超过允许的上限。",
       "unsupported-version": "这个搜索不支持所选版本。",
@@ -409,7 +410,7 @@
     "badStrictMargin": "离边格数必须小于窗口半宽，请缩小离边格数或放大统计窗口。",
     "windowTooLarge": "统计窗口不能超过 512×512（等效面积上限 {area} 格²）。",
     "minStructures": "最低密室数",
-    "minSpawners": "最低总刷怪笼数",
+    "minSpawners": "最低折算刷怪笼数",
     "structuresCapHint": "联数上限固定为 4（二联/三联/四联）；最低密室数只能在 1–4 之间。",
     "badStructures": "最低密室数需在 1–4 之间。",
     "conversionRatio": "慢速笼折算比例",
@@ -427,7 +428,7 @@
     "pausingEta": "暂停中：等待当前分片完成",
     "restartNotice": "搜索参数已改变，无法续跑，将从开头重新开始。",
     "truncated": "每个种子已达到 {limit} 条上限，结果可能被截断。",
-    "slowWarning": "你填写的密室数/笼数过低，将会导致搜索变慢，建议调大搜索参数至大于等于3试炼密室和大于等于60刷怪笼，是否调整？",
+    "slowWarning": "你填写的密室数/笼数过低，将会导致搜索变慢，建议调大搜索参数至大于等于3试炼密室和大于等于50折算后刷怪笼，是否调整？",
     "warnAdjust": "调整",
     "converted": "折算笼数 {count}",
     "totalSpawners": "总笼数 {count}",
@@ -443,9 +444,15 @@
     "rangeLargeHint": "范围较大，耗时明显增加；建议保持自动预算。",
     "minGeodes": "最低晶洞",
     "minBudding": "最低母岩",
-    "help": "候选预算由搜索范围自动决定；结果数值为模型内估计，不代表游戏内实测。",
+    "allowGpu": "允许调用显卡",
+    "help": "候选预算由搜索范围自动决定；结果数值为模型内估计，不代表游戏内实测。全图搜索时勾选「是否允许调用显卡」才会尝试使用 GPU 粗筛。",
     "fullMapSingleSeed": "全图搜索只支持单个种子。",
     "phaseLine": "阶段 {index}/{count} {phase}",
+    "gpuLine": "正在调用 GPU（{device}）",
+    "gpuUnknown": "GPU",
+    "gpuFallback": "未调用 GPU（仅全图搜索且 OpenCL 显卡可用时启用，本次使用 CPU）",
+    "gpuNoOpencl": "未检测到可用的 OpenCL 驱动，本次使用 CPU",
+    "gpuNoDevice": "显卡不满足 OpenCL 粗筛要求（workgroup/本地内存），本次使用 CPU",
     "paused": "已暂停",
     "pausing": "暂停中（等待当前工作单元）",
     "pausingButton": "暂停中…",

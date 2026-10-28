@@ -49,13 +49,16 @@ function resolveMc(group: SlimeVersionGroup, versions: McVersion[]): number | nu
 }
 
 function areaWarning(area: number, minArea: number): number | null {
+  const side = Math.sqrt(area);
+  // Small windows are fast enough that only the hard 9000 minimum applies.
+  if (side <= 16384) return null;
+  // Up to 131072 per side, 10000 is accepted without prompting.
+  if (side <= 131072) return minArea < 10000 ? 10000 : null;
   const square = (n: number) => n * n;
   if (area > square(10000001) && minArea < 13000) return 13000;
   if (area > square(2000001) && minArea < 12500) return 12500;
   if (area > square(500001) && area <= square(2000001) && minArea < 12000) return 12000;
-  if (area >= square(131072) && area <= square(500001) && minArea < 11000) return 11000;
-  if (area >= square(32768) && area < square(131072) && minArea < 10500) return 10500;
-  return null;
+  return minArea < 11000 ? 11000 : null;
 }
 
 export class SlimePanel {

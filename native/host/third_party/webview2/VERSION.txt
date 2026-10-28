@@ -1,0 +1,41 @@
+Microsoft.Web.WebView2 SDK — vendored
+=====================================
+
+Version          : 1.0.2088.41
+Runtime pairing  : Evergreen 118.0.2088.76 (installed on the dev machine)
+Retrieved        : 2026-10-28 (Asia/Shanghai)
+NuGet page       : https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2088.41
+Download URL     : https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.2088.41/microsoft.web.webview2.1.0.2088.41.nupkg
+Package SHA-256  : 70666D8E7FF6A10959F710B833D90E513F74ACF67C62D279CF2E283E38069944
+Package size     : 7,916,375 B
+
+Contents kept (verbatim from build/native/ in the package)
+  include/WebView2.h                    1,872,567 B  MIDL-generated COM interfaces
+  include/WebView2EnvironmentOptions.h     14,916 B  MSVC/WRL convenience class (reference only)
+  x64/WebView2Loader.dll                  162,384 B  redistributable loader, x64, FileVersion 1.0.2088.41
+  LICENSE.txt                               1,487 B  BSD-3-Clause (keep the notice on redistribution)
+
+Deliberately NOT kept
+  x64/WebView2LoaderStatic.lib   MSVC static loader (~10 MB); MinGW uses LoadLibraryW
+  x64/WebView2Loader.dll.lib     MSVC import library
+  build/native/include-winrt/*   WinRT / C# projection, unused
+  build/*.targets, *.props       NuGet / MSBuild integration
+
+MinGW notes (verified 2026-10-28, g++ 15.2.0, -std=c++20, -DUNICODE -DUNICODE)
+  * WebView2.h parses cleanly: `g++ -fsyntax-only -I include` exits 0
+    (only `#pragma warning` is reported as unknown, which is harmless).
+  * Implementing ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler by hand
+    (QueryInterface / AddRef / Release / Invoke) compiles; WRL is not required.
+  * WebView2EnvironmentOptions.h is UNUSABLE under MinGW: it includes <wrl/implements.h>.
+    Pass nullptr for ICoreWebView2EnvironmentOptions, or hand-write a tiny options object.
+  * Load the loader dynamically:
+        HMODULE h = LoadLibraryW(L"WebView2Loader.dll");
+        GetProcAddress(h, "CreateCoreWebView2EnvironmentWithOptions")
+        GetProcAddress(h, "GetAvailableCoreWebView2BrowserVersionString")
+    Do not link the MSVC .lib files.
+
+Upgrade procedure
+  1. Pick the SDK version that matches the Evergreen runtime on the target machine
+     (query it with GetAvailableCoreWebView2BrowserVersionString).
+  2. Download the .nupkg, record its SHA-256 here.
+  3. Replace include/ and x64/WebView2Loader.dll, then re-run the MinGW syntax check.

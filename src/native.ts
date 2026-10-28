@@ -86,7 +86,7 @@ export interface WitchHit {
   seed: string;
   x: number;
   z: number;
-  /** avg_y：footprint 平均高度，也是结果里的 Y。 */
+  /** avg_y锛歠ootprint 骞冲潎楂樺害锛屼篃鏄粨鏋滈噷鐨?Y銆?*/
   y: number;
   dir: number;
   sizeX: number;
@@ -184,6 +184,8 @@ export interface TrialChamberInfo {
   chunkZ: number;
   exists: boolean;
   pieces: number;
+  /** Outermost extent of every piece, already padded by one block. */
+  bounds: Bounds3;
   frames: TrialFrame[];
   spawners: TrialSpawner[];
 }
@@ -220,13 +222,13 @@ export interface GeodeHit {
   seed: string;
   x: number;
   z: number;
-  /** 预计活跃母岩数（主排序键；复核后为复核值）。 */
+  /** 棰勮娲昏穬姣嶅博鏁帮紙涓绘帓搴忛敭锛涘鏍稿悗涓哄鏍稿€硷級銆?*/
   budding: number;
-  /** 活跃晶洞数（仅展示）。 */
+  /** 娲昏穬鏅舵礊鏁帮紙浠呭睍绀猴級銆?*/
   geodes: number;
-  /** 该点已用 evaluate() 逐块重算。 */
+  /** 璇ョ偣宸茬敤 evaluate() 閫愬潡閲嶇畻銆?*/
   verified: boolean;
-  /** 复核前榜单值；与复核值一致时为 -1。 */
+  /** 澶嶆牳鍓嶆鍗曞€硷紱涓庡鏍稿€间竴鑷存椂涓?-1銆?*/
   listedBudding: number;
   listedGeodes: number;
 }
@@ -235,16 +237,16 @@ export interface GeodeStatus {
   running: boolean;
   done: boolean;
   paused: boolean;
-  /** 暂停请求已发出，等待当前工作单元到检查点。 */
+  /** 鏆傚仠璇锋眰宸插彂鍑猴紝绛夊緟褰撳墠宸ヤ綔鍗曞厓鍒版鏌ョ偣銆?*/
   pausing: boolean;
   stopping: boolean;
-  /** 本次运行被用户停止；结果已清空，全图断点仍保留。 */
+  /** 鏈杩愯琚敤鎴峰仠姝紱缁撴灉宸叉竻绌猴紝鍏ㄥ浘鏂偣浠嶄繚鐣欍€?*/
   stopped: boolean;
   truncated: boolean;
   /** 'scan' | 'simulate' | 'rank' | 'verify' | 'done' */
   phase: string;
   phaseIndex: number;
-  /** 3 = 无复核；4 = 单种子近似候选带复核。 */
+  /** 3 = 鏃犲鏍革紱4 = 鍗曠瀛愯繎浼煎€欓€夊甫澶嶆牳銆?*/
   phaseCount: number;
   current: number;
   total: number;
@@ -255,13 +257,17 @@ export interface GeodeStatus {
   seedIndex: number;
   seedCount: number;
   autoBudget: boolean;
-  /** 实际传给引擎的候选预算；0 = 完整候选。 */
+  /** 瀹為檯浼犵粰寮曟搸鐨勫€欓€夐绠楋紱0 = 瀹屾暣鍊欓€夈€?*/
   prefilter: number;
-  /** 本次是否从区域断点恢复（全图）。 */
+  /** 鏈鏄惁浠庡尯鍩熸柇鐐规仮澶嶏紙鍏ㄥ浘锛夈€?*/
   resumed: boolean;
-  /** 当前阶段预计剩余秒数；-1 = 计算中。 */
+  /** 褰撳墠闃舵棰勮鍓╀綑绉掓暟锛?1 = 璁＄畻涓€?*/
   etaSeconds: number;
   scanBackend: string;
+  /** Why the GPU scan was skipped ("no-opencl" | "no-device"); empty when it ran. */
+  gpuReason: string;
+  /** OpenCL device name when the GPU scan ran. */
+  gpuDevice: string;
   approximate: boolean;
   backend: string;
   elapsedMs: number;
@@ -340,15 +346,6 @@ export interface FortressStatus {
   hits: FortressHit[];
 }
 
-type Pending = {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-};
-
-const pending = new Map<number, Pending>();
-let nextId = 1;
-let portReady: Promise<MessagePort> | null = null;
-
 function seedText(value: bigint | number | string): string {
   return typeof value === 'bigint' ? value.toString() : String(value);
 }
@@ -373,34 +370,22 @@ function normalize(op: string, value: unknown): unknown {
   return status;
 }
 
-function connect(): Promise<MessagePort> {
-  if (portReady) return portReady;
-  portReady = new Promise((resolve) => {
-    window.addEventListener('message', (event) => {
-      if (event.data !== 'aio-port' || !event.ports[0]) return;
-      const port = event.ports[0];
-      port.onmessage = (message) => {
-        const body = message.data as { id: number; ok: boolean; result?: unknown; error?: string };
-        const item = pending.get(body.id);
-        if (!item) return;
-        pending.delete(body.id);
-        if (body.ok) item.resolve(body.result);
-        else item.reject(new Error(body.error || 'native'));
-      };
-      port.start();
-      resolve(port);
-    });
-  });
-  return portReady;
+declare global {
+  interface Window {
+    /**
+     * Injected by the desktop shell (native/host/web/bridge.js). Routes an op to
+     * the engine and resolves with its JSON result (binary ops resolve to a
+     * Uint8Array). Undefined when the page runs in a plain browser.
+     */
+    __AIO_RPC__?: (op: string, args?: unknown) => Promise<unknown>;
+  }
 }
 
 export function call<T>(op: string, args?: unknown): Promise<T> {
-  return connect().then((port) => new Promise<T>((resolve, reject) => {
-    const id = nextId++;
-    pending.set(id, {
-      resolve: (value) => resolve(normalize(op, value) as T),
-      reject,
-    });
-    port.postMessage({ id, op, args });
-  }));
+  const rpc = window.__AIO_RPC__;
+  if (typeof rpc !== 'function') {
+    return Promise.reject(new Error('native-host-unavailable'));
+  }
+  return rpc(op, args).then((value) => normalize(op, value) as T);
 }
+

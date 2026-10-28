@@ -42,6 +42,26 @@ TrialChamberInfo computeChamber(int chunkX, int chunkZ)
     detail.exists = chamber.exists;
     detail.pieces = chamber.pieces;
 
+    // Whole-trial outline: union of every piece (rooms + corridors), padded by one
+    // block on X/Z so wall-mounted cages stay inside the highlighted box.
+    if (!boxes.empty()) {
+        Box3i bounds = {boxes[0].box.lo.x, boxes[0].box.lo.y, boxes[0].box.lo.z,
+                        boxes[0].box.hi.x, boxes[0].box.hi.y, boxes[0].box.hi.z};
+        for (const trial::PieceBox &piece : boxes) {
+            bounds.minX = std::min(bounds.minX, piece.box.lo.x);
+            bounds.minY = std::min(bounds.minY, piece.box.lo.y);
+            bounds.minZ = std::min(bounds.minZ, piece.box.lo.z);
+            bounds.maxX = std::max(bounds.maxX, piece.box.hi.x);
+            bounds.maxY = std::max(bounds.maxY, piece.box.hi.y);
+            bounds.maxZ = std::max(bounds.maxZ, piece.box.hi.z);
+        }
+        bounds.minX -= kFramePad;
+        bounds.minZ -= kFramePad;
+        bounds.maxX += kFramePad;
+        bounds.maxZ += kFramePad;
+        detail.bounds = bounds;
+    }
+
     // 只保留含笼房间（宿主房间），并把框水平外扩 1 格；连廊/空房间/挂件都不输出。
     detail.frames.reserve(boxes.size());
     for (const trial::PieceBox &piece : boxes) {

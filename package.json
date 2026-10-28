@@ -1,30 +1,23 @@
 {
   "name": "all-in-one-finder",
   "productName": "All-In-One Finder",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "license": "GPL-3.0-only",
-  "main": "electron/main.cjs",
   "description": "A Minecraft set-seed multifunction coordination finder for Java 1.18+",
   "author": "SunnySlopes & more",
   "scripts": {
-    "postinstall": "npx --no-install install-electron",
-    "electron:install": "npx --no-install install-electron",
-    "native": "node scripts/build-native.mjs",
-    "dev": "node scripts/dev.mjs",
     "build": "vite build",
-    "package": "node scripts/package.mjs",
-    "smoke": "node scripts/smoke.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "engine": "powershell -ExecutionPolicy Bypass -File scripts/build-engine.ps1",
+    "host": "powershell -ExecutionPolicy Bypass -File scripts/build-host.ps1",
+    "package": "powershell -ExecutionPolicy Bypass -File scripts/package-host.ps1",
+    "regression": "node scripts/native-regression.mjs --engine native/build-engine/aio-engine.exe --dll native/build-engine/allinone.dll",
+    "verify": "powershell -ExecutionPolicy Bypass -File scripts/verify-release.ps1",
+    "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev-host.ps1"
   },
   "devDependencies": {
-    "electron": "^45.0.0",
-    "electron-builder": "^26.0.12",
     "typescript": "^5.6.3",
     "vite": "^6.0.0"
-  },
-  "dependencies": {
-    "node-addon-api": "^8.3.1",
-    "node-api-headers": "^1.4.0"
   }
 }

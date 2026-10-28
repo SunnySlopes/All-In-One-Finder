@@ -734,6 +734,7 @@ Napi::Value TrialChambers(const Napi::CallbackInfo &info)
         item.Set("chunkZ", detail.chunkZ);
         item.Set("exists", detail.exists);
         item.Set("pieces", detail.pieces);
+        item.Set("bounds", BoxToObject(env, detail.bounds));
         Napi::Array frames = Napi::Array::New(env, detail.frames.size());
         for (size_t f = 0; f < detail.frames.size(); f++) {
             Napi::Object frame = BoxToObject(env, detail.frames[f].box);
@@ -828,6 +829,8 @@ Napi::Object geodeStatusToObject(Napi::Env env, const GeodeStatus &status)
     out.Set("scanBackend", status.scanBackend);
     out.Set("approximate", status.approximate);
     out.Set("backend", status.backend);
+    out.Set("gpuReason", status.gpuReason);
+    out.Set("gpuDevice", status.gpuDevice);
     out.Set("elapsedMs", status.elapsedMs);
     out.Set("error", status.error);
     Napi::Array hits = Napi::Array::New(env, status.hits.size());

@@ -5,10 +5,6 @@ if (MSVC)
   message(FATAL_ERROR "MSVC is not supported. Use the MSYS2 UCRT64 gcc toolchain.")
 endif()
 
-if (NOT NODE_ADDON_API_DIR OR NOT NODE_API_HEADERS_DIR)
-  message(FATAL_ERROR "Pass NODE_ADDON_API_DIR and NODE_API_HEADERS_DIR")
-endif()
-
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -231,6 +227,11 @@ set(SLIME_C
   "${SLIMERADAR}/cpu_search.c"
   "${SLIMERADAR}/cpu_simd_avx2.c"
 )
+# WebView2 host engine: stable C ABI (aio_call/aio_free/aio_abi_version) on top of
+# the Napi:: compatibility shim, so addon.cpp stays byte-for-byte unchanged.
+set(ALLINONE_BINDING_SOURCES aio_capi.cpp napi_shim/napi_impl.cpp)
+set(ALLINONE_BINDING_INCLUDES "${CMAKE_SOURCE_DIR}/napi_shim")
+
 add_library(allinone SHARED
   ${HOT_CXX}
   ${SLIME_C}
@@ -240,16 +241,15 @@ add_library(allinone SHARED
   $<TARGET_OBJECTS:trial_bridge>
   $<TARGET_OBJECTS:geode_objs>
   $<TARGET_OBJECTS:geode_bridge>
-  "${CMAKE_BINARY_DIR}/napi_bind.cpp"
+  ${ALLINONE_BINDING_SOURCES}
 )
 set_target_properties(allinone PROPERTIES
   PREFIX ""
-  SUFFIX ".node"
+  SUFFIX ".dll"
   OUTPUT_NAME "allinone"
 )
 target_include_directories(allinone PRIVATE
-  "${NODE_ADDON_API_DIR}"
-  "${NODE_API_HEADERS_DIR}"
+  ${ALLINONE_BINDING_INCLUDES}
   "${CMAKE_SOURCE_DIR}/../tools"
   "${FLOWER}"
   "${FLOWER}/cts"
@@ -261,8 +261,6 @@ target_include_directories(allinone PRIVATE
   "${RIVER}"
 )
 target_compile_definitions(allinone PRIVATE
-  NAPI_VERSION=8
-  NAPI_CPP_EXCEPTIONS
   DRIPSTONECAVE_FINDER_JNI_LIB
   _WIN32
 )
@@ -286,13 +284,14 @@ set_source_files_properties("${SLIMERADAR}/cpu_search.c"
   PROPERTIES COMPILE_OPTIONS "-march=x86-64-v3;-funroll-loops"
 )
 target_link_libraries(allinone PRIVATE
-  cubiomes_objs lysh_core "${CMAKE_BINARY_DIR}/napi_proxy.o"
-  -Wl,-Bstatic -lgomp -lwinpthread -Wl,-Bdynamic
+  cubiomes_objs lysh_core
+  -lgomp -lwinpthread
 )
 target_link_options(allinone PRIVATE
   -flto
   -Wl,--gc-sections
   -s
+  -static
   -static-libgcc
   -static-libstdc++
 )

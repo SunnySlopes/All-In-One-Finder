@@ -310,7 +310,9 @@ onLocale(() => {
 
 window.aio?.onShowAbout?.(() => showAbout());
 window.aio?.onSessionExport?.(() => {
-  void window.aio.exportSession(map.exportSnapshot());
+  void window.aio.exportSession(map.exportSnapshot()).then((ok) => {
+    if (!ok) showNotice(t('common.error.save-failed'));
+  });
 });
 window.aio?.onSessionImport?.((text) => {
   const data = parseSessionFile(text);

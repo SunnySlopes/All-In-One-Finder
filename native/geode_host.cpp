@@ -54,6 +54,8 @@ std::atomic<uint64_t> gVerifyTotal{0};
 std::atomic<int> gVerified{0};
 std::atomic<int> gMismatch{0};
 std::atomic<int> gBackend{0}; /* 0 = cpu, 1 = gpu */
+std::string gGpuReason; /* why the GPU scan was not used, empty when it ran */
+std::string gGpuDevice; /* CL_DEVICE_NAME of the GPU that ran the scan */
 std::atomic<int64_t> gStartedMs{0};
 std::atomic<int64_t> gPhaseStartedMs{0};
 std::atomic<int64_t> gFinalElapsedMs{0};
@@ -199,7 +201,10 @@ geode::Options optionsFor(const GeodeRequest &request, int64_t seed, int budget,
 void updatePhase(int code, uint64_t done, uint64_t total)
 {
     const int current = gPhaseCode.load();
-    if (current != code || done < gCurrent.load()) gPhaseStartedMs.store(nowMs());
+    // Only a phase switch restarts the phase clock. Progress can legitimately
+    // move backwards for a moment while parallel workers report out of order;
+    // resetting the clock there made the "remaining this phase" estimate jump.
+    if (current != code) gPhaseStartedMs.store(nowMs());
     gPhaseCode.store(code);
     gPhaseIndex.store(code);
     gCurrent.store(done);
@@ -245,6 +250,16 @@ void job(GeodeRequest request, int startSeed)
             output = geode::search(options, *control, [&](const std::string &phase, uint64_t done, uint64_t total) {
                 int code = phase == "scan" ? 1 : phase == "simulate" ? 2 : 3;
                 updatePhase(code, done, total);
+            }, [](const std::string &backend, const std::string &detail) {
+                gBackend.store(backend == "gpu" ? 1 : 0);
+                std::lock_guard<std::mutex> lock(gMu);
+                if (backend == "gpu") {
+                    gGpuDevice = detail;
+                    gGpuReason.clear();
+                } else {
+                    gGpuDevice.clear();
+                    gGpuReason = detail;
+                }
             });
             if (output.cancelled || gStop.load()) {
                 cancelled = true;
@@ -259,7 +274,9 @@ void job(GeodeRequest request, int startSeed)
             error = "bad-bounds";
         } catch (const geode::Cancelled &) {
             cancelled = true;
-        } catch (const std::exception &) {
+        } catch (const std::exception &exception) {
+            std::fwprintf(stderr, L"[geode] search failed: %hs\n", exception.what());
+            std::fflush(stderr);
             error = fullMap ? "geode-engine-failed" : "geode-start-failed";
         }
 
@@ -457,6 +474,11 @@ GeodeStatus snapshot()
     status.resumed = gResumed.load();
     status.scanBackend = gBackend.load() ? "gpu" : "cpu";
     status.backend = status.scanBackend;
+    {
+        std::lock_guard<std::mutex> lock(gMu);
+        status.gpuReason = gGpuReason;
+        status.gpuDevice = gGpuDevice;
+    }
 
     const auto control = [&] {
         std::lock_guard<std::mutex> lock(gMu);
@@ -529,6 +551,11 @@ std::string geodeStart(const GeodeRequest &input)
     gVerified.store(0);
     gMismatch.store(0);
     gBackend.store(0);
+    {
+        std::lock_guard<std::mutex> lock(gMu);
+        gGpuReason.clear();
+        gGpuDevice.clear();
+    }
     gStartedMs.store(nowMs());
     gPhaseStartedMs.store(gStartedMs.load());
     gFinalElapsedMs.store(0);
