@@ -1,4 +1,4 @@
-import { showNotice } from './dialog';
+import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type MonumentStatus } from './native';
 import { escapeAttr, formatDuration, messageOf } from './panel-utils';
@@ -15,6 +15,8 @@ const WORLD_SIDE = 60000001;
 const WORLD_COORD = 30000000;
 const DOUBLE_SINGLE_SIDE = 262144;
 const DOUBLE_LIST_SIDE = 131072;
+const DEFAULT_GATE_SIDE = 2000001;
+const DEFAULT_GATE_AREA = DEFAULT_GATE_SIDE * DEFAULT_GATE_SIDE;
 const DEFAULT_MIN_GROUP_AREA = 8000;
 const DEFAULT_MIN_GROUP_AREA_DUAL = 10000;
 const DEFAULT_MIN_GROUP_AREA_GATE = 10000;
@@ -101,7 +103,7 @@ export class MonumentPanel {
           <input id="m-side" type="number" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="m-reset" type="button" data-i18n="common.search.reset"></button>
+          <button id="m-reset" type="button" data-i18n="monument.resetDefault"></button>
           <button id="m-border" type="button" data-i18n="common.search.border"></button>
         </div>
         <div id="m-params"></div>
@@ -212,9 +214,7 @@ export class MonumentPanel {
     this.renderSeedBlock();
 
     const borderButton = this.root.querySelector<HTMLButtonElement>('#m-border');
-    if (borderButton) borderButton.hidden = this.variant === 'double';
-    const resetButton = this.root.querySelector<HTMLButtonElement>('#m-reset');
-    if (resetButton) resetButton.hidden = this.variant === 'multi';
+    if (borderButton) borderButton.hidden = this.variant === 'double' || this.mode === 2;
 
     const params = this.root.querySelector('#m-params')!;
     if (this.variant === 'double') {
@@ -222,8 +222,6 @@ export class MonumentPanel {
         <div class="hint" data-i18n="monument.double.help"></div>
         <div class="hint" data-i18n="monument.double.lowHint"></div>`;
     } else {
-      const hintKey = this.mode === 1 ? 'monument.modeHintDual'
-        : this.mode === 2 ? 'monument.modeHintGate' : '';
       params.innerHTML = `
         <div class="grid">
           <label data-i18n="monument.level"></label>
@@ -244,7 +242,6 @@ export class MonumentPanel {
           <input id="m-biome" type="checkbox"${this.biomeCheck ? ' checked' : ''} />
           <span data-i18n="monument.biomeCheck"></span>
         </label>
-        ${hintKey ? `<div class="hint" data-i18n="${hintKey}"></div>` : ''}
         <div class="hint" data-i18n="monument.help"></div>`;
     }
 
@@ -329,10 +326,10 @@ export class MonumentPanel {
       this.applySquare();
     }
 
-    const minX = Number(this.minX.value);
-    const maxX = Number(this.maxX.value);
-    const minZ = Number(this.minZ.value);
-    const maxZ = Number(this.maxZ.value);
+    let minX = Number(this.minX.value);
+    let maxX = Number(this.maxX.value);
+    let minZ = Number(this.minZ.value);
+    let maxZ = Number(this.maxZ.value);
     if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ
       || minX < -WORLD_COORD || maxX > WORLD_COORD
       || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
@@ -389,6 +386,30 @@ export class MonumentPanel {
       payload.minGroupArea = minGroupArea;
       payload.searchModes = 1 << this.mode;
       payload.filterMode = this.mode;
+
+      // 单地狱门模式没有预筛：大范围时先询问是否收缩到默认搜索区域。
+      if (this.mode === 2 && (maxX - minX + 1) * (maxZ - minZ + 1) > DEFAULT_GATE_AREA) {
+        const choice = await ask(t('monument.modeHintGate'), [
+          { id: 'yes', key: 'common.dialog.yes' },
+          { id: 'cancel', key: 'common.dialog.cancel' },
+          { id: 'dismiss', key: 'common.dialog.close' },
+        ]);
+        if (choice === 'dismiss') return;
+        if (choice === 'yes') {
+          this.square.checked = true;
+          this.side.value = String(DEFAULT_GATE_SIDE);
+          this.applySquare();
+          minX = Number(this.minX.value);
+          maxX = Number(this.maxX.value);
+          minZ = Number(this.minZ.value);
+          maxZ = Number(this.maxZ.value);
+          payload.minX = minX;
+          payload.maxX = maxX;
+          payload.minZ = minZ;
+          payload.maxZ = maxZ;
+          this.render();
+        }
+      }
     }
 
     try {
