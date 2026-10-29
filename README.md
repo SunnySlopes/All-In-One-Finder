@@ -85,9 +85,6 @@ Copyright (C) 2026 SunnySlopes
 - 再分发（包括修改后的版本）时，必须以 GPLv3 提供完整的对应源代码，保留版权与许可声明，并标明修改；
 - 本软件不提供任何担保，详见许可证第 15、16 条。
 
-> 本项目此前的版本以 MIT 许可发布，自本版本起改为 GPLv3；此前按 MIT 条款获得的旧版本副本不受影响。
-> `tools/` 下的第三方子模块（如 [cubiomes](https://github.com/xpple/cubiomes)）保留各自的许可证，再分发时需同时满足其条款。
-
 ## 致谢
 感谢所有人的贡献，没有你们的贡献，就没有这款搜索器
 - 界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City

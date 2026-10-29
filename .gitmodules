@@ -13,7 +13,8 @@
 	branch = all-in-one-base
 [submodule "tools/multimonument"]
 	path = tools/multimonument
-	url = https://github.com/Whisperlyric/MultiMonumentFinder.git
+	url = https://github.com/SunnySlopes/DoubleMonumentForFixedSeed.git
+	branch = multi-monument
 [submodule "tools/river"]
 	path = tools/river
 	url = https://github.com/SunnySlopes/RiverFinder.git

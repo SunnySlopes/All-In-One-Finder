@@ -1211,17 +1211,17 @@ export class ResultsColumn {
   private exportAll(): void {
     if (this.display === 'witch') {
       this.saveGrouped(this.witchHits, 'witch-results.txt',
-        (hit) => `/tp ${hit.x} ${hit.y} ${hit.z} dist=${dist2(hit.x, hit.z)}`);
+        (hit) => `/tp ${hit.x} ${hit.y} ${hit.z} dist=${distance(hit.x, hit.z)}`);
       return;
     }
     if (this.display === 'river') {
       this.saveGrouped(this.riverHits, 'river-results.txt',
-        (hit) => `/tp ${hit.x} 64 ${hit.z} score=${hit.score} river=${hit.river} cave=${hit.cave} dist=${dist2(hit.x, hit.z)}`);
+        (hit) => `/tp ${hit.x} 64 ${hit.z} score=${hit.score} river=${hit.river} cave=${hit.cave} dist=${distance(hit.x, hit.z)}`);
       return;
     }
     if (this.display === 'slime') {
       this.saveGrouped(this.slimeHits, 'slime-results.txt',
-        (hit) => `/tp ${hit.x} -64 ${hit.z} equiv=${formatArea(hit.areaEquiv)} area=${hit.area} chunks=${hit.chunks} dist=${dist2(hit.x, hit.z)}`);
+        (hit) => `/tp ${hit.x} -64 ${hit.z} equiv=${formatArea(hit.areaEquiv)} area=${hit.area} chunks=${hit.chunks} dist=${distance(hit.x, hit.z)}`);
       return;
     }
     if (this.display === 'monument') {
@@ -1230,7 +1230,7 @@ export class ResultsColumn {
         const focus = monumentFocus(hit);
         if (!multi) {
           const low = hit.lowEfficiency ? ' low' : '';
-          return `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${dist2(focus.x, focus.z)}`
+          return `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${distance(focus.x, focus.z)}`
             + ` type=${oceanTypeName(hit.oceanType)}${low}`;
         }
         const area = hit.mode === 2 ? hit.areaMax : hit.area;
@@ -1243,9 +1243,13 @@ export class ResultsColumn {
           `d1=${hit.x} ${hit.z}`,
         ];
         if (hit.mode === 1) parts.push(`d2=${hit.x2} ${hit.z2}`, `dual=${hit.area}`);
+        parts.push(`upper=${hit.areaMax}`);
+        if (hit.mode === 2) {
+          // 单门导出附带下界侧地狱门坐标（主世界 / 8 向下取整），与结果卡一致。
+          parts.push(`gate=${Math.floor(hit.areaMaxX / 8)} ${Math.floor(hit.areaMaxZ / 8)}`);
+        }
         parts.push(
-          `upper=${hit.areaMax}`,
-          `dist=${dist2(focus.x, focus.z)}`,
+          `dist=${distance(focus.x, focus.z)}`,
           `type=${oceanTypeName(hit.oceanType)}${hit.lowEfficiency ? ' low' : ''}`,
         );
         return parts.join(' ');
@@ -1256,9 +1260,9 @@ export class ResultsColumn {
       const span = this.fortressTab === 'NetherFortressOverall';
       this.saveGrouped(this.fortressHits, 'fortress-results.txt', (hit) => {
         if (span) {
-          return `/tp ${hit.x} 48 ${hit.z} span=${hit.spanX}*${hit.spanY}*${hit.spanZ} area=${hit.area} dist=${dist2(hit.x, hit.z)}`;
+          return `/tp ${hit.x} 48 ${hit.z} span=${hit.spanX}*${hit.spanY}*${hit.spanZ} area=${hit.area} dist=${distance(hit.x, hit.z)}`;
         }
-        return `/tp ${hit.x} ${hit.y} ${hit.z} ${crossingLabel(hit.crossings)} dist=${dist2(hit.x, hit.z)}`;
+        return `/tp ${hit.x} ${hit.y} ${hit.z} ${crossingLabel(hit.crossings)} dist=${distance(hit.x, hit.z)}`;
       });
       return;
     }
@@ -1281,7 +1285,7 @@ export class ResultsColumn {
       const detail = showDetail
         ? ` area=${hit.total} cave=${hit.cave} river=${hit.river}`
         : ` area=${hit.total}`;
-      return `/tp ${hit.x} 64 ${hit.z}${detail} dist=${dist2(hit.x, hit.z)}`;
+      return `/tp ${hit.x} 64 ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
     });
   }
 
@@ -1332,8 +1336,8 @@ export class ResultsColumn {
   }
 }
 
-function dist2(x: number, z: number): number {
-  return x * x + z * z;
+function distance(x: number, z: number): number {
+  return Math.round(Math.hypot(x, z));
 }
 
 function oceanTypeName(value: number): string {
