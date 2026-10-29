@@ -369,6 +369,8 @@
     "resetDefault": "Reset to default area",
     "totalArea": "Total area",
     "gate": "Portal location",
+    "oceanTypes": "Ocean type: {types}",
+    "oceanSeparator": ", ",
     "dummy1": "Player 1",
     "dummy2": "Player 2",
     "modeHintGate": "Single portal mode has no cheap prefilter and is much slower and come out too much results over large areas. Reducing searching area to 2m*2m?",
@@ -382,6 +384,9 @@
     "ocean": {
       "cold": "Cold",
       "frozen": "Frozen",
+      "normal": "Normal",
+      "lukewarm": "Lukewarm",
+      "warm": "Warm",
       "others": "Other"
     }
   },

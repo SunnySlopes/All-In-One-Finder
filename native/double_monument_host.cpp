@@ -74,7 +74,8 @@ void classifyOceanTypes(std::vector<MonumentHit> &hits, int mc)
         dm_monument_init_generator(gen, mc, static_cast<uint64_t>(seed));
         for (MonumentHit &hit : hits) {
             if (hit.seed != seed) continue;
-            hit.oceanType = dm_monument_classify_ocean_type_g(gen, mc, hit.x, hit.z);
+            hit.oceanTypes = dm_monument_classify_ocean_types_g(gen, mc, hit.x, hit.z);
+            hit.oceanType = legacyOceanType(hit.oceanTypes);
         }
         dm_monument_generator_free(gen);
     }

@@ -1059,6 +1059,7 @@ Napi::Object monumentStatusToObject(Napi::Env env, const MonumentStatus &status)
         item.Set("area", hit.area);
         item.Set("lowEfficiency", hit.lowEfficiency);
         item.Set("oceanType", hit.oceanType);
+        item.Set("oceanTypes", hit.oceanTypes);
         item.Set("x2", hit.x2);
         item.Set("z2", hit.z2);
         item.Set("singleX", hit.singleX);

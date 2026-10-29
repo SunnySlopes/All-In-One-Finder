@@ -105,32 +105,20 @@ bool hitLess(const MonumentHit &a, const MonumentHit &b)
     return a.z < b.z;
 }
 
-constexpr int kOceanOthers = 0;
-constexpr int kOceanCold = 1;
-constexpr int kOceanFrozen = 2;
-
-int mergeOceanType(int a, int b)
-{
-    if (a == kOceanCold || b == kOceanCold) return kOceanCold;
-    if (a == kOceanFrozen || b == kOceanFrozen) return kOceanFrozen;
-    return kOceanOthers;
-}
-
 /*
  * 按上游 4 点（+-64）规则检查一片挂机区域：以 3x3 个中心各调用一次上游分类器，
- * 每个中心内部再由上游采样 4 点，合计覆盖 257x257 的方块范围。
+ * 每个中心内部再由上游采样 4 点，合计覆盖 257x257 的方块范围；返回所有温度类型位掩码。
  */
-int classifyOceanArea(MonumentGenerator *gen, int mc, int centerX, int centerZ)
+int classifyOceanAreaMask(MonumentGenerator *gen, int mc, int centerX, int centerZ)
 {
-    int type = kOceanOthers;
+    int mask = 0;
     for (int dx = -1; dx <= 1; dx++) {
         for (int dz = -1; dz <= 1; dz++) {
-            type = mergeOceanType(type,
-                                  monument_classify_ocean_type_g(gen, mc, centerX + dx * 64,
-                                                                 centerZ + dz * 64));
+            mask |= monument_classify_ocean_types_g(gen, mc, centerX + dx * 64,
+                                                     centerZ + dz * 64);
         }
     }
-    return type;
+    return mask;
 }
 
 void classifyOceanTypes(std::vector<MonumentHit> &hits, int mc)
@@ -145,15 +133,17 @@ void classifyOceanTypes(std::vector<MonumentHit> &hits, int mc)
         monument_init_generator(gen, mc, static_cast<uint64_t>(seed));
         for (MonumentHit &hit : hits) {
             if (hit.seed != seed) continue;
+            int mask;
             if (hit.mode == 1) {
-                hit.oceanType = mergeOceanType(
-                    classifyOceanArea(gen, mc, hit.x, hit.z),
-                    classifyOceanArea(gen, mc, hit.x2, hit.z2));
+                mask = classifyOceanAreaMask(gen, mc, hit.x, hit.z)
+                     | classifyOceanAreaMask(gen, mc, hit.x2, hit.z2);
             } else if (hit.mode == 2) {
-                hit.oceanType = classifyOceanArea(gen, mc, hit.areaMaxX, hit.areaMaxZ);
+                mask = classifyOceanAreaMask(gen, mc, hit.areaMaxX, hit.areaMaxZ);
             } else {
-                hit.oceanType = monument_classify_ocean_type_g(gen, mc, hit.x, hit.z);
+                mask = monument_classify_ocean_types_g(gen, mc, hit.x, hit.z);
             }
+            hit.oceanTypes = mask;
+            hit.oceanType = legacyOceanType(mask);
         }
         monument_generator_free(gen);
     }

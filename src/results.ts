@@ -917,7 +917,7 @@ export class ResultsColumn {
         ${dummies}
         <div class="result-stats">
           ${detail}
-          <span>${escapeText(oceanLabel(hit.oceanType))}</span>
+          <span>${escapeText(oceanTypesLabel(hit.oceanTypes))}</span>
           ${low}
         </div>
         ${extra}
@@ -1231,7 +1231,7 @@ export class ResultsColumn {
         if (!multi) {
           const low = hit.lowEfficiency ? ' low' : '';
           return `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${distance(focus.x, focus.z)}`
-            + ` type=${oceanTypeName(hit.oceanType)}${low}`;
+            + ` ${oceanTypesLabel(hit.oceanTypes)}${low}`;
         }
         const area = hit.mode === 2 ? hit.areaMax : hit.area;
         const parts = [
@@ -1250,7 +1250,7 @@ export class ResultsColumn {
         }
         parts.push(
           `dist=${distance(focus.x, focus.z)}`,
-          `type=${oceanTypeName(hit.oceanType)}${hit.lowEfficiency ? ' low' : ''}`,
+          `${oceanTypesLabel(hit.oceanTypes)}${hit.lowEfficiency ? ' low' : ''}`,
         );
         return parts.join(' ');
       });
@@ -1340,16 +1340,19 @@ function distance(x: number, z: number): number {
   return Math.round(Math.hypot(x, z));
 }
 
-function oceanTypeName(value: number): string {
-  if (value === 1) return 'cold';
-  if (value === 2) return 'frozen';
-  return 'others';
-}
-
-function oceanLabel(value: number): string {
-  const key = `monument.ocean.${oceanTypeName(value)}`;
-  const text = t(key);
-  return text === key ? oceanTypeName(value) : text;
+function oceanTypesLabel(mask: number): string {
+  const order = [
+    { bit: 0x02, key: 'cold' },
+    { bit: 0x01, key: 'frozen' },
+    { bit: 0x04, key: 'normal' },
+    { bit: 0x08, key: 'lukewarm' },
+    { bit: 0x10, key: 'warm' },
+  ];
+  const names = order
+    .filter((item) => (mask & item.bit) !== 0)
+    .map((item) => t(`monument.ocean.${item.key}`));
+  const types = names.length ? names.join(t('monument.oceanSeparator')) : t('monument.ocean.others');
+  return t('monument.oceanTypes', { types });
 }
 
 /** 2/3/4 → 二联/三联/四联（英文 Double/Triple/Quadruple）。 */

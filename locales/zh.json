@@ -369,6 +369,8 @@
     "resetDefault": "重置为默认范围",
     "totalArea": "总面积",
     "gate": "地狱门坐标",
+    "oceanTypes": "海洋类型：{types}",
+    "oceanSeparator": "、",
     "dummy1": "挂机坐标1",
     "dummy2": "挂机坐标2",
     "modeHintGate": "单门没有预筛，大范围搜索会明显变慢且结果会过多，是否缩小搜索范围至正负100万？",
@@ -382,6 +384,9 @@
     "ocean": {
       "cold": "冷水",
       "frozen": "冰冻",
+      "normal": "普通",
+      "lukewarm": "温水",
+      "warm": "暖水",
       "others": "其他"
     }
   },

@@ -5,6 +5,21 @@
 #include <string>
 #include <vector>
 
+/* 海洋温度位掩码（与子模块 monument_search_core.h 的 OCEAN_MASK_* 对齐）。 */
+constexpr int kOceanMaskFrozen = 0x01;
+constexpr int kOceanMaskCold = 0x02;
+constexpr int kOceanMaskNormal = 0x04;
+constexpr int kOceanMaskLukewarm = 0x08;
+constexpr int kOceanMaskWarm = 0x10;
+
+/* 旧版单一海洋类型（0=others 1=cold 2=frozen），保留给旧消费者。 */
+inline int legacyOceanType(int mask)
+{
+    if (mask & kOceanMaskCold) return 1;
+    if (mask & kOceanMaskFrozen) return 2;
+    return 0;
+}
+
 /* 神殿结果（二联/多联共用）。count：2=二联，3/4=多联。 */
 struct MonumentHit {
     int64_t seed = 0;
@@ -15,7 +30,8 @@ struct MonumentHit {
     int count = 2;
     int area = 0;
     int lowEfficiency = 0;
-    int oceanType = 0; /* 0=others 1=cold 2=frozen */
+    int oceanType = 0; /* 0=others 1=cold 2=frozen（旧字段） */
+    int oceanTypes = 0; /* 4 个检查点出现的海洋温度位掩码 */
     /* 多联三种面积口径（二联保持 0）。 */
     int x2 = 0;        /* 第二假人（双假人） */
     int z2 = 0;

@@ -310,6 +310,8 @@ export interface MonumentHit {
   area: number;
   lowEfficiency: number;
   oceanType: number;
+  /** 4 个检查点出现的海洋温度位掩码：1 冰冻 / 2 冷水 / 4 普通 / 8 温水 / 16 暖水。 */
+  oceanTypes: number;
   x2: number;
   z2: number;
   singleX: number;
