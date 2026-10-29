@@ -38,6 +38,10 @@ interface JumpOptions {
   spawnCircles?: boolean;
   /** 刷怪环半径；缺省 [24,128]。 */
   spawnRadii?: number[];
+  /** 多中心挂机圈（双假人）；优先于 spawnCircles。 */
+  spawnCenters?: { x: number; z: number; radii?: number[] }[];
+  /** 只点出前两个挂机圈的中心连线中点，不画连线。 */
+  spawnMidpoint?: boolean;
   /** 结果区域覆盖层；缺省会清掉上一块。 */
   areaOverlay?: MapAreaOverlay | null;
 }
@@ -298,7 +302,8 @@ export class MapView {
   private slimeOrigin = { cx: 0, cz: 0 };
   private slimeSpan = { w: 0, h: 0 };
   private slimeFlight = false;
-  private spawnOverlay: { x: number; z: number; radii?: number[] } | null = null;
+  private spawnOverlays: { x: number; z: number; radii?: number[] }[] = [];
+  private spawnMidpoint = false;
   private areaOverlay: MapAreaOverlay | null = null;
   private trialTypeId = -1;
   private trialDetail = new Map<string, TrialChamberDetail>();
@@ -479,8 +484,9 @@ export class MapView {
   }
 
   clearSpawnCircles(): void {
-    if (!this.spawnOverlay) return;
-    this.spawnOverlay = null;
+    if (!this.spawnOverlays.length && !this.spawnMidpoint) return;
+    this.spawnOverlays = [];
+    this.spawnMidpoint = false;
     this.queueDraw();
   }
 
@@ -543,9 +549,9 @@ export class MapView {
     this.persistSession();
     // Panning keeps the current tiles on screen. Only a seed/Y/version/dimension change drops the cache.
     this.schedule(worldChanged);
-    this.spawnOverlay = options.spawnCircles
-      ? { x: options.x, z: options.z, radii: options.spawnRadii }
-      : null;
+    this.spawnOverlays = options.spawnCenters
+      ?? (options.spawnCircles ? [{ x: options.x, z: options.z, radii: options.spawnRadii }] : []);
+    this.spawnMidpoint = !!options.spawnMidpoint && this.spawnOverlays.length >= 2;
     this.areaOverlay = options.areaOverlay ?? null;
     this.queueFeatures();
     requestAnimationFrame(() => {
@@ -1365,21 +1371,38 @@ export class MapView {
   }
 
   private drawSpawnCircles(ctx: CanvasRenderingContext2D): void {
-    if (!this.spawnOverlay) return;
-    const center = this.worldToScreen(this.spawnOverlay.x, this.spawnOverlay.z);
+    if (!this.spawnOverlays.length) return;
     ctx.save();
     ctx.strokeStyle = 'rgba(110, 220, 120, 0.95)';
     ctx.lineWidth = 2;
-    for (const radius of this.spawnOverlay.radii ?? [24, 128]) {
-      const px = radius * this.pixelsPerBlock;
+    ctx.fillStyle = 'rgba(110, 220, 120, 0.85)';
+    for (const overlay of this.spawnOverlays) {
+      const center = this.worldToScreen(overlay.x, overlay.z);
+      for (const radius of overlay.radii ?? [24, 128]) {
+        const px = radius * this.pixelsPerBlock;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, px, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.beginPath();
-      ctx.arc(center.x, center.y, px, 0, Math.PI * 2);
+      ctx.arc(center.x, center.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (this.spawnMidpoint && this.spawnOverlays.length >= 2) {
+      const a = this.spawnOverlays[0];
+      const b = this.spawnOverlays[1];
+      const mid = this.worldToScreen(
+        Math.trunc((a.x + b.x) / 2),
+        Math.trunc((a.z + b.z) / 2),
+      );
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.strokeStyle = 'rgba(20, 24, 30, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mid.x, mid.y, 4, 0, Math.PI * 2);
+      ctx.fill();
       ctx.stroke();
     }
-    ctx.fillStyle = 'rgba(110, 220, 120, 0.85)';
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, 3, 0, Math.PI * 2);
-    ctx.fill();
     ctx.restore();
   }
 

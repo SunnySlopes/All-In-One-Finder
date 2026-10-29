@@ -1,5 +1,7 @@
 #include "multi_monument_host.h"
 
+#include "multi_monument_results.h"
+
 #include "search_gate.h"
 
 #include "cubiomes/biomes.h"
@@ -8,7 +10,17 @@
  * 多联神殿内核来自 tools/multimonument。上游的 Progress / PairHit /
  * ThreadSafeResults / ThreadPool 与 dripstonecave、要塞内核同名，这里在 host TU
  * 内用局部宏改名，不改上游源码。
+ *
+ * 结果收集器换成 host 侧的 MmResults（top-K，满员淘汰最差），避免上游队列满后
+ * 丢弃后扫到的更大结果；ThreadPool 仍用上游实现。先带着改名把 Thread.h 引进来，
+ * 防止和 dripstonecave 的同名 ThreadPool 形成 ODR 冲突。
  */
+#define ThreadSafeResults MmUpstreamResults
+#define ThreadPool MmPool
+#include "../tools/multimonument/Thread.h"
+#undef ThreadSafeResults
+#undef ThreadPool
+
 #define Progress MultiProgress
 #define PairHit MultiPairHit
 #define MonumentSearchConfig MultiMonumentConfig
@@ -69,14 +81,56 @@ void waitWhilePaused()
     }
 }
 
+int64_t hitFocusDist2(const MonumentHit &hit)
+{
+    // 同面积时按结果展示点排序：双假人用中点，单门用上限重心，单假人用挂机点。
+    if (hit.mode == 1) {
+        return originDist2((hit.x + hit.x2) / 2, (hit.z + hit.z2) / 2);
+    }
+    if (hit.mode == 2) {
+        return originDist2(hit.areaMaxX, hit.areaMaxZ);
+    }
+    return originDist2(hit.x, hit.z);
+}
+
 bool hitLess(const MonumentHit &a, const MonumentHit &b)
 {
-    if (a.area != b.area) return a.area > b.area;
-    const int64_t da = originDist2(a.x, a.z);
-    const int64_t db = originDist2(b.x, b.z);
+    const int aa = a.mode == 2 ? a.areaMax : a.area;
+    const int ab = b.mode == 2 ? b.areaMax : b.area;
+    if (aa != ab) return aa > ab;
+    const int64_t da = hitFocusDist2(a);
+    const int64_t db = hitFocusDist2(b);
     if (da != db) return da < db;
     if (a.x != b.x) return a.x < b.x;
     return a.z < b.z;
+}
+
+constexpr int kOceanOthers = 0;
+constexpr int kOceanCold = 1;
+constexpr int kOceanFrozen = 2;
+
+int mergeOceanType(int a, int b)
+{
+    if (a == kOceanCold || b == kOceanCold) return kOceanCold;
+    if (a == kOceanFrozen || b == kOceanFrozen) return kOceanFrozen;
+    return kOceanOthers;
+}
+
+/*
+ * 按上游 4 点（+-64）规则检查一片挂机区域：以 3x3 个中心各调用一次上游分类器，
+ * 每个中心内部再由上游采样 4 点，合计覆盖 257x257 的方块范围。
+ */
+int classifyOceanArea(MonumentGenerator *gen, int mc, int centerX, int centerZ)
+{
+    int type = kOceanOthers;
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dz = -1; dz <= 1; dz++) {
+            type = mergeOceanType(type,
+                                  monument_classify_ocean_type_g(gen, mc, centerX + dx * 64,
+                                                                 centerZ + dz * 64));
+        }
+    }
+    return type;
 }
 
 void classifyOceanTypes(std::vector<MonumentHit> &hits, int mc)
@@ -91,7 +145,15 @@ void classifyOceanTypes(std::vector<MonumentHit> &hits, int mc)
         monument_init_generator(gen, mc, static_cast<uint64_t>(seed));
         for (MonumentHit &hit : hits) {
             if (hit.seed != seed) continue;
-            hit.oceanType = monument_classify_ocean_type_g(gen, mc, hit.x, hit.z);
+            if (hit.mode == 1) {
+                hit.oceanType = mergeOceanType(
+                    classifyOceanArea(gen, mc, hit.x, hit.z),
+                    classifyOceanArea(gen, mc, hit.x2, hit.z2));
+            } else if (hit.mode == 2) {
+                hit.oceanType = classifyOceanArea(gen, mc, hit.areaMaxX, hit.areaMaxZ);
+            } else {
+                hit.oceanType = monument_classify_ocean_type_g(gen, mc, hit.x, hit.z);
+            }
         }
         monument_generator_free(gen);
     }
@@ -131,6 +193,10 @@ void job(MultiMonumentRequest request)
             cfg.pairLevel = request.level;
             cfg.biomeCheck = request.biomeCheck;
             cfg.minGroupArea = request.minGroupArea;
+            cfg.searchModes = (request.searchModes & 7) != 0 ? (request.searchModes & 7) : 1;
+            cfg.filterMode = (request.filterMode >= 0 && request.filterMode <= 2)
+                                 ? request.filterMode
+                                 : 0;
 
             gProgress.current.store(0);
             gProgress.total.store(0);
@@ -138,6 +204,7 @@ void job(MultiMonumentRequest request)
 
             MmResults<MultiPairHit> results;
             results.setLimit(kQueueLimit);
+            results.setScoreMode(request.filterMode);
             runMultiMonumentSearch(cfg, &gProgress, results, request.threads);
 
             if (gProgress.try_stop.load()) break;
@@ -152,6 +219,16 @@ void job(MultiMonumentRequest request)
                 item.dz = hit.dz;
                 item.count = hit.count;
                 item.area = hit.area;
+                item.x2 = hit.x2;
+                item.z2 = hit.z2;
+                item.singleX = hit.singleX;
+                item.singleZ = hit.singleZ;
+                item.singleArea = hit.singleArea;
+                item.areaMax = hit.areaMax;
+                item.areaMaxX = hit.areaMaxX;
+                item.areaMaxZ = hit.areaMaxZ;
+                item.dual = hit.dual ? 1 : 0;
+                item.mode = request.filterMode;
                 all.push_back(item);
             }
         }
@@ -163,7 +240,7 @@ void job(MultiMonumentRequest request)
         error = "multi-monument-search-failed";
     }
 
-    std::sort(all.begin(), all.end(), hitLess);
+    std::stable_sort(all.begin(), all.end(), hitLess);
     if (gProgress.try_stop.load()) all.clear();
     if (all.size() > static_cast<size_t>(kOutputLimit)) all.resize(kOutputLimit);
     if (error.empty()) classifyOceanTypes(all, request.mc);
@@ -181,6 +258,8 @@ std::string multiMonumentStart(const MultiMonumentRequest &request)
     if (request.threads < 1 || request.threads > kMaxThreads) return "bad-bounds";
     if (request.level != 3 && request.level != 4) return "bad-level";
     if (request.minGroupArea < 6728 || request.minGroupArea > 13455) return "bad-monument-area";
+    if ((request.searchModes & 7) == 0) return "bad-search-modes";
+    if (request.filterMode < 0 || request.filterMode > 2) return "bad-filter-mode";
     if (request.maxX < request.minX || request.maxZ < request.minZ) return "bad-bounds";
     if (request.minX < -kWorldLimit || request.maxX > kWorldLimit ||
         request.minZ < -kWorldLimit || request.maxZ > kWorldLimit) {

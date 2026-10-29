@@ -13,6 +13,8 @@ struct MultiMonumentRequest {
     int level = 3; /* 3 或 4 */
     bool biomeCheck = true;
     int minGroupArea = 6728;
+    int searchModes = 1; /* 1 单假人 / 2 双假人 / 4 单门 */
+    int filterMode = 0;  /* 阈值比较：0 单 / 1 双 / 2 单门 */
     int minX = 0;
     int maxX = 0;
     int minZ = 0;

@@ -16,6 +16,17 @@ struct MonumentHit {
     int area = 0;
     int lowEfficiency = 0;
     int oceanType = 0; /* 0=others 1=cold 2=frozen */
+    /* 多联三种面积口径（二联保持 0）。 */
+    int x2 = 0;        /* 第二假人（双假人） */
+    int z2 = 0;
+    int singleX = 0;   /* 单假人最优点 */
+    int singleZ = 0;
+    int singleArea = 0;
+    int areaMax = 0;   /* 单门 257x257 上限 */
+    int areaMaxX = 0;  /* 上限 footprint 重心（主世界） */
+    int areaMaxZ = 0;
+    int dual = 0;      /* 1 = x2/z2 有效 */
+    int mode = 0;      /* 0 单假人 / 1 双假人 / 2 单门 */
 };
 
 struct MonumentStatus {

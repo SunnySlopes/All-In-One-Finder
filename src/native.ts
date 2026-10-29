@@ -310,6 +310,16 @@ export interface MonumentHit {
   area: number;
   lowEfficiency: number;
   oceanType: number;
+  x2: number;
+  z2: number;
+  singleX: number;
+  singleZ: number;
+  singleArea: number;
+  areaMax: number;
+  areaMaxX: number;
+  areaMaxZ: number;
+  dual: number;
+  mode: number;
 }
 
 export interface MonumentStatus {

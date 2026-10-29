@@ -16,8 +16,22 @@ const WORLD_COORD = 30000000;
 const DOUBLE_SINGLE_SIDE = 262144;
 const DOUBLE_LIST_SIDE = 131072;
 const DEFAULT_MIN_GROUP_AREA = 8000;
+const DEFAULT_MIN_GROUP_AREA_DUAL = 10000;
+const DEFAULT_MIN_GROUP_AREA_GATE = 10000;
 const MIN_GROUP_AREA = 6728;
 const MAX_GROUP_AREA = 13455;
+
+function defaultAreaForMode(mode: number): number {
+  if (mode === 1) return DEFAULT_MIN_GROUP_AREA_DUAL;
+  if (mode === 2) return DEFAULT_MIN_GROUP_AREA_GATE;
+  return DEFAULT_MIN_GROUP_AREA;
+}
+
+function areaLabelKey(mode: number): string {
+  if (mode === 1) return 'monument.areaLabelDual';
+  if (mode === 2) return 'monument.areaLabelGate';
+  return 'monument.areaLabelSingle';
+}
 
 function resolveMonumentMc(versions: McVersion[]): number | null {
   const modern = versions.find((item) => item.name === '26.3');
@@ -50,6 +64,13 @@ export class MonumentPanel {
   private pollTimer = 0;
   private searchStartedAt = 0;
   private shownError = '';
+  /** 最近一次轮询结果；render() 重建页脚后用它恢复进度（含瞬间结束时补 100%）。 */
+  private lastStatus: MonumentStatus | null = null;
+  /** 多联面积口径：0 单假人 / 1 双假人 / 2 单门。 */
+  private mode: 0 | 1 | 2 = 0;
+  private level = 3;
+  private areaValue = DEFAULT_MIN_GROUP_AREA;
+  private biomeCheck = true;
 
   constructor(variant: MonumentVariant) {
     this.variant = variant;
@@ -201,21 +222,50 @@ export class MonumentPanel {
         <div class="hint" data-i18n="monument.double.help"></div>
         <div class="hint" data-i18n="monument.double.lowHint"></div>`;
     } else {
+      const hintKey = this.mode === 1 ? 'monument.modeHintDual'
+        : this.mode === 2 ? 'monument.modeHintGate' : '';
       params.innerHTML = `
         <div class="grid">
           <label data-i18n="monument.level"></label>
           <select id="m-level">
-            <option value="3">3</option>
-            <option value="4">4</option>
+            <option value="3"${this.level === 3 ? ' selected' : ''}>3</option>
+            <option value="4"${this.level === 4 ? ' selected' : ''}>4</option>
           </select>
-          <label data-i18n="monument.minArea"></label>
-          <input id="m-area" type="number" min="${MIN_GROUP_AREA}" max="${MAX_GROUP_AREA}" step="1" value="${DEFAULT_MIN_GROUP_AREA}" />
+          <label data-i18n="monument.mode"></label>
+          <select id="m-mode">
+            <option value="0"${this.mode === 0 ? ' selected' : ''} data-i18n="monument.modeSingle"></option>
+            <option value="1"${this.mode === 1 ? ' selected' : ''} data-i18n="monument.modeDual"></option>
+            <option value="2"${this.mode === 2 ? ' selected' : ''} data-i18n="monument.modeGate"></option>
+          </select>
+          <label data-i18n="${areaLabelKey(this.mode)}"></label>
+          <input id="m-area" type="number" min="${MIN_GROUP_AREA}" max="${MAX_GROUP_AREA}" step="1" value="${this.areaValue}" />
         </div>
         <label class="feature">
-          <input id="m-biome" type="checkbox" checked />
+          <input id="m-biome" type="checkbox"${this.biomeCheck ? ' checked' : ''} />
           <span data-i18n="monument.biomeCheck"></span>
         </label>
+        ${hintKey ? `<div class="hint" data-i18n="${hintKey}"></div>` : ''}
         <div class="hint" data-i18n="monument.help"></div>`;
+    }
+
+    if (this.variant === 'multi') {
+      params.querySelector<HTMLSelectElement>('#m-level')?.addEventListener('change', (event) => {
+        this.level = Number((event.target as HTMLSelectElement).value) === 4 ? 4 : 3;
+      });
+      const modeSelect = params.querySelector<HTMLSelectElement>('#m-mode');
+      modeSelect?.addEventListener('change', () => {
+        this.readFields();
+        const value = Number(modeSelect.value);
+        this.mode = value === 1 ? 1 : value === 2 ? 2 : 0;
+        this.areaValue = defaultAreaForMode(this.mode);
+        this.render();
+      });
+      params.querySelector<HTMLInputElement>('#m-area')?.addEventListener('input', (event) => {
+        this.areaValue = Number((event.target as HTMLInputElement).value);
+      });
+      params.querySelector<HTMLInputElement>('#m-biome')?.addEventListener('change', (event) => {
+        this.biomeCheck = (event.target as HTMLInputElement).checked;
+      });
     }
 
     this.footer.innerHTML = `
@@ -233,6 +283,7 @@ export class MonumentPanel {
     this.footer.querySelector('#m-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#m-stop')?.addEventListener('click', () => void call(this.stopOp()));
     applyI18n(this.root);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private stopOp(): string {
@@ -321,21 +372,29 @@ export class MonumentPanel {
     };
 
     if (this.variant === 'multi') {
-      const level = Number(this.root.querySelector<HTMLSelectElement>('#m-level')?.value || 3);
+      const levelValue = Number(this.root.querySelector<HTMLSelectElement>('#m-level')?.value || this.level);
+      this.level = levelValue === 4 ? 4 : 3;
+      const modeValue = Number(this.root.querySelector<HTMLSelectElement>('#m-mode')?.value ?? this.mode);
+      this.mode = modeValue === 1 ? 1 : modeValue === 2 ? 2 : 0;
       const areaInput = this.root.querySelector<HTMLInputElement>('#m-area');
-      const minGroupArea = Math.round(Number(areaInput?.value || DEFAULT_MIN_GROUP_AREA));
+      const minGroupArea = Math.round(Number(areaInput?.value || this.areaValue || DEFAULT_MIN_GROUP_AREA));
       if (!Number.isFinite(minGroupArea) || minGroupArea < MIN_GROUP_AREA || minGroupArea > MAX_GROUP_AREA) {
         await showNotice(t('common.error.bad-monument-area'));
         return;
       }
-      payload.level = level;
-      payload.biomeCheck = !!this.root.querySelector<HTMLInputElement>('#m-biome')?.checked;
+      this.areaValue = minGroupArea;
+      this.biomeCheck = !!this.root.querySelector<HTMLInputElement>('#m-biome')?.checked;
+      payload.level = this.level;
+      payload.biomeCheck = this.biomeCheck;
       payload.minGroupArea = minGroupArea;
+      payload.searchModes = 1 << this.mode;
+      payload.filterMode = this.mode;
     }
 
     try {
       await call(this.variant === 'double' ? 'doubleMonumentSearchStart' : 'multiMonumentSearchStart', payload);
       this.results?.clearMonument(this.tab, listMode);
+      this.lastStatus = null;
       this.running = true;
       this.paused = false;
       this.shownError = '';
@@ -365,17 +424,8 @@ export class MonumentPanel {
         const status = await call<MonumentStatus>(this.pollOp());
         this.running = status.running;
         this.paused = status.paused;
-        const progress = this.footer.querySelector('#m-progress');
-        const eta = this.footer.querySelector('#m-eta');
-        const elapsed = this.footer.querySelector('#m-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#m-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
-        if (bar) {
-          const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
-          bar.style.width = `${pct}%`;
-        }
+        this.lastStatus = status;
+        this.paintStatus(status);
         this.results?.setMonumentHits(status.hits, this.tab);
         if (status.done) {
           window.clearInterval(this.pollTimer);
@@ -393,11 +443,31 @@ export class MonumentPanel {
     }, 100);
   }
 
+  /** 把一次状态写入页脚；render() 重建页脚后会再用 lastStatus 调用它恢复进度。 */
+  private paintStatus(status: MonumentStatus): void {
+    const progress = this.footer.querySelector('#m-progress');
+    const eta = this.footer.querySelector('#m-eta');
+    const elapsed = this.footer.querySelector('#m-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#m-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
+    if (bar) {
+      // 搜索瞬间结束（total 还是 0，或已经跑满）时也按 100% 展示。
+      const complete = status.done && (status.total <= 0 || status.current >= status.total);
+      const pct = complete ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      bar.style.width = `${pct}%`;
+    }
+  }
+
   private progressText(status: MonumentStatus): string {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
-    const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
+    const complete = status.done && (status.total <= 0 || status.current >= status.total);
+    const pct = complete
+      ? 100
+      : status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${t('common.search.working')} ${status.current}/${status.total} (${pct}%)${error}`;
   }

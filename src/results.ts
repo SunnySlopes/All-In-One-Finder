@@ -49,6 +49,14 @@ function displayFor(tab: SearcherId): Display | null {
   return null;
 }
 
+function monumentFocus(hit: MonumentHit): { x: number; z: number } {
+  if (hit.mode === 1) {
+    return { x: Math.trunc((hit.x + hit.x2) / 2), z: Math.trunc((hit.z + hit.z2) / 2) };
+  }
+  if (hit.mode === 2) return { x: hit.areaMaxX, z: hit.areaMaxZ };
+  return { x: hit.x, z: hit.z };
+}
+
 export class ResultsColumn {
   readonly root: HTMLElement;
   private jumpX!: HTMLInputElement;
@@ -643,12 +651,53 @@ export class ResultsColumn {
   }
 
   private performMonumentJump(hit: MonumentHit): void {
-    this.spawnCheck.checked = true;
+    const focus = monumentFocus(hit);
+    this.spawnCheck.checked = hit.mode !== 2;
     const jump = () => {
       this.map.clearSpawnCircles();
+      if (hit.mode === 1) {
+        this.map.jumpTo({
+          x: focus.x,
+          z: focus.z,
+          seed: hit.seed,
+          y: 64,
+          dimension: 0,
+          mcVersion: '26.3',
+          features: ['monument'],
+          spawnCircles: false,
+          spawnCenters: [
+            { x: hit.x, z: hit.z, radii: [128] },
+            { x: hit.x2, z: hit.z2, radii: [128] },
+          ],
+          spawnMidpoint: true,
+          areaOverlay: null,
+        });
+        return;
+      }
+      if (hit.mode === 2) {
+        this.map.jumpTo({
+          x: focus.x,
+          z: focus.z,
+          seed: hit.seed,
+          y: 64,
+          dimension: 0,
+          mcVersion: '26.3',
+          features: ['monument'],
+          spawnCircles: false,
+          areaOverlay: {
+            kind: 'rect',
+            x: focus.x,
+            z: focus.z,
+            width: 257,
+            height: 257,
+            color: '#e6bf5a',
+          },
+        });
+        return;
+      }
       this.map.jumpTo({
-        x: hit.x,
-        z: hit.z,
+        x: focus.x,
+        z: focus.z,
         seed: hit.seed,
         y: 64,
         dimension: 0,
@@ -835,21 +884,43 @@ export class ResultsColumn {
     }
     const multi = this.monumentTab === 'MultiMonument';
     this.list.innerHTML = this.monumentHits.map((hit, index) => {
+      const focus = monumentFocus(hit);
       const low = hit.lowEfficiency ? `<span>${escapeText(t('monument.lowEfficiency'))}</span>` : '';
-      const detail = multi
-        ? `<span>${escapeText(crossingLabel(hit.count))}</span><span>S=${hit.area}</span>`
-        : `<span>dx=${hit.dx} dz=${hit.dz}</span>`;
+      let detail: string;
+      let dummies = '';
+      let extra = '';
+      if (!multi) {
+        detail = `<span>dx=${hit.dx} dz=${hit.dz}</span>`;
+      } else if (hit.mode === 1) {
+        detail = `<span>${escapeText(crossingLabel(hit.count))}</span>`
+          + `<span>${escapeText(t('monument.totalArea'))}=${hit.area}</span>`;
+        dummies = `<div class="result-dummies">`
+          + `<div>${escapeText(t('monument.dummy1'))} (${hit.x}, ${hit.z})</div>`
+          + `<div>${escapeText(t('monument.dummy2'))} (${hit.x2}, ${hit.z2})</div>`
+          + `</div>`;
+      } else if (hit.mode === 2) {
+        detail = `<span>${escapeText(crossingLabel(hit.count))}</span>`
+          + `<span>${escapeText(t('monument.totalArea'))}=${hit.areaMax}</span>`;
+        // 单门：主世界上限点 / 8（向下取整）就是下界门坐标；只展示，不参与跳转/复制。
+        const gateX = Math.floor(hit.areaMaxX / 8);
+        const gateZ = Math.floor(hit.areaMaxZ / 8);
+        extra = `<div class="result-gate">${escapeText(t('monument.gate'))} (${gateX}, ${gateZ})</div>`;
+      } else {
+        detail = `<span>${escapeText(crossingLabel(hit.count))}</span><span>S=${hit.area}</span>`;
+      }
       return `<article class="result-card result-monument" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
-          <span>(${hit.x}, ${hit.z})</span>
+          <span>(${focus.x}, ${focus.z})</span>
           <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
         </div>
+        ${dummies}
         <div class="result-stats">
           ${detail}
           <span>${escapeText(oceanLabel(hit.oceanType))}</span>
           ${low}
         </div>
+        ${extra}
       </article>`;
     }).join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
@@ -858,8 +929,9 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.monumentHits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        const focus = monumentFocus(hit);
+        this.jumpX.value = String(focus.x);
+        this.jumpZ.value = String(focus.z);
         this.performMonumentJump(hit);
       });
     });
@@ -868,7 +940,8 @@ export class ResultsColumn {
         event.stopPropagation();
         const hit = this.monumentHits[Number(button.dataset.index)];
         if (!hit) return;
-        void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
+        const focus = monumentFocus(hit);
+        void navigator.clipboard.writeText(`/tp ${focus.x} 64 ${focus.z}`);
       });
     });
     applyI18n(this.list);
@@ -884,7 +957,8 @@ export class ResultsColumn {
     const span = this.fortressTab === 'NetherFortressOverall';
     this.list.innerHTML = this.fortressHits.map((hit, index) => {
       const detail = span
-        ? `<span>span=${hit.spanX}*${hit.spanY}*${hit.spanZ}</span><span>S=${hit.area}</span>`
+        ? `<span>${escapeText(t('fortress.spanLabel'))} ${hit.spanX}*${hit.spanY}*${hit.spanZ}</span>`
+          + `<span>${escapeText(t('fortress.areaLabel'))} ${hit.area}</span>`
         : `<span>${escapeText(crossingLabel(hit.crossings))}</span>`;
       return `<article class="result-card result-fortress" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
@@ -1153,11 +1227,28 @@ export class ResultsColumn {
     if (this.display === 'monument') {
       const multi = this.monumentTab === 'MultiMonument';
       this.saveGrouped(this.monumentHits, 'monument-results.txt', (hit) => {
-        const detail = multi
-          ? `${crossingLabel(hit.count)} S=${hit.area}`
-          : `dx=${hit.dx} dz=${hit.dz}`;
-        const low = hit.lowEfficiency ? ' low' : '';
-        return `/tp ${hit.x} 50 ${hit.z} ${detail} dist=${dist2(hit.x, hit.z)} type=${oceanTypeName(hit.oceanType)}${low}`;
+        const focus = monumentFocus(hit);
+        if (!multi) {
+          const low = hit.lowEfficiency ? ' low' : '';
+          return `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${dist2(focus.x, focus.z)}`
+            + ` type=${oceanTypeName(hit.oceanType)}${low}`;
+        }
+        const area = hit.mode === 2 ? hit.areaMax : hit.area;
+        const parts = [
+          `/tp ${focus.x} 50 ${focus.z}`,
+          crossingLabel(hit.count),
+          `S=${area}`,
+          `singleArea=${hit.singleArea}`,
+          `single=${hit.singleX} ${hit.singleZ}`,
+          `d1=${hit.x} ${hit.z}`,
+        ];
+        if (hit.mode === 1) parts.push(`d2=${hit.x2} ${hit.z2}`, `dual=${hit.area}`);
+        parts.push(
+          `upper=${hit.areaMax}`,
+          `dist=${dist2(focus.x, focus.z)}`,
+          `type=${oceanTypeName(hit.oceanType)}${hit.lowEfficiency ? ' low' : ''}`,
+        );
+        return parts.join(' ');
       });
       return;
     }
@@ -1165,7 +1256,7 @@ export class ResultsColumn {
       const span = this.fortressTab === 'NetherFortressOverall';
       this.saveGrouped(this.fortressHits, 'fortress-results.txt', (hit) => {
         if (span) {
-          return `/tp ${hit.x} 48 ${hit.z} span=${hit.spanX}*${hit.spanY}*${hit.spanZ} S=${hit.area} dist=${dist2(hit.x, hit.z)}`;
+          return `/tp ${hit.x} 48 ${hit.z} span=${hit.spanX}*${hit.spanY}*${hit.spanZ} area=${hit.area} dist=${dist2(hit.x, hit.z)}`;
         }
         return `/tp ${hit.x} ${hit.y} ${hit.z} ${crossingLabel(hit.crossings)} dist=${dist2(hit.x, hit.z)}`;
       });

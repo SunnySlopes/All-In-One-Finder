@@ -1059,6 +1059,16 @@ Napi::Object monumentStatusToObject(Napi::Env env, const MonumentStatus &status)
         item.Set("area", hit.area);
         item.Set("lowEfficiency", hit.lowEfficiency);
         item.Set("oceanType", hit.oceanType);
+        item.Set("x2", hit.x2);
+        item.Set("z2", hit.z2);
+        item.Set("singleX", hit.singleX);
+        item.Set("singleZ", hit.singleZ);
+        item.Set("singleArea", hit.singleArea);
+        item.Set("areaMax", hit.areaMax);
+        item.Set("areaMaxX", hit.areaMaxX);
+        item.Set("areaMaxZ", hit.areaMaxZ);
+        item.Set("dual", hit.dual);
+        item.Set("mode", hit.mode);
         hits.Set(i, item);
     }
     out.Set("hits", hits);
@@ -1074,6 +1084,8 @@ Napi::Value MultiMonumentSearchStart(const Napi::CallbackInfo &info)
     request.level = args.Get("level").As<Napi::Number>().Int32Value();
     request.biomeCheck = readBool(args, "biomeCheck");
     request.minGroupArea = args.Has("minGroupArea") ? args.Get("minGroupArea").As<Napi::Number>().Int32Value() : 6728;
+    request.searchModes = args.Has("searchModes") ? args.Get("searchModes").As<Napi::Number>().Int32Value() : 1;
+    request.filterMode = args.Has("filterMode") ? args.Get("filterMode").As<Napi::Number>().Int32Value() : 0;
     request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
     request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
     request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
