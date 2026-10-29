@@ -469,6 +469,7 @@
     "help": "候选预算由搜索范围自动决定；结果数值为模型内估计，不代表游戏内实测。大范围搜索（全图级）时勾选「允许调用显卡」才会尝试使用 GPU 粗筛。",
     "fullMapSingleSeed": "全图搜索只支持单个种子。",
     "phaseLine": "阶段 {index}/{count} {phase}",
+    "ranking": "排名中",
     "gpuLine": "正在调用 GPU（{device}）",
     "gpuUnknown": "未知",
     "gpuFallback": "未调用 GPU（仅全图搜索且 OpenCL 显卡可用时启用），本次使用 CPU",

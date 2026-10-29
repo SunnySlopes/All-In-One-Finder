@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type RiverStatus } from './native';
-import { escapeAttr, formatDuration, messageOf } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -255,6 +255,7 @@ export class RiverPanel {
     this.footer.querySelector('#rv-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#rv-stop')?.addEventListener('click', () => void call('riverSearchStop'));
     applyI18n(this.root);
+    applyRunLock(this.root, this.running, this.paused);
   }
 
   private readFields(): void {
@@ -407,6 +408,7 @@ export class RiverPanel {
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;
+          this.paused = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
             await showNotice(messageOf(status.error));

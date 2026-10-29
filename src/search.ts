@@ -1,6 +1,7 @@
 import { ask } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SearchStatus } from './native';
+import { applyRunLock } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -346,6 +347,7 @@ export class SearchPanel {
     this.footer.querySelector('#s-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#s-stop')?.addEventListener('click', () => void call('searchStop'));
     applyI18n(this.root);
+    applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
@@ -507,6 +509,7 @@ export class SearchPanel {
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;
+          this.paused = false;
           this.render();
         }
       } catch {

@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type WitchStatus } from './native';
-import { escapeAttr, formatDuration, messageOf } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 export type WitchVersionGroup = 0 | 1 | 2;
@@ -241,6 +241,7 @@ export class WitchPanel {
     this.footer.querySelector('#w-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#w-stop')?.addEventListener('click', () => void call('witchSearchStop'));
     applyI18n(this.root);
+    applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
@@ -367,6 +368,7 @@ export class WitchPanel {
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;
+          this.paused = false;
           this.updateSortButtons();
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;

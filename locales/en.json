@@ -469,6 +469,7 @@
     "help": "The candidate budget is chosen automatically from the search range; values are in-model estimates, not in-game measurements. Large-Area(more than 1m*1m) searches only try the GPU coarse scan when \"Allow GPU\" is checked.",
     "fullMapSingleSeed": "Full map search supports a single seed only.",
     "phaseLine": "Phase {index}/{count} {phase}",
+    "ranking": "Ranking…",
     "gpuLine": "Using GPU ({device})",
     "gpuUnknown": "Unknown",
     "gpuFallback": "GPU not used (only whole-map searches with a compatible OpenCL GPU use it); using CPU",

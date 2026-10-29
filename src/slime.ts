@@ -1,6 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SlimeStatus } from './native';
+import { applyRunLock } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 export type SlimeVersionGroup = '1.18' | 'middle' | 'modern';
@@ -259,6 +260,7 @@ export class SlimePanel {
     this.footer.querySelector('#sl-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#sl-stop')?.addEventListener('click', () => void call('slimeFarmStop'));
     applyI18n(this.root);
+    applyRunLock(this.root, this.running, this.paused);
   }
 
   private readFields(): void {
@@ -408,6 +410,7 @@ export class SlimePanel {
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;
+          this.paused = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
             await showNotice(messageOf(status.error));

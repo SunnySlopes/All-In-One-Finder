@@ -2,7 +2,7 @@ import { showNotice } from './dialog';
 import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type GeodeStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 type SeedMode = 'single' | 'list';
@@ -403,6 +403,7 @@ export class GeodePanel {
     this.footer.querySelector('#g-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#g-stop')?.addEventListener('click', () => void this.stop());
     applyI18n(this.root);
+    applyRunLock(this.root, this.running, this.paused);
   }
 
   private async pickFile(): Promise<void> {
@@ -639,8 +640,6 @@ export class GeodePanel {
 
   private progressText(status: GeodeStatus): string {
     if (status.stopped) return t('geode.stoppedProgress');
-    const phase = Math.max(1, Math.min(status.phaseCount || 3, status.phaseIndex || 1));
-    const count = status.phaseCount || 3;
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} · `
       : '';
@@ -649,6 +648,10 @@ export class GeodePanel {
       : status.pausing
         ? `${t('geode.pausing')} `
         : status.paused ? `${t('geode.paused')} ` : '';
+    // 排名阶段的总量会随候选变化，进度条和计数没有参考价值，只显示“排名中”。
+    if (status.phase === 'rank') return `${seeds}${state}${t('geode.ranking')}`;
+    const phase = Math.max(1, Math.min(status.phaseCount || 3, status.phaseIndex || 1));
+    const count = status.phaseCount || 3;
     const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const units = status.total > 0
       ? ` · ${status.current.toLocaleString()} / ${status.total.toLocaleString()} (${pct}%)`
@@ -672,8 +675,13 @@ export class GeodePanel {
     const eta = this.footer.querySelector('#g-eta');
     const error = this.footer.querySelector('#g-error');
     const bar = this.footer.querySelector<HTMLElement>('#g-bar');
+    const ranking = status.phase === 'rank';
     const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
     if (progress) progress.textContent = this.progressText(status);
+    if (bar) {
+      // 排名阶段引擎只报告一次 0/候选数，之后不再更新进度，本阶段保持进度条全满状态
+      bar.style.width = ranking ? '100%' : `${pct}%`;
+    }
     if (gpu) {
       // Only the phase-1 coarse scan can run on OpenCL; scanBackend flips to "gpu"
       // as soon as the kernel is built and the batches start. When the user asked
@@ -691,11 +699,10 @@ export class GeodePanel {
       const ms = status.elapsedMs > 0 ? status.elapsedMs : Date.now() - this.searchStartedAt;
       elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(ms) });
     }
-    if (eta) eta.textContent = this.etaText(status);
+    if (eta) eta.textContent = ranking ? '' : this.etaText(status);
     if (error) {
       // “已停止”只由进度行显示，避免同一状态出现两次。
       error.textContent = '';
     }
-    if (bar) bar.style.width = `${pct}%`;
   }
 }

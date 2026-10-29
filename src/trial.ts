@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type TrialStatus } from './native';
-import { escapeAttr, formatDuration, messageOf } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
 import type { ResultsColumn, TrialWindowView } from './results';
 
 export type TrialVersionTier = 'legacy' | 'modern' | 'latest';
@@ -406,6 +406,7 @@ export class TrialPanel {
     this.footer.querySelector('#t-pause')?.addEventListener('click', () => void this.togglePause());
     this.footer.querySelector('#t-stop')?.addEventListener('click', () => void this.stop());
     applyI18n(this.root);
+    applyRunLock(this.root, this.running, this.paused);
   }
 
   private readFields(): void {
