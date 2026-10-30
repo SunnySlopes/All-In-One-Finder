@@ -1,7 +1,7 @@
 import { showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type FortressStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -60,12 +60,14 @@ export class FortressPanel {
   private running = false;
   private paused = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
   private border: BorderState = 'none';
   private spanSquare = true;
   private spanLong = String(DEFAULT_SPAN_LONG);
   private spanShort = String(DEFAULT_SPAN_SHORT);
   private spanHeight = String(DEFAULT_SPAN_HEIGHT);
+  private crossFilter = '2';
+  private lastStatus: FortressStatus | null = null;
   private shownError = '';
 
   constructor(mode: FortressMode) {
@@ -130,6 +132,40 @@ export class FortressPanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      seed: this.seed,
+      seedText: this.seedText,
+      border: this.border,
+      spanSquare: this.spanSquare,
+      spanLong: this.spanLong,
+      spanShort: this.spanShort,
+      spanHeight: this.spanHeight,
+      crossFilter: this.crossFilter,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    if (s.border === 'none' || s.border === 'nw' || s.border === 'sw' || s.border === 'se' || s.border === 'ne') {
+      this.border = s.border;
+    }
+    if (typeof s.spanSquare === 'boolean') this.spanSquare = s.spanSquare;
+    if (typeof s.spanLong === 'string') this.spanLong = s.spanLong;
+    if (typeof s.spanShort === 'string') this.spanShort = s.spanShort;
+    if (typeof s.spanHeight === 'string') this.spanHeight = s.spanHeight;
+    if (typeof s.crossFilter === 'string') this.crossFilter = s.crossFilter;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -230,12 +266,15 @@ export class FortressPanel {
         <div class="grid">
           <label data-i18n="fortress.crossFilter"></label>
           <select id="f-filter">
-            <option value="2" data-i18n="fortress.filter.all"></option>
-            <option value="3" data-i18n="fortress.filter.triple"></option>
-            <option value="4" data-i18n="fortress.filter.quad"></option>
+            <option value="2"${this.crossFilter === '2' ? ' selected' : ''} data-i18n="fortress.filter.all"></option>
+            <option value="3"${this.crossFilter === '3' ? ' selected' : ''} data-i18n="fortress.filter.triple"></option>
+            <option value="4"${this.crossFilter === '4' ? ' selected' : ''} data-i18n="fortress.filter.quad"></option>
           </select>
         </div>
         <div class="hint" data-i18n="fortress.crossHelp"></div>`;
+      params.querySelector<HTMLSelectElement>('#f-filter')?.addEventListener('change', (event) => {
+        this.crossFilter = (event.target as HTMLSelectElement).value;
+      });
     } else {
       params.innerHTML = `
         <div class="grid">
@@ -299,6 +338,7 @@ export class FortressPanel {
     this.footer.querySelector('#f-stop')?.addEventListener('click', () => void call('fortressSearchStop'));
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private readFields(): void {
@@ -371,7 +411,9 @@ export class FortressPanel {
     };
 
     if (this.mode === 'cross') {
-      payload.crossFilter = Number(this.root.querySelector<HTMLSelectElement>('#f-filter')?.value || 2);
+      const filter = this.root.querySelector<HTMLSelectElement>('#f-filter');
+      if (filter) this.crossFilter = filter.value;
+      payload.crossFilter = Number(this.crossFilter || 2);
     } else {
       const minLong = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-long')?.value || 0));
       const minShort = this.spanSquare
@@ -398,7 +440,8 @@ export class FortressPanel {
       this.running = true;
       this.paused = false;
       this.shownError = '';
-      this.searchStartedAt = Date.now();
+      this.lastStatus = null;
+      this.timer.start();
       this.render();
       this.poll();
     } catch (error) {
@@ -410,9 +453,11 @@ export class FortressPanel {
     if (this.paused) {
       await call('fortressSearchResume');
       this.paused = false;
+      this.timer.resume();
     } else {
       await call('fortressSearchPause');
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -422,19 +467,10 @@ export class FortressPanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<FortressStatus>('fortressSearchPoll');
+        this.lastStatus = status;
         this.running = status.running;
         this.paused = status.paused;
-        const progress = this.footer.querySelector('#f-progress');
-        const eta = this.footer.querySelector('#f-eta');
-        const elapsed = this.footer.querySelector('#f-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#f-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
-        if (bar) {
-          const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
-          bar.style.width = `${pct}%`;
-        }
+        this.paintStatus(status);
         this.results?.setFortressHits(status.hits, this.tab);
         if (status.done) {
           window.clearInterval(this.pollTimer);
@@ -453,10 +489,30 @@ export class FortressPanel {
     }, 100);
   }
 
+  /** 状态写入页脚；render() 重建页脚后再用它恢复进度（含完成时的 100%）。 */
+  private paintStatus(status: FortressStatus): void {
+    const progress = this.footer.querySelector('#f-progress');
+    const eta = this.footer.querySelector('#f-eta');
+    const elapsed = this.footer.querySelector('#f-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#f-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) {
+      elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(this.timer.elapsed()) });
+    }
+    if (bar) {
+      const pct = status.done
+        ? 100
+        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      bar.style.width = `${pct}%`;
+    }
+  }
+
   private progressText(status: FortressStatus): string {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${t('common.search.working')} ${status.current}/${status.total} (${pct}%)${error}`;
@@ -466,7 +522,7 @@ export class FortressPanel {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
     if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.searchStartedAt;
+    const elapsed = this.timer.elapsed();
     const remaining = elapsed * ((status.total - status.current) / status.current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

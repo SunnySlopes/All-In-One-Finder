@@ -1,7 +1,7 @@
 import { ask } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SearchStatus } from './native';
-import { applyRunLock } from './panel-utils';
+import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -50,6 +50,10 @@ export class SearchPanel {
   private searcher: SearcherId = 'LowYDripstoneCave';
   /** 开始搜索时快照当前页是不是大坑（切 Tab 后阶段名称仍按启动页解释）。 */
   private searchPit = false;
+  /** 开始搜索时快照的 tab / 种子列表模式 / 实际引擎版本，轮询时不再跟随当前页。 */
+  private searchTab: SearcherId = 'LowYDripstoneCave';
+  private searchListMode = false;
+  private searchMapVersion = '26.3';
   private seedMode: SeedMode = 'single';
   private uiVersion: LowyUiVersion = 'sulfur';
   private supported = true;
@@ -63,11 +67,20 @@ export class SearchPanel {
   private fastMode = true;
   private fastRatio = '90';
   private seedText = '';
-  private phaseStartedAt = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
   private lastPhase = Number.NaN;
   /** 最近一次轮询结果；render() 重建页脚后据此恢复进度，避免完成瞬间被清空。 */
   private lastStatus: SearchStatus | null = null;
+  /** 两个低Y tab 共用面板：各自保存完成后的状态/耗时，切回时恢复已完成的 100% 进度。 */
+  private readonly statusByTab: Partial<Record<SearcherId, {
+    status: SearchStatus;
+    elapsed: number;
+    pit: boolean;
+  }>> = {};
+  /** Two low-Y tabs share one panel; keep each tab's form/conditions separately. */
+  private readonly formStates: Partial<Record<SearcherId, Record<string, unknown>>> = {};
+  private readonly pendingState = new Set<SearcherId>();
+  private restoredElapsed: number | null = null;
   private results: ResultsColumn | null = null;
   onNavigate: (id: SearcherId) => void = () => {};
 
@@ -136,11 +149,80 @@ export class SearchPanel {
 
   setSearcher(id: SearcherId): void {
     const changed = this.searcher !== id;
+    if (changed && !this.pendingState.has(this.searcher)) {
+      this.formStates[this.searcher] = this.exportState();
+    }
     this.searcher = id;
     if (id === 'LowYPitDripstoneCave') this.seedMode = 'single';
-    if (changed) this.lastStatus = null;
-    if (changed) this.resetDefaultArea();
+    if (changed || this.pendingState.has(id)) {
+      if (!this.running) {
+        const saved = this.statusByTab[id];
+        this.lastStatus = saved?.status ?? null;
+        this.restoredElapsed = saved?.elapsed ?? null;
+        this.searchPit = saved?.pit ?? (id === 'LowYPitDripstoneCave');
+      }
+      const savedForm = this.formStates[id];
+      if (savedForm) {
+        this.applyState(savedForm);
+        this.pendingState.delete(id);
+      } else if (changed) {
+        this.resetDefaultArea();
+      }
+    }
     this.render();
+  }
+
+  /** Session export: both low-Y tabs' conditions. */
+  exportStates(): Record<string, unknown> {
+    if (!this.pendingState.has(this.searcher)) {
+      this.formStates[this.searcher] = this.exportState();
+    }
+    return { ...this.formStates };
+  }
+
+  importStates(states: unknown): void {
+    if (!states || typeof states !== 'object') return;
+    const source = states as Record<string, unknown>;
+    for (const id of ['LowYDripstoneCave', 'LowYPitDripstoneCave'] as SearcherId[]) {
+      const value = source[id];
+      if (value && typeof value === 'object') {
+        this.formStates[id] = value as Record<string, unknown>;
+        this.pendingState.add(id);
+      }
+    }
+    const current = this.formStates[this.searcher];
+    if (current && this.pendingState.has(this.searcher)) {
+      this.applyState(current);
+      this.pendingState.delete(this.searcher);
+    }
+  }
+
+  private exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      uiVersion: this.uiVersion,
+      seed: this.seed,
+      seedText: this.seedText,
+      river: this.river,
+      ratio: this.ratio,
+      fastRatio: this.fastRatio,
+      fastMode: this.fastMode,
+    };
+  }
+
+  private applyState(state: Record<string, unknown>): void {
+    if (state.seedMode === 'single' || state.seedMode === 'list') this.seedMode = state.seedMode;
+    if (state.uiVersion === 'pre' || state.uiVersion === 'sulfur') this.uiVersion = state.uiVersion;
+    if (typeof state.seed === 'string') this.seed = state.seed;
+    if (typeof state.seedText === 'string') this.seedText = state.seedText;
+    if (typeof state.river === 'string') this.river = state.river;
+    if (typeof state.ratio === 'string') this.ratio = state.ratio;
+    if (typeof state.fastRatio === 'string') this.fastRatio = state.fastRatio;
+    if (typeof state.fastMode === 'boolean') this.fastMode = state.fastMode;
+    applyForm(this.root, state);
+    this.render();
+    applyForm(this.root, state);
   }
 
   setSeedFromMap(seed: string): void {
@@ -378,7 +460,11 @@ export class SearchPanel {
     const box = this.shared();
     const fastPage = this.searcher === 'LowYPitDripstoneCave';
     this.searchPit = fastPage;
+    this.searchTab = this.searcher;
     const listMode = !fastPage && this.seedMode === 'list';
+    this.searchListMode = listMode;
+    this.searchMapVersion = this.versions.find((item) => item.id === box.mc)?.name
+      ?? (this.uiVersion === 'pre' ? '26.1' : '26.3');
     const boxArea = Math.max(0, box.maxX - box.minX + 1) * Math.max(0, box.maxZ - box.minZ + 1);
     /* 超大范围（> 20000001²）时，溶洞占比至少 90%；大坑不受此限制。 */
     const hugeArea = !fastPage && boxArea > 20000001 * 20000001;
@@ -465,12 +551,14 @@ export class SearchPanel {
         seed: this.seed,
         seeds: listMode ? this.seedText : undefined,
       });
-      this.results?.clear(this.searcher, listMode);
+      this.results?.clear(this.searchTab, listMode);
+      this.results?.setLowyMapVersion(this.searchTab, this.searchMapVersion);
       this.running = true;
       this.paused = false;
       this.lastStatus = null;
-      this.searchStartedAt = Date.now();
-      this.phaseStartedAt = Date.now();
+      this.restoredElapsed = null;
+      delete this.statusByTab[this.searchTab];
+      this.timer.start();
       this.lastPhase = Number.NaN;
       this.render();
       this.poll();
@@ -483,10 +571,11 @@ export class SearchPanel {
     if (this.paused) {
       await call('searchResume');
       this.paused = false;
-      this.phaseStartedAt = Date.now();
+      this.timer.resume();
     } else {
       await call('searchPause');
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -497,19 +586,26 @@ export class SearchPanel {
       try {
         const status = await call<SearchStatus>('searchPoll');
         this.lastStatus = status;
+        this.restoredElapsed = null;
         this.running = status.running;
         this.paused = status.paused;
         if (status.phase !== this.lastPhase) {
           this.lastPhase = status.phase;
-          this.phaseStartedAt = Date.now();
+          this.timer.markPhase();
         }
         this.paintStatus(status);
-        const listMode = this.pageId() === 'lowy-list';
-        this.results?.setHits(status.hits, this.searcher, listMode);
+        this.results?.setHits(status.hits, this.searchTab, this.searchListMode);
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;
           this.paused = false;
+          const elapsed = this.timer.elapsed();
+          this.statusByTab[this.searchTab] = {
+            status,
+            elapsed,
+            pit: this.searchPit,
+          };
+          this.restoredElapsed = elapsed;
           this.render();
         }
       } catch {
@@ -541,13 +637,15 @@ export class SearchPanel {
     if (progress) progress.textContent = this.progressText(status);
     if (eta) eta.textContent = this.etaText(status);
     if (elapsed) {
+      const ms = status.done && this.restoredElapsed != null
+        ? this.restoredElapsed
+        : this.timer.elapsed();
       elapsed.textContent = t('common.searchExtra.elapsed', {
-        time: formatDuration(Date.now() - this.searchStartedAt),
+        time: formatDuration(ms),
       });
     }
     if (bar) {
-      const complete = status.done && (status.total <= 0 || status.current >= status.total);
-      const pct = complete
+      const pct = status.done
         ? 100
         : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
@@ -555,8 +653,9 @@ export class SearchPanel {
   }
 
   private progressText(status: SearchStatus): string {
-    const phase = this.stageLabel(status.phase);
     const seeds = status.seedCount > 1 ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} ` : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
+    const phase = this.stageLabel(status.phase);
     const complete = status.done && (status.total <= 0 || status.current >= status.total);
     const pct = complete
       ? 100
@@ -568,7 +667,7 @@ export class SearchPanel {
     if (status.done || status.phase < 0) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
     if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.phaseStartedAt;
+    const elapsed = this.timer.phaseElapsed();
     const remaining = elapsed * ((status.total - status.current) / status.current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

@@ -8,6 +8,7 @@
 // Console subsystem for now (M3 switches to WIN32 + file logging).
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <dwmapi.h>
 #include <objbase.h>
 #include <commdlg.h>
 #include <shellapi.h>
@@ -53,6 +54,20 @@ constexpr int ID_EXPORT = 1002;
 constexpr int ID_EXIT = 1003;
 constexpr int ID_ABOUT = 1004;
 
+// Windows 10/11 dark title bar. Attribute 20 is the current immersive-dark flag,
+// 19 the pre-20H1 fallback; 35/36 paint the caption/text explicitly on Win11.
+void applyDarkTitleBar(HWND hwnd)
+{
+    BOOL dark = TRUE;
+    if (FAILED(DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark))))
+        DwmSetWindowAttribute(hwnd, 19, &dark, sizeof(dark));
+
+    const COLORREF caption = RGB(21, 25, 34);
+    const COLORREF text = RGB(231, 225, 214);
+    DwmSetWindowAttribute(hwnd, 35, &caption, sizeof(caption));
+    DwmSetWindowAttribute(hwnd, 36, &text, sizeof(text));
+}
+
 constexpr wchar_t kSessionFilter[] =
     L"Session\0*.json;*.txt\0JSON\0*.json\0Text\0*.txt\0\0";
 constexpr wchar_t kTextFilter[] = L"Text\0*.txt;*.csv\0All files\0*.*\0\0";
@@ -73,6 +88,9 @@ struct Config
 
 Config g_config;
 HWND g_hwnd = nullptr;
+HBRUSH g_menuBrush = nullptr;
+HBRUSH g_menuSelBrush = nullptr;
+HFONT g_menuFont = nullptr;
 bool g_smokeDone = false;
 int g_exitCode = 0; // normal window close exits 0; failures set an explicit code
 bool g_tempProfileTried = false; /* one retry with a profile under %TEMP% */
@@ -917,10 +935,89 @@ bool retryWithTempProfile()
 // Window
 // ---------------------------------------------------------------------------
 
+bool isMenuMeasure(const MEASUREITEMSTRUCT *item)
+{
+    return item && item->CtlType == ODT_MENU;
+}
+
+void measureMenuItem(const MEASUREITEMSTRUCT *item)
+{
+    auto *mutableItem = const_cast<MEASUREITEMSTRUCT *>(item);
+    const wchar_t *text = reinterpret_cast<const wchar_t *>(item->itemData);
+    if (!text || !*text)
+    {
+        mutableItem->itemWidth = 0;
+        mutableItem->itemHeight = 8;
+        return;
+    }
+
+    HDC dc = GetDC(g_hwnd);
+    HGDIOBJ oldFont = SelectObject(dc, g_menuFont ? g_menuFont : GetStockObject(DEFAULT_GUI_FONT));
+    RECT bounds = {};
+    DrawTextW(dc, text, -1, &bounds, DT_CALCRECT | DT_SINGLELINE | DT_EXPANDTABS);
+    TEXTMETRICW metrics = {};
+    GetTextMetricsW(dc, &metrics);
+    SelectObject(dc, oldFont);
+    ReleaseDC(g_hwnd, dc);
+
+    mutableItem->itemWidth = bounds.right + 24;
+    mutableItem->itemHeight = metrics.tmHeight + 8;
+}
+
+void drawMenuItem(const DRAWITEMSTRUCT *item)
+{
+    const bool selected = (item->itemState & ODS_SELECTED) != 0;
+    const bool disabled = (item->itemState & ODS_DISABLED) != 0;
+    FillRect(item->hDC, &item->rcItem, selected ? g_menuSelBrush : g_menuBrush);
+
+    const wchar_t *text = reinterpret_cast<const wchar_t *>(item->itemData);
+    if (!text || !*text)
+    {
+        RECT line = item->rcItem;
+        line.top = (line.top + line.bottom) / 2;
+        line.bottom = line.top + 1;
+        line.left += 8;
+        line.right -= 8;
+        FillRect(item->hDC, &line, reinterpret_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
+        return;
+    }
+
+    SetBkMode(item->hDC, TRANSPARENT);
+    SetTextColor(item->hDC,
+                 disabled ? RGB(120, 128, 140) : selected ? RGB(255, 255, 255) : RGB(231, 225, 214));
+    HGDIOBJ oldFont = SelectObject(item->hDC, g_menuFont ? g_menuFont : GetStockObject(DEFAULT_GUI_FONT));
+    RECT textRect = item->rcItem;
+    textRect.left += 10;
+    textRect.right -= 8;
+    DrawTextW(item->hDC, text, -1, &textRect,
+              DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_EXPANDTABS);
+    SelectObject(item->hDC, oldFont);
+}
+
 LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
+    case WM_MEASUREITEM:
+    {
+        const auto *item = reinterpret_cast<MEASUREITEMSTRUCT *>(lParam);
+        if (isMenuMeasure(item))
+        {
+            measureMenuItem(item);
+            return TRUE;
+        }
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+    case WM_DRAWITEM:
+    {
+        const auto *item = reinterpret_cast<DRAWITEMSTRUCT *>(lParam);
+        if (item->CtlType == ODT_MENU)
+        {
+            drawMenuItem(item);
+            return TRUE;
+        }
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
     case WM_DPICHANGED:
     {
         const RECT *suggested = reinterpret_cast<const RECT *>(lParam);
@@ -1007,17 +1104,50 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 void installMenu()
 {
+    if (!g_menuBrush) g_menuBrush = CreateSolidBrush(RGB(21, 25, 34));
+    if (!g_menuSelBrush) g_menuSelBrush = CreateSolidBrush(RGB(47, 58, 73));
+    if (!g_menuFont)
+    {
+        NONCLIENTMETRICSW metrics = {};
+        metrics.cbSize = sizeof(metrics);
+        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0))
+            g_menuFont = CreateFontIndirectW(&metrics.lfMenuFont);
+    }
+
     HMENU menu = CreateMenu();
     HMENU file = CreatePopupMenu();
-    AppendMenuW(file, MF_STRING, ID_IMPORT, L"&Import Session...\tCtrl+O");
-    AppendMenuW(file, MF_STRING, ID_EXPORT, L"&Export Session...\tCtrl+S");
-    AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(file, MF_STRING, ID_EXIT, L"E&xit");
-    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(file), L"&File");
+    AppendMenuW(file, MF_OWNERDRAW, ID_IMPORT, reinterpret_cast<LPCWSTR>(L"&Import Session...\tCtrl+O"));
+    AppendMenuW(file, MF_OWNERDRAW, ID_EXPORT, reinterpret_cast<LPCWSTR>(L"&Export Session...\tCtrl+S"));
+    AppendMenuW(file, MF_OWNERDRAW | MF_DISABLED, 0, nullptr);
+    AppendMenuW(file, MF_OWNERDRAW, ID_EXIT, reinterpret_cast<LPCWSTR>(L"E&xit"));
 
     HMENU help = CreatePopupMenu();
-    AppendMenuW(help, MF_STRING, ID_ABOUT, L"&About");
-    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"&Help");
+    AppendMenuW(help, MF_OWNERDRAW, ID_ABOUT, reinterpret_cast<LPCWSTR>(L"&About"));
+
+    MENUITEMINFO fileItem = {};
+    fileItem.cbSize = sizeof(fileItem);
+    fileItem.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_DATA;
+    fileItem.fType = MFT_OWNERDRAW;
+    fileItem.hSubMenu = file;
+    fileItem.dwItemData = reinterpret_cast<ULONG_PTR>(L"&File");
+    InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &fileItem);
+
+    MENUITEMINFO helpItem = {};
+    helpItem.cbSize = sizeof(helpItem);
+    helpItem.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_DATA;
+    helpItem.fType = MFT_OWNERDRAW;
+    helpItem.hSubMenu = help;
+    helpItem.dwItemData = reinterpret_cast<ULONG_PTR>(L"&Help");
+    InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &helpItem);
+
+    MENUINFO info = {};
+    info.cbSize = sizeof(info);
+    info.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+    info.hbrBack = g_menuBrush;
+    SetMenuInfo(menu, &info);
+    SetMenuInfo(file, &info);
+    SetMenuInfo(help, &info);
+
     SetMenu(g_hwnd, menu);
 }
 
@@ -1056,40 +1186,78 @@ std::wstring envPath(const wchar_t *name)
 }
 
 /**
- * Pick a writable, persistent app-data base. LocalAppData is tried first, then
- * Roaming AppData, the portable exe's own folder, Documents and finally TEMP.
- * An existing session always wins, so a fallback used once keeps being reused.
+ * Pick the writable, persistent app-data base. LocalAppData is always preferred;
+ * an existing session in an older fallback location (Roaming AppData, the portable
+ * exe's folder, Documents, TEMP) is migrated there once. Only if LocalAppData is
+ * not writable does the old fallback chain apply.
  *
  * AIO_SESSION_BASE can force a base directory for unusual environments.
  */
 std::wstring appDataBaseDir(const std::wstring &portableDir)
-{
-    std::vector<std::wstring> candidates;
-    if (const auto overrideDir = envPath(L"AIO_SESSION_BASE"); !overrideDir.empty())
-        candidates.push_back(overrideDir);
-    candidates.push_back(localAppDataDir());
-    if (const auto roaming = envPath(L"APPDATA"); !roaming.empty())
-        candidates.push_back(joinPath(roaming, L"All-In-One Finder"));
-    if (!portableDir.empty())
-        candidates.push_back(joinPath(portableDir, L"All-In-One Finder Data"));
-    wchar_t documents[MAX_PATH] = {};
-    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, documents)))
-        candidates.push_back(joinPath(documents, L"All-In-One Finder"));
-    wchar_t temp[MAX_PATH] = {};
-    if (GetTempPathW(MAX_PATH, temp))
-        candidates.push_back(joinPath(temp, L"All-In-One Finder"));
-
-    const auto hasSession = [](const std::wstring &base) {
+{    const auto hasSession = [](const std::wstring &base) {
         return GetFileAttributesW(joinPath(joinPath(base, L"session"), L"map.json").c_str()) !=
                INVALID_FILE_ATTRIBUTES;
     };
+
+    // AIO_SESSION_BASE is an explicit developer/user override.
+    if (const auto overrideDir = envPath(L"AIO_SESSION_BASE"); !overrideDir.empty())
+        return overrideDir;
+
+    std::vector<std::wstring> legacy;
+    if (const auto roaming = envPath(L"APPDATA"); !roaming.empty())
+        legacy.push_back(joinPath(roaming, L"All-In-One Finder"));
+    if (!portableDir.empty())
+    {
+        legacy.push_back(joinPath(portableDir, L"All-In-One Finder Data"));
+        // Very old builds stored the session directly next to the executable.
+        legacy.push_back(portableDir);
+    }
+    wchar_t documents[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, documents)))
+        legacy.push_back(joinPath(documents, L"All-In-One Finder"));
+    wchar_t temp[MAX_PATH] = {};
+    if (GetTempPathW(MAX_PATH, temp))
+        legacy.push_back(joinPath(temp, L"All-In-One Finder"));
+
+    // LocalAppData is the canonical location. If this is the first launch after an
+    // older build saved elsewhere, copy that one session over once.
+    const std::wstring local = localAppDataDir();
+    const std::wstring localSession = joinPath(local, L"session");
+    if (writableDir(localSession))
+    {
+        const std::wstring current = joinPath(localSession, L"map.json");
+        if (GetFileAttributesW(current.c_str()) == INVALID_FILE_ATTRIBUTES)
+        {
+            for (const auto &candidate : legacy)
+            {
+                if (!hasSession(candidate)) continue;
+                const std::wstring source =
+                    joinPath(joinPath(candidate, L"session"), L"map.json");
+                if (CopyFileW(source.c_str(), current.c_str(), FALSE))
+                {
+                    std::fwprintf(stderr, L"[host] migrated session from %ls\n", candidate.c_str());
+                    // The old copy is no longer used; remove it so the user does not
+                    // keep wondering why the "same-folder" session is still there.
+                    DeleteFileW(source.c_str());
+                    RemoveDirectoryW(joinPath(candidate, L"session").c_str());
+                    break;
+                }
+            }
+        }
+        return local;
+    }
+
+    // LocalAppData is not writable (managed/redirected machine): keep the old
+    // fallback chain so the app still runs and persists somewhere.
+    std::vector<std::wstring> candidates = legacy;
+    candidates.insert(candidates.begin(), local);
     for (const auto &candidate : candidates)
         if (hasSession(candidate) && writableDir(joinPath(candidate, L"session")))
             return candidate;
     for (const auto &candidate : candidates)
         if (writableDir(joinPath(candidate, L"session")))
             return candidate;
-    return localAppDataDir();
+    return local;
 }
 
 bool parseArgs(Config &config)
@@ -1145,9 +1313,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return 2;
     }
 
-    // Session data lives under a writable per-user base. LocalAppData is preferred,
-    // but locked-down environments may block it; appDataBaseDir() falls back to
-    // Roaming AppData / Documents so the session still survives restarts.
+    // Session data lives under a writable per-user base. LocalAppData is
+    // preferred; appDataBaseDir() migrates older locations and only falls back
+    // if LocalAppData itself is not writable.
     const std::wstring userBase = appDataBaseDir(config.portableDir);
     ensureDir(userBase);
     const std::wstring sessionRoot = joinPath(userBase, L"session");
@@ -1177,48 +1345,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (GetFileAttributesW(currentSession.c_str()) == INVALID_FILE_ATTRIBUTES
         && GetFileAttributesW(legacySession.c_str()) != INVALID_FILE_ATTRIBUTES)
     {
-        CopyFileW(legacySession.c_str(), currentSession.c_str(), FALSE);
-        std::fwprintf(stderr, L"[host] migrated session from %ls\n", legacySession.c_str());
-    }
-
-    // A per-process WebView2 profile avoids ERROR_BUSY from a previous instance,
-    // a sync client or an indexer holding the same profile folder.
-    wchar_t profileName[64] = {};
-    _snwprintf_s(profileName, _countof(profileName), _TRUNCATE, L"profiles\\p%lu-%llu",
-                 GetCurrentProcessId(), static_cast<unsigned long long>(GetTickCount64()));
-    g_userDataDir = joinPath(userBase, std::wstring(profileName) + L"\\WebView2");
-    ensureDir(g_userDataDir);
-    {
-        // Keep the per-process WebView2 profiles from growing forever.
-        std::error_code ec;
-        const std::filesystem::path root = std::filesystem::path(userBase) / L"profiles";
-        if (std::filesystem::exists(root, ec))
+        if (CopyFileW(legacySession.c_str(), currentSession.c_str(), FALSE))
         {
-            const auto now = std::filesystem::file_time_type::clock::now();
-            for (const auto &entry : std::filesystem::directory_iterator(root, ec))
-            {
-                if (ec) break;
-                std::error_code timeError;
-                const auto stamp = std::filesystem::last_write_time(entry.path(), timeError);
-                if (timeError) continue;
-                if (now - stamp > std::chrono::hours(72)) std::filesystem::remove_all(entry.path(), ec);
-            }
+            std::fwprintf(stderr, L"[host] migrated session from %ls\n", legacySession.c_str());
+            DeleteFileW(legacySession.c_str());
+            RemoveDirectoryW(joinPath(config.portableDir, L"session").c_str());
         }
     }
-    std::fwprintf(stderr, L"[host] session=%ls userdata=%ls\n", g_sessionDir.c_str(), g_userDataDir.c_str());
-    std::fflush(stderr);
 
-    // The engine (trial searcher in particular) keeps checkpoint files under
-    // AIO_DATA_DIR; Electron's main process used to provide it. The subprocess
-    // inherits this environment block.
-    const std::wstring engineDataDir = joinPath(userBase, L"userdata");
-    ensureDir(engineDataDir);
-    SetEnvironmentVariableW(L"AIO_DATA_DIR", engineDataDir.c_str());
-
-    // Single instance per portable directory. The NSIS launcher extracts to a new
-    // temp folder on every run, so keying on the exe directory would let two
-    // launchers run at once and share (and fight over) the same WebView2 profile.
-    std::wstring mutexName = L"Local\\AIOF_" + std::to_wstring(std::hash<std::wstring>{}(config.portableDir));
+    // Single instance per user-data base. The WebView2 profile is now shared
+    // between launches, so two instances must not clear it at the same time.
+    std::wstring mutexName = L"Local\\AIOF_" + std::to_wstring(std::hash<std::wstring>{}(userBase));
     HANDLE mutex = CreateMutexW(nullptr, TRUE, mutexName.c_str());
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS)
     {
@@ -1230,6 +1367,35 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         }
         return 0;
     }
+
+    // Reuse one WebView2 profile. On every launch remove the previous contents
+    // and create a fresh profile so only the current copy remains. If an old
+    // profile is temporarily locked, fall back to a per-process folder so this
+    // launch still works; the next launch will retry the cleanup.
+    const std::wstring profilesRoot = joinPath(userBase, L"profiles");
+    std::error_code profileError;
+    std::filesystem::remove_all(std::filesystem::path(profilesRoot), profileError);
+    if (!profileError)
+    {
+        g_userDataDir = joinPath(profilesRoot, L"WebView2");
+    }
+    else
+    {
+        wchar_t profileName[64] = {};
+        _snwprintf_s(profileName, _countof(profileName), _TRUNCATE, L"profiles\\p%lu-%llu",
+                     GetCurrentProcessId(), static_cast<unsigned long long>(GetTickCount64()));
+        g_userDataDir = joinPath(userBase, std::wstring(profileName) + L"\\WebView2");
+    }
+    ensureDir(g_userDataDir);
+    std::fwprintf(stderr, L"[host] session=%ls userdata=%ls\n", g_sessionDir.c_str(), g_userDataDir.c_str());
+    std::fflush(stderr);
+
+    // The engine (trial searcher in particular) keeps checkpoint files under
+    // AIO_DATA_DIR; Electron's main process used to provide it. The subprocess
+    // inherits this environment block.
+    const std::wstring engineDataDir = joinPath(userBase, L"userdata");
+    ensureDir(engineDataDir);
+    SetEnvironmentVariableW(L"AIO_DATA_DIR", engineDataDir.c_str());
 
     SetCurrentProcessExplicitAppUserModelID(L"SunnySlopes.AllInOneFinder");
     const HRESULT comInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -1293,6 +1459,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
     if (windowClass.hIcon) SendMessageW(g_hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(windowClass.hIcon));
     if (windowClass.hIconSm) SendMessageW(g_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(windowClass.hIconSm));
+    applyDarkTitleBar(g_hwnd);
     installMenu();
     ShowWindow(g_hwnd, SW_SHOWNORMAL);
     UpdateWindow(g_hwnd);

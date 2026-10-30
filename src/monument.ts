@@ -1,7 +1,7 @@
-import { ask, showNotice } from './dialog';
+import { showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type MonumentStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -15,8 +15,6 @@ const WORLD_SIDE = 60000001;
 const WORLD_COORD = 30000000;
 const DOUBLE_SINGLE_SIDE = 262144;
 const DOUBLE_LIST_SIDE = 131072;
-const DEFAULT_GATE_SIDE = 2000001;
-const DEFAULT_GATE_AREA = DEFAULT_GATE_SIDE * DEFAULT_GATE_SIDE;
 const DEFAULT_MIN_GROUP_AREA = 8000;
 const DEFAULT_MIN_GROUP_AREA_DUAL = 10000;
 const DEFAULT_MIN_GROUP_AREA_GATE = 10000;
@@ -64,7 +62,7 @@ export class MonumentPanel {
   private running = false;
   private paused = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
   private shownError = '';
   /** 最近一次轮询结果；render() 重建页脚后用它恢复进度（含瞬间结束时补 100%）。 */
   private lastStatus: MonumentStatus | null = null;
@@ -137,6 +135,37 @@ export class MonumentPanel {
     this.results = results;
   }
 
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      seed: this.seed,
+      seedText: this.seedText,
+      level: this.level,
+      mode: this.mode,
+      areaValue: this.areaValue,
+      biomeCheck: this.biomeCheck,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    if (Number(s.level) === 4) this.level = 4;
+    else if (Number(s.level) === 3) this.level = 3;
+    if (Number(s.mode) === 1) this.mode = 1;
+    else if (Number(s.mode) === 2) this.mode = 2;
+    else if (Number(s.mode) === 0) this.mode = 0;
+    if (typeof s.areaValue === 'number' && Number.isFinite(s.areaValue)) this.areaValue = s.areaValue;
+    if (typeof s.biomeCheck === 'boolean') this.biomeCheck = s.biomeCheck;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
+  }
+
   setSeedFromMap(seed: string): void {
     // 只有“单种子”来源的 tab 才跟随地图/其他单种子页面的种子。
     if (this.seedMode !== 'single') return;
@@ -156,7 +185,7 @@ export class MonumentPanel {
   }
 
   private defaultSide(): number {
-    // 多联默认按世界边界搜索；二联保持 131072（种子列表 8192）。
+    // 多联默认全图（正方形边长 60000001）；二联单种子 262144，种子列表 131072。
     if (this.variant === 'multi') return WORLD_SIDE;
     return this.seedMode === 'list' ? DEFAULT_LIST_SIDE : DEFAULT_SIDE;
   }
@@ -214,13 +243,19 @@ export class MonumentPanel {
     this.renderSeedBlock();
 
     const borderButton = this.root.querySelector<HTMLButtonElement>('#m-border');
-    if (borderButton) borderButton.hidden = this.variant === 'double' || this.mode === 2;
+    if (borderButton) borderButton.hidden = this.variant === 'double';
 
+    const biomeRow = `
+        <label class="feature">
+          <input id="m-biome" type="checkbox"${this.biomeCheck ? ' checked' : ''} />
+          <span data-i18n="monument.biomeCheck"></span>
+        </label>`;
     const params = this.root.querySelector('#m-params')!;
     if (this.variant === 'double') {
       params.innerHTML = `
         <div class="hint" data-i18n="monument.double.help"></div>
-        <div class="hint" data-i18n="monument.double.lowHint"></div>`;
+        <div class="hint" data-i18n="monument.double.lowHint"></div>
+        ${biomeRow}`;
     } else {
       params.innerHTML = `
         <div class="grid">
@@ -238,10 +273,7 @@ export class MonumentPanel {
           <label data-i18n="${areaLabelKey(this.mode)}"></label>
           <input id="m-area" type="number" min="${MIN_GROUP_AREA}" max="${MAX_GROUP_AREA}" step="1" value="${this.areaValue}" />
         </div>
-        <label class="feature">
-          <input id="m-biome" type="checkbox"${this.biomeCheck ? ' checked' : ''} />
-          <span data-i18n="monument.biomeCheck"></span>
-        </label>
+        ${biomeRow}
         <div class="hint" data-i18n="monument.help"></div>`;
     }
 
@@ -260,10 +292,10 @@ export class MonumentPanel {
       params.querySelector<HTMLInputElement>('#m-area')?.addEventListener('input', (event) => {
         this.areaValue = Number((event.target as HTMLInputElement).value);
       });
-      params.querySelector<HTMLInputElement>('#m-biome')?.addEventListener('change', (event) => {
-        this.biomeCheck = (event.target as HTMLInputElement).checked;
-      });
     }
+    params.querySelector<HTMLInputElement>('#m-biome')?.addEventListener('change', (event) => {
+      this.biomeCheck = (event.target as HTMLInputElement).checked;
+    });
 
     this.footer.innerHTML = `
       <div class="row">
@@ -369,6 +401,9 @@ export class MonumentPanel {
       seeds,
     };
 
+    this.biomeCheck = !!this.root.querySelector<HTMLInputElement>('#m-biome')?.checked;
+    payload.biomeCheck = this.biomeCheck;
+
     if (this.variant === 'multi') {
       const levelValue = Number(this.root.querySelector<HTMLSelectElement>('#m-level')?.value || this.level);
       this.level = levelValue === 4 ? 4 : 3;
@@ -381,46 +416,20 @@ export class MonumentPanel {
         return;
       }
       this.areaValue = minGroupArea;
-      this.biomeCheck = !!this.root.querySelector<HTMLInputElement>('#m-biome')?.checked;
       payload.level = this.level;
-      payload.biomeCheck = this.biomeCheck;
       payload.minGroupArea = minGroupArea;
       payload.searchModes = 1 << this.mode;
       payload.filterMode = this.mode;
-
-      // 单地狱门模式没有预筛：大范围时先询问是否收缩到默认搜索区域。
-      if (this.mode === 2 && (maxX - minX + 1) * (maxZ - minZ + 1) > DEFAULT_GATE_AREA) {
-        const choice = await ask(t('monument.modeHintGate'), [
-          { id: 'yes', key: 'common.dialog.yes' },
-          { id: 'cancel', key: 'common.dialog.cancel' },
-          { id: 'dismiss', key: 'common.dialog.close' },
-        ]);
-        if (choice === 'dismiss') return;
-        if (choice === 'yes') {
-          this.square.checked = true;
-          this.side.value = String(DEFAULT_GATE_SIDE);
-          this.applySquare();
-          minX = Number(this.minX.value);
-          maxX = Number(this.maxX.value);
-          minZ = Number(this.minZ.value);
-          maxZ = Number(this.maxZ.value);
-          payload.minX = minX;
-          payload.maxX = maxX;
-          payload.minZ = minZ;
-          payload.maxZ = maxZ;
-          this.render();
-        }
-      }
     }
 
     try {
       await call(this.variant === 'double' ? 'doubleMonumentSearchStart' : 'multiMonumentSearchStart', payload);
-      this.results?.clearMonument(this.tab, listMode);
+      this.results?.clearMonument(this.tab, listMode, this.biomeCheck);
       this.lastStatus = null;
       this.running = true;
       this.paused = false;
       this.shownError = '';
-      this.searchStartedAt = Date.now();
+      this.timer.start();
       this.render();
       this.poll();
     } catch (error) {
@@ -432,9 +441,11 @@ export class MonumentPanel {
     if (this.paused) {
       await call(this.resumeOp());
       this.paused = false;
+      this.timer.resume();
     } else {
       await call(this.pauseOp());
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -448,7 +459,7 @@ export class MonumentPanel {
         this.paused = status.paused;
         this.lastStatus = status;
         this.paintStatus(status);
-        this.results?.setMonumentHits(status.hits, this.tab);
+        this.results?.setMonumentHits(status.hits, this.tab, this.biomeCheck);
         if (status.done) {
           window.clearInterval(this.pollTimer);
           this.running = false;
@@ -474,11 +485,10 @@ export class MonumentPanel {
     const bar = this.footer.querySelector<HTMLElement>('#m-bar');
     if (progress) progress.textContent = this.progressText(status);
     if (eta) eta.textContent = this.etaText(status);
-    if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
+    if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(this.timer.elapsed()) });
     if (bar) {
-      // 搜索瞬间结束（total 还是 0，或已经跑满）时也按 100% 展示。
-      const complete = status.done && (status.total <= 0 || status.current >= status.total);
-      const pct = complete ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      // 搜索瞬间结束（total 还是 0）或完成时也按 100% 展示。
+      const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
   }
@@ -487,6 +497,7 @@ export class MonumentPanel {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const complete = status.done && (status.total <= 0 || status.current >= status.total);
     const pct = complete
       ? 100
@@ -499,7 +510,7 @@ export class MonumentPanel {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
     if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.searchStartedAt;
+    const elapsed = this.timer.elapsed();
     const remaining = elapsed * ((status.total - status.current) / status.current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

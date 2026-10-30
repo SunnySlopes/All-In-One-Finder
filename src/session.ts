@@ -8,6 +8,8 @@ export interface MapSessionData {
   largeBiomes: boolean;
   grid: boolean;
   features: string[];
+  /** 每个搜索器当前填写的条件（form + 面板私有状态）。 */
+  searchers?: Record<string, unknown>;
 }
 
 export function parseSessionFile(text: string): MapSessionData | null {
@@ -63,5 +65,8 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
     features: Array.isArray(data.features)
       ? data.features.filter((item): item is string => typeof item === 'string')
       : [],
+    searchers: data.searchers && typeof data.searchers === 'object'
+      ? data.searchers as Record<string, unknown>
+      : undefined,
   };
 }

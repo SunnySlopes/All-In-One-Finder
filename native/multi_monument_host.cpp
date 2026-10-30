@@ -181,7 +181,7 @@ void job(MultiMonumentRequest request)
             cfg.mc = request.mc;
             cfg.pauseOnPairFound = false;
             cfg.pairLevel = request.level;
-            cfg.biomeCheck = request.biomeCheck;
+            cfg.biomeCheck = true;
             cfg.minGroupArea = request.minGroupArea;
             cfg.searchModes = (request.searchModes & 7) != 0 ? (request.searchModes & 7) : 1;
             cfg.filterMode = (request.filterMode >= 0 && request.filterMode <= 2)
@@ -233,7 +233,7 @@ void job(MultiMonumentRequest request)
     std::stable_sort(all.begin(), all.end(), hitLess);
     if (gProgress.try_stop.load()) all.clear();
     if (all.size() > static_cast<size_t>(kOutputLimit)) all.resize(kOutputLimit);
-    if (error.empty()) classifyOceanTypes(all, request.mc);
+    if (error.empty() && request.biomeCheck) classifyOceanTypes(all, request.mc);
 
     publish(std::move(all), false, true, error);
     searchGateRelease(SearchOwner::MultiMonument);

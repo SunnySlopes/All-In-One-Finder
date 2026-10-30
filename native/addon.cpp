@@ -1100,7 +1100,7 @@ Napi::Value MultiMonumentSearchStart(const Napi::CallbackInfo &info)
     request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
     request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
     request.level = args.Get("level").As<Napi::Number>().Int32Value();
-    request.biomeCheck = readBool(args, "biomeCheck");
+    request.biomeCheck = args.Has("biomeCheck") ? readBool(args, "biomeCheck") : true;
     request.minGroupArea = args.Has("minGroupArea") ? args.Get("minGroupArea").As<Napi::Number>().Int32Value() : 6728;
     request.searchModes = args.Has("searchModes") ? args.Get("searchModes").As<Napi::Number>().Int32Value() : 1;
     request.filterMode = args.Has("filterMode") ? args.Get("filterMode").As<Napi::Number>().Int32Value() : 0;
@@ -1143,6 +1143,7 @@ Napi::Value DoubleMonumentSearchStart(const Napi::CallbackInfo &info)
     DoubleMonumentRequest request;
     request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
     request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
+    request.biomeCheck = args.Has("biomeCheck") ? readBool(args, "biomeCheck") : true;
     request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
     request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
     request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();

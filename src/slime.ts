@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SlimeStatus } from './native';
-import { applyRunLock } from './panel-utils';
+import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 export type SlimeVersionGroup = '1.18' | 'middle' | 'modern';
@@ -12,7 +12,7 @@ const WORLD_SIDE = 60000001;
 const WORLD_COORD = 30000000;
 const MIN_AREA = 9000;
 const MAX_AREA = 15000;
-const DEFAULT_MIN_AREA = 10500;
+const DEFAULT_MIN_AREA = 10000;
 const FULL_MIN_AREA = 13500;
 
 const VERSION_OPTIONS: { value: SlimeVersionGroup; label: string }[] = [
@@ -51,8 +51,8 @@ function resolveMc(group: SlimeVersionGroup, versions: McVersion[]): number | nu
 
 function areaWarning(area: number, minArea: number): number | null {
   const side = Math.sqrt(area);
-  // Small windows are fast enough that only the hard 9000 minimum applies.
-  if (side <= 16384) return null;
+  // 边长 32768 及以下：默认 10000，最低 9000，不再强制上调。
+  if (side <= 32768) return null;
   // Up to 131072 per side, 10000 is accepted without prompting.
   if (side <= 131072) return minArea < 10000 ? 10000 : null;
   const square = (n: number) => n * n;
@@ -87,9 +87,9 @@ export class SlimePanel {
   private pollTimer = 0;
   private currentConvert = true;
   private searchVersion: SlimeVersionGroup = 'modern';
-  private phaseStartedAt = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
   private lastStage = Number.NaN;
+  private lastStatus: SlimeStatus | null = null;
   private shownError = '';
 
   constructor() {
@@ -166,6 +166,30 @@ export class SlimePanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      versionGroup: this.versionGroup,
+      seed: this.seed,
+      seedText: this.seedText,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (s.versionGroup === '1.18' || s.versionGroup === 'middle' || s.versionGroup === 'modern') {
+      this.versionGroup = s.versionGroup;
+    }
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -261,6 +285,7 @@ export class SlimePanel {
     this.footer.querySelector('#sl-stop')?.addEventListener('click', () => void call('slimeFarmStop'));
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private readFields(): void {
@@ -359,8 +384,8 @@ export class SlimePanel {
       this.running = true;
       this.paused = false;
       this.shownError = '';
-      this.searchStartedAt = Date.now();
-      this.phaseStartedAt = Date.now();
+      this.lastStatus = null;
+      this.timer.start();
       this.lastStage = Number.NaN;
       this.render();
       this.poll();
@@ -373,10 +398,11 @@ export class SlimePanel {
     if (this.paused) {
       await call('slimeFarmResume');
       this.paused = false;
-      this.phaseStartedAt = Date.now();
+      this.timer.resume();
     } else {
       await call('slimeFarmPause');
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -386,26 +412,14 @@ export class SlimePanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<SlimeStatus>('slimeFarmPoll');
+        this.lastStatus = status;
         this.running = status.running;
         this.paused = status.paused;
         if (status.stage !== this.lastStage) {
           this.lastStage = status.stage;
-          this.phaseStartedAt = Date.now();
+          this.timer.markPhase();
         }
-        const progress = this.footer.querySelector('#sl-progress');
-        const eta = this.footer.querySelector('#sl-eta');
-        const elapsed = this.footer.querySelector('#sl-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#sl-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(Date.now() - this.searchStartedAt) });
-        if (bar) {
-          const useTiles = status.tilesTotal > 1 && status.stage >= 2;
-          const pct = useTiles
-            ? Math.min(100, (status.tilesDone / status.tilesTotal) * 100)
-            : (status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0);
-          bar.style.width = `${pct}%`;
-        }
+        this.paintStatus(status);
         this.results?.setSlimeHits(status.hits, this.currentConvert, this.searchVersion);
         if (status.done) {
           window.clearInterval(this.pollTimer);
@@ -424,12 +438,37 @@ export class SlimePanel {
     }, 100);
   }
 
+  /** 把一次状态写入页脚；render() 重建页脚后再用它恢复进度（含完成时的 100%）。 */
+  private paintStatus(status: SlimeStatus): void {
+    const progress = this.footer.querySelector('#sl-progress');
+    const eta = this.footer.querySelector('#sl-eta');
+    const elapsed = this.footer.querySelector('#sl-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#sl-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) {
+      elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(this.timer.elapsed()) });
+    }
+    if (bar) {
+      if (status.done) {
+        bar.style.width = '100%';
+      } else {
+        const useTiles = status.tilesTotal > 1 && status.stage >= 2;
+        const pct = useTiles
+          ? Math.min(100, (status.tilesDone / status.tilesTotal) * 100)
+          : (status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0);
+        bar.style.width = `${pct}%`;
+      }
+    }
+  }
+
   private progressText(status: SlimeStatus): string {
     // 阶段 4 与“群系折算”复选框共用 slime.convert，不再保留重复 key。
     const stage = t(status.stage === 4 ? 'slime.convert' : `slime.stage.${status.stage}`);
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const tiles = status.tilesTotal > 1
       ? `${t('slime.tileProgress', { done: status.tilesDone, total: status.tilesTotal })} `
       : '';
@@ -442,14 +481,14 @@ export class SlimePanel {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
     if (status.tilesTotal > 1 && status.tilesDone > 0) {
-      const elapsed = Date.now() - this.searchStartedAt;
+      const elapsed = this.timer.elapsed();
       const remaining = elapsed * ((status.tilesTotal - status.tilesDone) / status.tilesDone);
       if (remaining > 0 && Number.isFinite(remaining)) {
         return t('common.search.eta.remaining', { time: formatDuration(remaining) });
       }
     }
     if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.phaseStartedAt;
+    const elapsed = this.timer.phaseElapsed();
     const remaining = elapsed * ((status.total - status.current) / status.current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

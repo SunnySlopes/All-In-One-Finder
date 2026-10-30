@@ -38,7 +38,7 @@ Write-Host 'building aio-host.exe'
     -I (Join-Path $sdk 'include') -I $hostSrc -I (Join-Path $root 'native') `
     -o (Join-Path $hostBuild 'aio-host.exe') `
     (Join-Path $hostSrc 'main.cpp') (Join-Path $root 'native\engine_server.cpp') (Join-Path $hostBuild 'host_res.o') `
-    -lole32 -loleaut32 -lshell32 -luser32 -lgdi32 -lcomdlg32 -ladvapi32 `
+    -lole32 -loleaut32 -lshell32 -luser32 -lgdi32 -lcomdlg32 -ladvapi32 -ldwmapi `
     -mwindows -static -static-libgcc -static-libstdc++
 if ($LASTEXITCODE -ne 0) { throw 'aio-host build failed' }
 

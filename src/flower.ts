@@ -1,7 +1,7 @@
 import { showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type FlowerStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 export type FlowerVersionTier = 'legacy' | 'latest';
@@ -85,9 +85,9 @@ export class FlowerPanel {
   private running = false;
   private paused = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
-  private phaseStartedAt = 0;
+  private readonly timer = new RunTimer();
   private lastPhase = -1;
+  private lastStatus: FlowerStatus | null = null;
   private shownError = '';
 
   constructor() {
@@ -199,6 +199,28 @@ export class FlowerPanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      tier: this.tier,
+      seed: this.seed,
+      seedText: this.seedText,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (s.tier === 'legacy' || s.tier === 'latest') this.tier = s.tier;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -341,6 +363,7 @@ export class FlowerPanel {
     this.footer.querySelector('#f-stop')?.addEventListener('click', () => void call('flowerFarmStop'));
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private readFields(): void {
@@ -435,8 +458,8 @@ export class FlowerPanel {
       this.running = true;
       this.paused = false;
       this.shownError = '';
-      this.searchStartedAt = Date.now();
-      this.phaseStartedAt = this.searchStartedAt;
+      this.lastStatus = null;
+      this.timer.start();
       this.lastPhase = -1;
       this.render();
       this.poll();
@@ -449,9 +472,11 @@ export class FlowerPanel {
     if (this.paused) {
       await call('flowerFarmResume');
       this.paused = false;
+      this.timer.resume();
     } else {
       await call('flowerFarmPause');
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -461,34 +486,14 @@ export class FlowerPanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<FlowerStatus>('flowerFarmPoll');
+        this.lastStatus = status;
         this.running = status.running;
         this.paused = status.paused;
         if (status.phase !== this.lastPhase) {
           this.lastPhase = status.phase;
-          this.phaseStartedAt = Date.now();
+          this.timer.markPhase();
         }
-        const progress = this.footer.querySelector('#f-progress');
-        const overall = this.footer.querySelector('#f-overall');
-        const eta = this.footer.querySelector('#f-eta');
-        const elapsed = this.footer.querySelector('#f-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#f-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (overall) overall.textContent = this.overallText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) {
-          elapsed.textContent = t('common.searchExtra.elapsed', {
-            time: formatDuration(Date.now() - this.searchStartedAt),
-          });
-        }
-        if (bar) {
-          /* Every phase now reports its own numeric counters: phase 1 the
-           * climate screen (including coarse-field rows), phase 2 the merged
-           * candidates, phase 3 the verified candidates. */
-          const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
-          const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
-          const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
-          bar.style.width = `${pct}%`;
-        }
+        this.paintStatus(status);
         this.results?.setFlowerHits(status.hits, this.searchTier);
         if (status.done) {
           window.clearInterval(this.pollTimer);
@@ -507,6 +512,32 @@ export class FlowerPanel {
     }, 100);
   }
 
+  /** 状态写入页脚；render() 重建页脚后再用它恢复进度（含完成时的 100%）。 */
+  private paintStatus(status: FlowerStatus): void {
+    const progress = this.footer.querySelector('#f-progress');
+    const overall = this.footer.querySelector('#f-overall');
+    const eta = this.footer.querySelector('#f-eta');
+    const elapsed = this.footer.querySelector('#f-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#f-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (overall) overall.textContent = this.overallText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) {
+      elapsed.textContent = t('common.searchExtra.elapsed', {
+        time: formatDuration(this.timer.elapsed()),
+      });
+    }
+    if (bar) {
+      /* Every phase now reports its own numeric counters: phase 1 the
+       * climate screen (including coarse-field rows), phase 2 the merged
+       * candidates, phase 3 the verified candidates. */
+      const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
+      const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
+      const pct = status.done ? 100 : total > 0 ? Math.min(100, (current / total) * 100) : 0;
+      bar.style.width = `${pct}%`;
+    }
+  }
+
   private phaseLabel(phase: number): string {
     const key = `flower.phase.${phase}`;
     const text = t(key);
@@ -517,6 +548,7 @@ export class FlowerPanel {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
     const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
@@ -538,8 +570,7 @@ export class FlowerPanel {
     const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
     const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     if (!(current > 0 && total > current)) return t('common.search.eta.calculating');
-    const phaseStart = this.phaseStartedAt || this.searchStartedAt;
-    const elapsed = Date.now() - phaseStart;
+    const elapsed = this.timer.phaseElapsed();
     const remaining = elapsed * ((total - current) / current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

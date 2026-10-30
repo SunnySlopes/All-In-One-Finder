@@ -65,6 +65,7 @@ std::string gGpuReason; /* why the GPU scan was not used, empty when it ran */
 std::string gGpuDevice; /* CL_DEVICE_NAME of the GPU that ran the scan */
 std::atomic<int64_t> gStartedMs{0};
 std::atomic<int64_t> gPhaseStartedMs{0};
+std::atomic<int64_t> gPauseStartedMs{0};
 std::atomic<int64_t> gFinalElapsedMs{0};
 
 int64_t nowMs()
@@ -588,6 +589,7 @@ std::string geodeStart(const GeodeRequest &input)
     }
     gStartedMs.store(nowMs());
     gPhaseStartedMs.store(gStartedMs.load());
+    gPauseStartedMs.store(0);
     gFinalElapsedMs.store(0);
 
     {
@@ -627,6 +629,8 @@ void geodePause()
     if (!gStatus.running || gStatus.paused) return;
     gPausing.store(true);
     gStatus.pausing = true;
+    // 暂停期间不累计阶段耗时：恢复时把阶段起点顺延同样的时长。
+    gPauseStartedMs.store(nowMs());
     // 引擎在检查点阻塞；不用取消/重启。
     if (gControl) gControl->pause();
 }
@@ -635,6 +639,10 @@ void geodeResume()
 {
     std::lock_guard<std::mutex> lock(gMu);
     if (!gStatus.running) return;
+    const int64_t pausedMs = gPauseStartedMs.exchange(0);
+    if (pausedMs > 0 && gPhaseStartedMs.load() > 0) {
+        gPhaseStartedMs.fetch_add(nowMs() - pausedMs);
+    }
     gPausing.store(false);
     gStatus.pausing = false;
     gStatus.paused = false;

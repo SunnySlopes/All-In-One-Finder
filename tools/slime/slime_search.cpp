@@ -602,6 +602,15 @@ void apply_biome_conversion(const SlimeFarmParams& p,
                   return a.z < b.z;
               });
 
+    /* 勾选群系折算时，最低面积按折算后的等效面积判定：等效面积不达标的
+     * 结果不再输出（原始面积在扫描阶段已按同一阈值过滤）。 */
+    hits.erase(std::remove_if(hits.begin(), hits.end(),
+                              [&](const SlimeFarmHit& hit) {
+                                  return hit.area_equiv + 1e-9 <
+                                         static_cast<double>(p.min_slime_area);
+                              }),
+               hits.end());
+
     if (p.output_limit > 0 &&
         hits.size() > static_cast<size_t>(p.output_limit)) {
         hits.resize(static_cast<size_t>(p.output_limit));

@@ -146,7 +146,7 @@ void job(DoubleMonumentRequest request)
     std::sort(all.begin(), all.end(), hitLess);
     if (gProgress.try_stop.load()) all.clear();
     if (all.size() > static_cast<size_t>(kOutputLimit)) all.resize(kOutputLimit);
-    if (error.empty()) classifyOceanTypes(all, request.mc);
+    if (error.empty() && request.biomeCheck) classifyOceanTypes(all, request.mc);
 
     publish(std::move(all), false, true, error);
     searchGateRelease(SearchOwner::DoubleMonument);

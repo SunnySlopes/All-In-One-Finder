@@ -46,6 +46,7 @@
       "resume": "继续",
       "stop": "停止",
       "working": "计算中",
+      "completed": "已完成",
       "unsupported": "当前版本不能运行这个搜索。",
       "seedOf": "种子 {index} / {count}",
       "seedMode": "种子来源",
@@ -355,6 +356,7 @@
     },
     "areaTooLarge": "搜索范围等效面积不能超过262144×262144。",
     "crossHelp": "搜索灵魂沙峡谷中的二联/三联/四联十字路口。十字路口中心半径64格范围内不得存在其他群系。",
+    "crossRadius": "半径 {radius}",
     "spanHelp": "搜索大范围尺寸大于要求的长/短边与高度的下界要塞。"
   },
   "monument": {

@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type TrialStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn, TrialWindowView } from './results';
 
 export type TrialVersionTier = 'legacy' | 'modern' | 'latest';
@@ -133,7 +133,8 @@ export class TrialPanel {
   private paused = false;
   private pausing = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
+  private lastStatus: TrialStatus | null = null;
   private shownError = '';
   private shownCheckpointWarning = false;
   private savedRequest: TrialStartArgs | null = null;
@@ -251,6 +252,28 @@ export class TrialPanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      tier: this.tier,
+      seed: this.seed,
+      seedText: this.seedText,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (s.tier === 'legacy' || s.tier === 'modern' || s.tier === 'latest') this.tier = s.tier;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -407,6 +430,7 @@ export class TrialPanel {
     this.footer.querySelector('#t-stop')?.addEventListener('click', () => void this.stop());
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    if (this.lastStatus) this.updateProgress(this.lastStatus);
   }
 
   private readFields(): void {
@@ -578,7 +602,8 @@ export class TrialPanel {
       this.pausing = false;
       this.shownError = '';
       this.shownCheckpointWarning = false;
-      this.searchStartedAt = Date.now();
+      this.lastStatus = null;
+      this.timer.start();
       this.render();
       this.poll();
     } catch (error) {
@@ -601,6 +626,7 @@ export class TrialPanel {
         this.paused = false;
         this.pausing = false;
         this.running = true;
+        this.timer.resume();
         this.shownCheckpointWarning = false;
         this.render();
         this.poll();
@@ -613,6 +639,7 @@ export class TrialPanel {
     try {
       await call('trialPause');
       this.pausing = true;
+      this.timer.pause();
       this.render();
     } catch (error) {
       await showNotice(messageOf(error));
@@ -642,6 +669,7 @@ export class TrialPanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<TrialStatus>('trialPoll');
+        this.lastStatus = status;
         const changed = status.running !== this.running
           || status.paused !== this.paused
           || status.pausing !== this.pausing;
@@ -688,7 +716,7 @@ export class TrialPanel {
     const eta = this.footer.querySelector('#t-eta');
     const truncated = this.footer.querySelector('#t-truncated');
     const bar = this.footer.querySelector<HTMLElement>('#t-bar');
-    const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+    const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
     if (progress) progress.textContent = this.progressText(status);
     if (counters) {
       counters.textContent = t('trial.counters', {
@@ -698,7 +726,7 @@ export class TrialPanel {
     }
     if (elapsed) {
       elapsed.textContent = t('common.searchExtra.elapsed', {
-        time: formatDuration(status.elapsedMs > 0 ? status.elapsedMs : Date.now() - this.searchStartedAt),
+        time: formatDuration(status.elapsedMs > 0 ? status.elapsedMs : this.timer.elapsed()),
       });
     }
     if (eta) eta.textContent = this.etaText(status);
@@ -720,6 +748,7 @@ export class TrialPanel {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done) return `${seeds}${t('common.search.completed')}`;
     const state = status.pausing
       ? `${t('trial.pausing')} `
       : status.paused ? `${t('trial.paused')} ` : '';

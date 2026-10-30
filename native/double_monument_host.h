@@ -10,6 +10,7 @@
 struct DoubleMonumentRequest {
     int mc = 0;
     int threads = 1;
+    bool biomeCheck = true;
     int minX = 0;
     int maxX = 0;
     int minZ = 0;

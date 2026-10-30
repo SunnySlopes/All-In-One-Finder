@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type RiverStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -62,9 +62,9 @@ export class RiverPanel {
   private running = false;
   private paused = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
-  private stageStartedAt = 0;
+  private readonly timer = new RunTimer();
   private lastStage = Number.NaN;
+  private lastStatus: RiverStatus | null = null;
   private shownError = '';
   onNavigate: (id: SearcherId) => void = () => {};
 
@@ -144,6 +144,26 @@ export class RiverPanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      seed: this.seed,
+      seedText: this.seedText,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -256,6 +276,7 @@ export class RiverPanel {
     this.footer.querySelector('#rv-stop')?.addEventListener('click', () => void call('riverSearchStop'));
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
   private readFields(): void {
@@ -356,8 +377,8 @@ export class RiverPanel {
       this.running = true;
       this.paused = false;
       this.shownError = '';
-      this.searchStartedAt = Date.now();
-      this.stageStartedAt = Date.now();
+      this.lastStatus = null;
+      this.timer.start();
       this.lastStage = Number.NaN;
       this.render();
       this.poll();
@@ -370,10 +391,11 @@ export class RiverPanel {
     if (this.paused) {
       await call('riverSearchResume');
       this.paused = false;
-      this.stageStartedAt = Date.now();
+      this.timer.resume();
     } else {
       await call('riverSearchPause');
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -383,27 +405,14 @@ export class RiverPanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<RiverStatus>('riverSearchPoll');
+        this.lastStatus = status;
         this.running = status.running;
         this.paused = status.paused;
         if (status.stage !== this.lastStage) {
           this.lastStage = status.stage;
-          this.stageStartedAt = Date.now();
+          this.timer.markPhase();
         }
-        const progress = this.footer.querySelector('#rv-progress');
-        const eta = this.footer.querySelector('#rv-eta');
-        const elapsed = this.footer.querySelector('#rv-elapsed');
-        const bar = this.footer.querySelector<HTMLElement>('#rv-bar');
-        if (progress) progress.textContent = this.progressText(status);
-        if (eta) eta.textContent = this.etaText(status);
-        if (elapsed) {
-          elapsed.textContent = t('common.searchExtra.elapsed', {
-            time: formatDuration(Date.now() - this.searchStartedAt),
-          });
-        }
-        if (bar) {
-          const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
-          bar.style.width = `${pct}%`;
-        }
+        this.paintStatus(status);
         this.results?.setRiverHits(status.hits);
         if (status.done) {
           window.clearInterval(this.pollTimer);
@@ -422,13 +431,35 @@ export class RiverPanel {
     }, 100);
   }
 
+  /** 状态写入页脚；render() 重建页脚后再用它恢复进度（含完成时的 100%）。 */
+  private paintStatus(status: RiverStatus): void {
+    const progress = this.footer.querySelector('#rv-progress');
+    const eta = this.footer.querySelector('#rv-eta');
+    const elapsed = this.footer.querySelector('#rv-elapsed');
+    const bar = this.footer.querySelector<HTMLElement>('#rv-bar');
+    if (progress) progress.textContent = this.progressText(status);
+    if (eta) eta.textContent = this.etaText(status);
+    if (elapsed) {
+      elapsed.textContent = t('common.searchExtra.elapsed', {
+        time: formatDuration(this.timer.elapsed()),
+      });
+    }
+    if (bar) {
+      const pct = status.done
+        ? 100
+        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      bar.style.width = `${pct}%`;
+    }
+  }
+
   private progressText(status: RiverStatus): string {
-    const stage = status.stage === 1 ? t('river.stage.scan')
-      : status.stage === 2 ? t('river.stage.refine')
-        : t('common.search.working');
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
+    const stage = status.stage === 1 ? t('river.stage.scan')
+      : status.stage === 2 ? t('river.stage.refine')
+        : t('common.search.working');
     const pct = status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
     const pausing = status.paused ? ` ${t('river.pausing')}` : '';
     const error = status.error ? ` ${messageOf(status.error)}` : '';
@@ -439,7 +470,7 @@ export class RiverPanel {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
     if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.stageStartedAt;
+    const elapsed = this.timer.phaseElapsed();
     const remaining = elapsed * ((status.total - status.current) / status.current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

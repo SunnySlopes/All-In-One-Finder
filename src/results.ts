@@ -36,6 +36,28 @@ export interface TrialWindowView {
 type Display = 'lowy' | 'slime' | 'witch' | 'river' | 'monument' | 'fortress' | 'flower' | 'trial' | 'geode';
 export type WitchSortMode = 'height' | 'distance';
 
+/**
+ * 同类搜索器（低Y溶洞/大坑、二联/多联、十字路口/大范围）共用一个结果栏。
+ * 每个 tab 单独保存自己的结果和参数快照，切换 tab 时只恢复该 tab 的结果，
+ * 避免后一次搜索清空或覆盖前一个 tab 的列表。
+ */
+interface LowyState {
+  hits: SearchHit[];
+  listMode: boolean;
+  mapVersion: string;
+}
+
+interface MonumentState {
+  hits: MonumentHit[];
+  listMode: boolean;
+  biomeCheck: boolean;
+}
+
+interface FortressState {
+  hits: FortressHit[];
+  listMode: boolean;
+}
+
 function displayFor(tab: SearcherId): Display | null {
   if (tab === 'LowYSwampHut') return 'witch';
   if (tab === 'River') return 'river';
@@ -96,6 +118,11 @@ export class ResultsColumn {
   private fortressHits: FortressHit[] = [];
   private monumentTab: SearcherId | null = null;
   private fortressTab: SearcherId | null = null;
+  private monumentBiomeCheck = true;
+  private lowyStates: Partial<Record<SearcherId, LowyState>> = {};
+  private monumentStates: Partial<Record<SearcherId, MonumentState>> = {};
+  private fortressStates: Partial<Record<SearcherId, FortressState>> = {};
+  private listModeByTab: Partial<Record<SearcherId, boolean>> = {};
   private slimeConvert = true;
   private slimeVersion: SlimeVersionGroup = 'modern';
   private witchVersion: WitchVersionGroup = 2;
@@ -171,6 +198,15 @@ export class ResultsColumn {
     this.viewTab = tab;
     const next = displayFor(tab);
     if (next) this.display = next;
+    if (tab === 'LowYDripstoneCave' || tab === 'LowYPitDripstoneCave') {
+      this.loadLowy(tab);
+    } else if (tab === 'DoubleMonument' || tab === 'MultiMonument') {
+      this.loadMonument(tab);
+    } else if (tab === 'NetherFortressCross' || tab === 'NetherFortressOverall') {
+      this.loadFortress(tab);
+    } else if (tab !== 'map') {
+      this.listMode = this.listModeByTab[tab] ?? false;
+    }
     this.updateSpawnUi();
     this.paint();
   }
@@ -179,19 +215,54 @@ export class ResultsColumn {
     this.hits = [];
     this.sourceTab = sourceTab;
     this.listMode = listMode;
+    if (sourceTab) {
+      const state = this.lowyStates[sourceTab];
+      this.lowyStates[sourceTab] = {
+        hits: [],
+        listMode,
+        mapVersion: state?.mapVersion ?? '',
+      };
+      this.listModeByTab[sourceTab] = listMode;
+    }
     this.display = (sourceTab ? displayFor(sourceTab) : displayFor(this.viewTab)) ?? 'lowy';
     this.map.clearSpawnCircles();
     this.updateSpawnUi();
     this.paint();
   }
 
+  /** 低Y搜索器跳图使用的版本；按 tab 保存，避免切换 tab 后跳错版本。 */
+  setLowyMapVersion(tab: SearcherId, version: string): void {
+    const state = this.lowyStates[tab] ?? { hits: [], listMode: false, mapVersion: '' };
+    state.mapVersion = version;
+    this.lowyStates[tab] = state;
+  }
+
   setHits(hits: SearchHit[], sourceTab: SearcherId, listMode: boolean): void {
+    const state = this.lowyStates[sourceTab] ?? {
+      hits: [],
+      listMode: false,
+      mapVersion: '',
+    };
+    state.hits = hits;
+    state.listMode = listMode;
+    this.lowyStates[sourceTab] = state;
+    this.listModeByTab[sourceTab] = listMode;
+    if (this.viewTab !== sourceTab && this.viewTab !== 'map') return;
     this.hits = hits;
     this.sourceTab = sourceTab;
     this.listMode = listMode;
-    this.display = displayFor(sourceTab) ?? 'lowy';
+    this.display = 'lowy';
     this.updateSpawnUi();
     this.paint();
+  }
+
+  private loadLowy(tab: SearcherId): void {
+    const state = this.lowyStates[tab] ?? { hits: [], listMode: false, mapVersion: '' };
+    this.lowyStates[tab] = state;
+    this.hits = state.hits;
+    this.sourceTab = tab;
+    this.listMode = state.listMode;
+    this.display = 'lowy';
   }
 
   clearSlime(convert: boolean, version: SlimeVersionGroup, listMode = false): void {
@@ -199,6 +270,7 @@ export class ResultsColumn {
     this.slimeConvert = convert;
     this.slimeVersion = version;
     this.listMode = listMode;
+    if (this.viewTab !== 'map') this.listModeByTab[this.viewTab] = listMode;
     if (this.viewTab === 'SlimeChunk' || this.viewTab === 'map') this.display = 'slime';
     this.map.clearSpawnCircles();
     this.updateSpawnUi();
@@ -219,6 +291,7 @@ export class ResultsColumn {
     this.witchVersion = version;
     this.witchSort = null;
     this.listMode = listMode;
+    if (this.viewTab !== 'map') this.listModeByTab[this.viewTab] = listMode;
     if (displayFor(this.viewTab) === 'witch' || this.viewTab === 'map') this.display = 'witch';
     this.map.clearSpawnCircles();
     this.updateSpawnUi();
@@ -259,6 +332,7 @@ export class ResultsColumn {
     this.flowerHits = [];
     this.flowerVersion = version;
     this.listMode = listMode;
+    if (this.viewTab !== 'map') this.listModeByTab[this.viewTab] = listMode;
     if (displayFor(this.viewTab) === 'flower' || this.viewTab === 'map') this.display = 'flower';
     this.map.clearSpawnCircles();
     this.map.clearAreaOverlay();
@@ -288,6 +362,7 @@ export class ResultsColumn {
     this.trialWindow = window;
     this.trialRatio = conversionRatio;
     this.listMode = listMode;
+    if (this.viewTab !== 'map') this.listModeByTab[this.viewTab] = listMode;
     if (displayFor(this.viewTab) === 'trial' || this.viewTab === 'map') this.display = 'trial';
     this.map.clearSpawnCircles();
     this.map.clearAreaOverlay();
@@ -322,6 +397,7 @@ export class ResultsColumn {
     this.geodeHits = [];
     this.geodeView = view;
     this.listMode = view.listMode;
+    if (this.viewTab !== 'map') this.listModeByTab[this.viewTab] = view.listMode;
     if (displayFor(this.viewTab) === 'geode' || this.viewTab === 'map') this.display = 'geode';
     this.map.clearSpawnCircles();
     this.map.clearAreaOverlay();
@@ -351,6 +427,7 @@ export class ResultsColumn {
   clearRiver(listMode = false): void {
     this.riverHits = [];
     this.listMode = listMode;
+    if (this.viewTab !== 'map') this.listModeByTab[this.viewTab] = listMode;
     if (displayFor(this.viewTab) === 'river' || this.viewTab === 'map') this.display = 'river';
     this.map.clearSpawnCircles();
     this.updateSpawnUi();
@@ -375,44 +452,72 @@ export class ResultsColumn {
     }
   }
 
-  clearMonument(tab: SearcherId, listMode = false): void {
+  clearMonument(tab: SearcherId, listMode = false, biomeCheck = true): void {
     this.monumentHits = [];
     this.monumentTab = tab;
+    this.monumentBiomeCheck = biomeCheck;
     this.listMode = listMode;
+    this.monumentStates[tab] = { hits: [], listMode, biomeCheck };
+    this.listModeByTab[tab] = listMode;
     if (displayFor(this.viewTab) === 'monument' || this.viewTab === 'map') this.display = 'monument';
     this.map.clearSpawnCircles();
     this.paint();
   }
 
-  setMonumentHits(hits: MonumentHit[], tab: SearcherId): void {
-    this.monumentTab = tab;
-    if (displayFor(this.viewTab) === 'monument' || this.viewTab === 'map') this.display = 'monument';
-    if (this.display !== 'monument') {
-      this.monumentHits = hits;
-      return;
-    }
+  setMonumentHits(hits: MonumentHit[], tab: SearcherId, biomeCheck = true): void {
+    const state = this.monumentStates[tab] ?? { hits: [], listMode: false, biomeCheck: true };
+    state.hits = hits;
+    state.biomeCheck = biomeCheck;
+    this.monumentStates[tab] = state;
+    if (this.viewTab !== tab && this.viewTab !== 'map') return;
     this.monumentHits = hits;
+    this.monumentTab = tab;
+    this.monumentBiomeCheck = biomeCheck;
+    this.listMode = state.listMode;
+    this.display = 'monument';
     this.renderMonument();
+  }
+
+  private loadMonument(tab: SearcherId): void {
+    const state = this.monumentStates[tab] ?? { hits: [], listMode: false, biomeCheck: true };
+    this.monumentStates[tab] = state;
+    this.monumentHits = state.hits;
+    this.monumentTab = tab;
+    this.monumentBiomeCheck = state.biomeCheck;
+    this.listMode = state.listMode;
+    this.display = 'monument';
   }
 
   clearFortress(tab: SearcherId, listMode = false): void {
     this.fortressHits = [];
     this.fortressTab = tab;
     this.listMode = listMode;
+    this.fortressStates[tab] = { hits: [], listMode };
+    this.listModeByTab[tab] = listMode;
     if (displayFor(this.viewTab) === 'fortress' || this.viewTab === 'map') this.display = 'fortress';
     this.map.clearSpawnCircles();
     this.paint();
   }
 
   setFortressHits(hits: FortressHit[], tab: SearcherId): void {
-    this.fortressTab = tab;
-    if (displayFor(this.viewTab) === 'fortress' || this.viewTab === 'map') this.display = 'fortress';
-    if (this.display !== 'fortress') {
-      this.fortressHits = hits;
-      return;
-    }
+    const state = this.fortressStates[tab] ?? { hits: [], listMode: false };
+    state.hits = hits;
+    this.fortressStates[tab] = state;
+    if (this.viewTab !== tab && this.viewTab !== 'map') return;
     this.fortressHits = hits;
+    this.fortressTab = tab;
+    this.listMode = state.listMode;
+    this.display = 'fortress';
     this.renderFortress();
+  }
+
+  private loadFortress(tab: SearcherId): void {
+    const state = this.fortressStates[tab] ?? { hits: [], listMode: false };
+    this.fortressStates[tab] = state;
+    this.fortressHits = state.hits;
+    this.fortressTab = tab;
+    this.listMode = state.listMode;
+    this.display = 'fortress';
   }
 
   /** 女巫小屋列表模式的排序按钮入口：只重排当前结果，不触发重新搜索。 */
@@ -459,6 +564,9 @@ export class ResultsColumn {
 
   private performJump(x: number, z: number, seed?: string, fromResult = false): void {
     const dripstoneResult = isDripstoneTab(this.sourceTab);
+    const lowyVersion = dripstoneResult && this.sourceTab
+      ? this.lowyStates[this.sourceTab]?.mapVersion
+      : undefined;
     const draw = this.spawnCheck.checked;
     const jump = () => {
       this.map.clearSpawnCircles();
@@ -468,6 +576,7 @@ export class ResultsColumn {
         seed,
         y: dripstoneResult && fromResult ? -56 : undefined,
         dimension: dripstoneResult ? 0 : undefined,
+        mcVersion: lowyVersion || undefined,
         spawnCircles: draw,
       });
     };
@@ -746,7 +855,8 @@ export class ResultsColumn {
 
   private performFortressJump(hit: FortressHit): void {
     this.spawnCheck.checked = true;
-    const radii = this.fortressTab === 'NetherFortressOverall' ? [128] : [64];
+    const cross = this.fortressTab !== 'NetherFortressOverall';
+    const radii = cross ? [64] : [128];
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
@@ -759,6 +869,7 @@ export class ResultsColumn {
         features: ['fortress'],
         spawnCircles: true,
         spawnRadii: radii,
+        spawnLabel: cross ? t('fortress.crossRadius', { radius: 64 }) : undefined,
       });
     };
     requestAnimationFrame(jump);
@@ -968,7 +1079,7 @@ export class ResultsColumn {
         ${dummies}
         <div class="result-stats">
           ${detail}
-          <span>${escapeText(oceanTypesLabel(hit.oceanTypes))}</span>
+          ${this.monumentBiomeCheck ? `<span>${escapeText(oceanTypesLabel(hit.oceanTypes))}</span>` : ''}
           ${low}
         </div>
         ${extra}
@@ -1281,8 +1392,9 @@ export class ResultsColumn {
         const focus = monumentFocus(hit);
         if (!multi) {
           const low = hit.lowEfficiency ? ' low' : '';
+          const ocean = this.monumentBiomeCheck ? ` ${oceanTypesLabel(hit.oceanTypes)}` : '';
           return `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${distance(focus.x, focus.z)}`
-            + ` ${oceanTypesLabel(hit.oceanTypes)}${low}`;
+            + `${ocean}${low}`;
         }
         const area = hit.mode === 2 ? hit.areaMax : hit.area;
         const parts = [
@@ -1299,10 +1411,9 @@ export class ResultsColumn {
           // 单门导出附带下界侧地狱门坐标（主世界 / 8 向下取整），与结果卡一致。
           parts.push(`gate=${Math.floor(hit.areaMaxX / 8)} ${Math.floor(hit.areaMaxZ / 8)}`);
         }
-        parts.push(
-          `dist=${distance(focus.x, focus.z)}`,
-          `${oceanTypesLabel(hit.oceanTypes)}${hit.lowEfficiency ? ' low' : ''}`,
-        );
+        parts.push(`dist=${distance(focus.x, focus.z)}`);
+        if (this.monumentBiomeCheck) parts.push(oceanTypesLabel(hit.oceanTypes));
+        if (hit.lowEfficiency) parts.push('low');
         return parts.join(' ');
       });
       return;

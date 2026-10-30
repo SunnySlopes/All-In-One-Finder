@@ -38,6 +38,8 @@ interface JumpOptions {
   spawnCircles?: boolean;
   /** 刷怪环半径；缺省 [24,128]。 */
   spawnRadii?: number[];
+  /** 在刷怪环旁显示的标注（例如“半径 64”）。 */
+  spawnLabel?: string;
   /** 多中心挂机圈（双假人）；优先于 spawnCircles。 */
   spawnCenters?: { x: number; z: number; radii?: number[] }[];
   /** 只点出前两个挂机圈的中心连线中点，不画连线。 */
@@ -144,6 +146,7 @@ interface MapSession {
   largeBiomes: boolean;
   grid: boolean;
   features: string[];
+  searchers?: Record<string, unknown>;
 }
 
 type DetailState = 'none' | 'pending' | 'ready' | 'failed';
@@ -219,6 +222,9 @@ function parseSession(raw: string | null): MapSession | null {
       features: Array.isArray(data.features)
         ? data.features.filter((item): item is string => typeof item === 'string')
         : [...DEFAULT_FEATURES],
+      searchers: data.searchers && typeof data.searchers === 'object'
+        ? data.searchers as Record<string, unknown>
+        : undefined,
     };
   } catch {
     return null;
@@ -302,7 +308,7 @@ export class MapView {
   private slimeOrigin = { cx: 0, cz: 0 };
   private slimeSpan = { w: 0, h: 0 };
   private slimeFlight = false;
-  private spawnOverlays: { x: number; z: number; radii?: number[] }[] = [];
+  private spawnOverlays: { x: number; z: number; radii?: number[]; label?: string }[] = [];
   private spawnMidpoint = false;
   private areaOverlay: MapAreaOverlay | null = null;
   private trialTypeId = -1;
@@ -315,6 +321,7 @@ export class MapView {
   private trialHover: TrialCageColumn | null = null;
   private biomeName = '';
   private saveTimer = 0;
+  private collectSearchers: (() => Record<string, unknown>) | null = null;
   private loaded = false;
   private saveNoticeShown = false;
   private drawing = false;
@@ -376,7 +383,7 @@ export class MapView {
     this.resize();
   }
 
-  async load(versions: McVersion[], features: FeatureInfo[]): Promise<void> {
+  async load(versions: McVersion[], features: FeatureInfo[]): Promise<MapSession | null> {
     this.versions = mapVersions(versions);
     this.features = features;
     this.trialTypeId = features.find((feature) => feature.key === 'trial_chambers')?.id ?? -1;
@@ -409,10 +416,11 @@ export class MapView {
     this.schedule(true);
     this.queueFeatures();
     this.loaded = true;
-    // 没有旧 session 时也立即生成一份，避免用户首次打开后看不到 map.json。
-    // 只有“旧文件存在但读取失败”才不回写，防止用默认值覆盖可恢复的数据。
-    if (session || !hadSession) this.persistSession();
+    // 没有旧 session 时立即生成一份；旧文件存在时等搜索器条件恢复后再写，避免
+    // 用默认条件覆盖存档里的 searchers。
+    if (!hadSession) this.persistSession();
     this.onSeedChange(this.getSeed());
+    return session;
   }
 
   getSeed(): string {
@@ -422,6 +430,11 @@ export class MapView {
   /** 版本/地物列表就绪后才允许自动保存，避免启动瞬间用默认值覆盖旧 session。 */
   hasLoaded(): boolean {
     return this.loaded;
+  }
+
+  /** 自动保存/导出 session 时附带各搜索器的条件。 */
+  setSearcherStateProvider(provider: () => Record<string, unknown>): void {
+    this.collectSearchers = provider;
   }
 
   /** 女巫小屋搜索开始时的世界预设快照：大型生物群系跟随地图勾选。 */
@@ -550,7 +563,9 @@ export class MapView {
     // Panning keeps the current tiles on screen. Only a seed/Y/version/dimension change drops the cache.
     this.schedule(worldChanged);
     this.spawnOverlays = options.spawnCenters
-      ?? (options.spawnCircles ? [{ x: options.x, z: options.z, radii: options.spawnRadii }] : []);
+      ?? (options.spawnCircles
+        ? [{ x: options.x, z: options.z, radii: options.spawnRadii, label: options.spawnLabel }]
+        : []);
     this.spawnMidpoint = !!options.spawnMidpoint && this.spawnOverlays.length >= 2;
     this.areaOverlay = options.areaOverlay ?? null;
     this.queueFeatures();
@@ -575,6 +590,7 @@ export class MapView {
       largeBiomes: this.large.checked,
       grid: this.grid.checked,
       features: this.features.filter((feature) => this.enabled.has(feature.id)).map((feature) => feature.key),
+      searchers: this.collectSearchers ? this.collectSearchers() : undefined,
     };
   }
 
@@ -1387,6 +1403,23 @@ export class MapView {
       ctx.beginPath();
       ctx.arc(center.x, center.y, 3, 0, Math.PI * 2);
       ctx.fill();
+      if (overlay.label) {
+        const radius = overlay.radii?.[0] ?? 128;
+        const px = radius * this.pixelsPerBlock;
+        ctx.font = '12px "Segoe UI", "Microsoft YaHei", sans-serif';
+        const width = ctx.measureText(overlay.label).width;
+        const fitsRight = center.x + px + 8 + width + 8 <= ctx.canvas.width;
+        const x = fitsRight ? center.x + px + 8 : center.x - px - 8 - width - 8;
+        const y = center.y - 8;
+        ctx.fillStyle = 'rgba(10, 12, 16, 0.86)';
+        ctx.fillRect(x - 4, y - 9, width + 8, 18);
+        ctx.strokeStyle = 'rgba(110, 220, 120, 0.75)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - 4, y - 9, width + 8, 18);
+        ctx.fillStyle = '#d7f5dd';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(overlay.label, x, y);
+      }
     }
     if (this.spawnMidpoint && this.spawnOverlays.length >= 2) {
       const a = this.spawnOverlays[0];

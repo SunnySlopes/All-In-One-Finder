@@ -14,7 +14,7 @@ import { SlimePanel } from './slime';
 import { TrialPanel } from './trial';
 import { WitchPanel } from './witch';
 import { SEARCHER_ITEMS, type SearcherId } from './searchers';
-import { parseSessionFile } from './session';
+import { parseSessionFile, type MapSessionData } from './session';
 
 const app = document.querySelector('#app')!;
 app.innerHTML = `
@@ -74,6 +74,45 @@ witch.getLargeBiomes = () => map.getLargeBiomes();
 
 let current: SearcherId = 'map';
 
+/** 存档中一并保存每个搜索器当前填写的条件。 */
+function collectSearcherStates(): Record<string, unknown> {
+  return {
+    ...search.exportStates(),
+    SlimeChunk: slime.exportState(),
+    LowYSwampHut: witch.exportState(),
+    FlowerFarm: flower.exportState(),
+    TrialSpawner: trial.exportState(),
+    BuddingAmethyst: geode.exportState(),
+    River: river.exportState(),
+    NetherFortressCross: fortressCross.exportState(),
+    NetherFortressOverall: fortressSpan.exportState(),
+    DoubleMonument: monumentDouble.exportState(),
+    MultiMonument: monumentMulti.exportState(),
+  };
+}
+
+function sessionSnapshot(): MapSessionData {
+  return map.exportSnapshot();
+}
+
+function applySearcherStates(states: unknown): void {
+  if (!states || typeof states !== 'object') return;
+  const saved = states as Record<string, unknown>;
+  search.importStates(saved);
+  slime.importState(saved.SlimeChunk);
+  witch.importState(saved.LowYSwampHut);
+  flower.importState(saved.FlowerFarm);
+  trial.importState(saved.TrialSpawner);
+  geode.importState(saved.BuddingAmethyst);
+  river.importState(saved.River);
+  fortressCross.importState(saved.NetherFortressCross);
+  fortressSpan.importState(saved.NetherFortressOverall);
+  monumentDouble.importState(saved.DoubleMonument);
+  monumentMulti.importState(saved.MultiMonument);
+}
+
+map.setSearcherStateProvider(collectSearcherStates);
+
 /** 地图种子变化时，只同步到当前为“单种子”来源的搜索 tab。 */
 function pushSeedToSingleTabs(seed: string): void {
   const value = seed.trim();
@@ -96,7 +135,7 @@ map.onSeedChange = (seed) => pushSeedToSingleTabs(seed);
 // 原生宿主在关闭窗口前调用它，把当前地图状态同步落盘，避免异步 session 写入被关闭流程截断。
 window.__AIO_SESSION_B64__ = () => {
   if (!map.hasLoaded()) return '';
-  const bytes = new TextEncoder().encode(JSON.stringify(map.exportSnapshot()));
+  const bytes = new TextEncoder().encode(JSON.stringify(sessionSnapshot()));
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
@@ -330,7 +369,7 @@ onLocale(() => {
 
 window.aio?.onShowAbout?.(() => showAbout());
 window.aio?.onSessionExport?.(() => {
-  void window.aio.exportSession(map.exportSnapshot()).then((ok) => {
+  void window.aio.exportSession(sessionSnapshot()).then((ok) => {
     if (!ok) showNotice(t('common.error.save-failed'));
   });
 });
@@ -352,6 +391,7 @@ window.aio?.onSessionImport?.((text) => {
   fortressSpan.setSeedFromMap(data.seed);
   monumentDouble.setSeedFromMap(data.seed);
   monumentMulti.setSeedFromMap(data.seed);
+  applySearcherStates(data.searchers);
   show('map');
 });
 
@@ -366,7 +406,7 @@ void Promise.all([
   call<McVersion[]>('versions'),
   call<FeatureInfo[]>('features'),
 ]).then(([versions, features]) => {
-  void map.load(versions, features).then(() => {
+  void map.load(versions, features).then((session) => {
     search.setSeedFromMap(map.getSeed());
     slime.setSeedFromMap(map.getSeed());
     witch.setSeedFromMap(map.getSeed());
@@ -378,6 +418,7 @@ void Promise.all([
     fortressSpan.setSeedFromMap(map.getSeed());
     monumentDouble.setSeedFromMap(map.getSeed());
     monumentMulti.setSeedFromMap(map.getSeed());
+    applySearcherStates(session?.searchers);
   });
   search.load(versions);
   slime.load(versions);

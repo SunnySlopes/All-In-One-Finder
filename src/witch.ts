@@ -1,16 +1,16 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type WitchStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 export type WitchVersionGroup = 0 | 1 | 2;
 
 type SeedMode = 'single' | 'list';
 
-/** 单种子与种子列表的默认范围统一为 131072 边长的正方形区域。 */
-const DEFAULT_SINGLE_SIDE = 131072;
-const DEFAULT_LIST_SIDE = 131072;
+/** 默认范围：全图，正方形边长 60000001。 */
+const DEFAULT_SINGLE_SIDE = 60000001;
+const DEFAULT_LIST_SIDE = 60000001;
 const WORLD_SIDE = 60000001;
 const MAX_SIDE = 60000001;
 const WORLD_COORD = 30000000;
@@ -62,7 +62,7 @@ export class WitchPanel {
   private paused = false;
   private hasResults = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
   private shownError = '';
   /** 最近一次轮询结果；render() 重建页脚后据此恢复进度，避免完成瞬间被清空。 */
   private lastStatus: WitchStatus | null = null;
@@ -149,6 +149,29 @@ export class WitchPanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      versionGroup: this.versionGroup,
+      seed: this.seed,
+      seedText: this.seedText,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    const group = Number(s.versionGroup);
+    if (group === 0 || group === 1 || group === 2) this.versionGroup = group;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -335,7 +358,7 @@ export class WitchPanel {
       this.hasResults = false;
       this.shownError = '';
       this.lastStatus = null;
-      this.searchStartedAt = Date.now();
+      this.timer.start();
       this.render();
       this.poll();
     } catch (error) {
@@ -347,9 +370,11 @@ export class WitchPanel {
     if (this.paused) {
       await call('witchSearchResume');
       this.paused = false;
+      this.timer.resume();
     } else {
       await call('witchSearchPause');
       this.paused = true;
+      this.timer.pause();
     }
     this.render();
   }
@@ -396,12 +421,11 @@ export class WitchPanel {
     if (eta) eta.textContent = this.etaText(status);
     if (elapsed) {
       elapsed.textContent = t('common.searchExtra.elapsed', {
-        time: formatDuration(Date.now() - this.searchStartedAt),
+        time: formatDuration(this.timer.elapsed()),
       });
     }
     if (bar) {
-      const complete = status.done && (status.total <= 0 || status.current >= status.total);
-      const pct = complete
+      const pct = status.done
         ? 100
         : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
@@ -412,6 +436,7 @@ export class WitchPanel {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
       : '';
+    if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const complete = status.done && (status.total <= 0 || status.current >= status.total);
     const pct = complete
       ? 100
@@ -424,7 +449,7 @@ export class WitchPanel {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
     if (!(status.current > 0 && status.total > status.current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.searchStartedAt;
+    const elapsed = this.timer.elapsed();
     const remaining = elapsed * ((status.total - status.current) / status.current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

@@ -2,7 +2,7 @@ import { showNotice } from './dialog';
 import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type GeodeStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
 
 type SeedMode = 'single' | 'list';
@@ -122,7 +122,8 @@ export class GeodePanel {
   private pausing = false;
   private stopping = false;
   private pollTimer = 0;
-  private searchStartedAt = 0;
+  private readonly timer = new RunTimer();
+  private lastStatus: GeodeStatus | null = null;
   private shownError = '';
   private searchView: GeodeView = {
     version: '26.3',
@@ -229,6 +230,26 @@ export class GeodePanel {
 
   bindResults(results: ResultsColumn): void {
     this.results = results;
+  }
+
+  exportState(): Record<string, unknown> {
+    return {
+      form: captureForm(this.root),
+      seedMode: this.seedMode,
+      seed: this.seed,
+      seedText: this.seedText,
+    };
+  }
+
+  importState(state: unknown): void {
+    if (!state || typeof state !== 'object') return;
+    const s = state as Record<string, unknown>;
+    if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
+    if (typeof s.seed === 'string') this.seed = s.seed;
+    if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    applyForm(this.root, s);
+    this.render();
+    applyForm(this.root, s);
   }
 
   setSeedFromMap(seed: string): void {
@@ -404,6 +425,7 @@ export class GeodePanel {
     this.footer.querySelector('#g-stop')?.addEventListener('click', () => void this.stop());
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    if (this.lastStatus) this.updateProgress(this.lastStatus);
   }
 
   private async pickFile(): Promise<void> {
@@ -554,7 +576,8 @@ export class GeodePanel {
     this.pausing = false;
     this.stopping = false;
     this.shownError = '';
-    this.searchStartedAt = Date.now();
+    this.lastStatus = null;
+    this.timer.start();
     this.render();
     this.poll();
   }
@@ -566,9 +589,11 @@ export class GeodePanel {
         await call('geodeResume');
         this.paused = false;
         this.pausing = false;
+        this.timer.resume();
       } else if (this.running) {
         await call('geodePause');
         this.pausing = true;
+        this.timer.pause();
       }
     } catch (error) {
       await showNotice(messageOf(error));
@@ -598,6 +623,7 @@ export class GeodePanel {
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<GeodeStatus>('geodePoll');
+        this.lastStatus = status;
         const changed = status.running !== this.running
           || status.paused !== this.paused
           || status.pausing !== this.pausing
@@ -643,20 +669,22 @@ export class GeodePanel {
     const seeds = status.seedCount > 1
       ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} · `
       : '';
+    if (status.done) return `${seeds}${t('geode.phase.done')}`;
     const state = status.stopping
       ? `${t('geode.stopping')} `
       : status.pausing
         ? `${t('geode.pausing')} `
         : status.paused ? `${t('geode.paused')} ` : '';
-    // 排名阶段的总量会随候选变化，进度条和计数没有参考价值，只显示“排名中”。
-    if (status.phase === 'rank') return `${seeds}${state}${t('geode.ranking')}`;
     const phase = Math.max(1, Math.min(status.phaseCount || 3, status.phaseIndex || 1));
     const count = status.phaseCount || 3;
+    const phaseLine = t('geode.phaseLine', { index: phase, count, phase: this.phaseLabel(status) });
+    // 排名阶段的总量会随候选变化，只显示阶段 3/3 和“排名”，不显示无意义的计数。
+    if (status.phase === 'rank') return `${seeds}${state}${phaseLine}`;
     const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const units = status.total > 0
       ? ` · ${status.current.toLocaleString()} / ${status.total.toLocaleString()} (${pct}%)`
       : '';
-    return `${seeds}${state}${t('geode.phaseLine', { index: phase, count, phase: this.phaseLabel(status) })}${units}`;
+    return `${seeds}${state}${phaseLine}${units}`;
   }
 
   private etaText(status: GeodeStatus): string {
@@ -679,8 +707,9 @@ export class GeodePanel {
     const pct = status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
     if (progress) progress.textContent = this.progressText(status);
     if (bar) {
-      // 排名阶段引擎只报告一次 0/候选数，之后不再更新进度，本阶段保持进度条全满状态
-      bar.style.width = ranking ? '100%' : `${pct}%`;
+      // 排名阶段引擎只报告一次 0/候选数，之后不再更新进度，本阶段保持进度条全满状态；
+      // 完成时也固定 100%。
+      bar.style.width = status.done || ranking ? '100%' : `${pct}%`;
     }
     if (gpu) {
       // Only the phase-1 coarse scan can run on OpenCL; scanBackend flips to "gpu"
@@ -696,7 +725,7 @@ export class GeodePanel {
       gpu.textContent = active ? t('geode.gpuLine', { device }) : waitingCpu ? reason : '';
     }
     if (elapsed) {
-      const ms = status.elapsedMs > 0 ? status.elapsedMs : Date.now() - this.searchStartedAt;
+      const ms = status.elapsedMs > 0 ? status.elapsedMs : this.timer.elapsed();
       elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(ms) });
     }
     if (eta) eta.textContent = ranking ? '' : this.etaText(status);

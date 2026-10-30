@@ -46,6 +46,7 @@
       "resume": "Resume",
       "stop": "Stop",
       "working": "Working",
+      "completed": "Completed",
       "unsupported": "This search does not support the selected version.",
       "seedOf": "Seed {index} / {count}",
       "seedMode": "Seed source",
@@ -355,6 +356,7 @@
     },
     "areaTooLarge": "Search area must not exceed 262144 × 262144 equivalent area.",
     "crossHelp": "Finds multi-crossing layouts in soul sand valleys. No other biomes allowed within 64 block radius from crossing center.",
+    "crossRadius": "Radius {radius}",
     "spanHelp": "Finds nether fortresses whose large-range long/short edges and height all exceed the required minimums."
   },
   "monument": {

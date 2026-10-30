@@ -20,6 +20,83 @@ export function messageOf(error: unknown): string {
   return text === key ? code : text;
 }
 
+export type FormState = Record<string, string | boolean>;
+
+/** Snapshot every id-bearing form control in a panel (values + checkbox state). */
+export function captureForm(root: HTMLElement): FormState {
+  const state: FormState = {};
+  root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+    'input[id], select[id], textarea[id]',
+  ).forEach((control) => {
+    if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+      state[control.id] = control.checked;
+    } else {
+      state[control.id] = control.value;
+    }
+  });
+  return state;
+}
+
+/** Restore controls produced by captureForm; unknown controls are ignored. */
+export function applyForm(root: HTMLElement, state: unknown): void {
+  if (!state || typeof state !== 'object') return;
+  const raw = state as { form?: unknown } & Record<string, unknown>;
+  const form = (raw.form && typeof raw.form === 'object' ? raw.form : raw) as Record<string, unknown>;
+  root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+    'input[id], select[id], textarea[id]',
+  ).forEach((control) => {
+    if (!(control.id in form)) return;
+    const value = form[control.id];
+    if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+      control.checked = !!value;
+    } else {
+      control.value = String(value ?? '');
+    }
+  });
+}
+
+/**
+ * Wall-clock timer for a search run. Pausing shifts the anchors instead of tracking
+ * a separate total, so every "elapsed since start/phase" query already excludes the
+ * time the search was paused.
+ */
+export class RunTimer {
+  private startedAt = 0;
+  private phaseAt = 0;
+  private pausedAt = 0;
+
+  start(): void {
+    const now = Date.now();
+    this.startedAt = now;
+    this.phaseAt = now;
+    this.pausedAt = 0;
+  }
+
+  markPhase(): void {
+    this.phaseAt = Date.now();
+  }
+
+  pause(): void {
+    if (this.startedAt && !this.pausedAt) this.pausedAt = Date.now();
+  }
+
+  resume(): void {
+    if (!this.pausedAt) return;
+    const delta = Date.now() - this.pausedAt;
+    this.pausedAt = 0;
+    if (this.startedAt) this.startedAt += delta;
+    if (this.phaseAt) this.phaseAt += delta;
+  }
+
+  elapsed(): number {
+    return this.startedAt ? Math.max(0, Date.now() - this.startedAt) : 0;
+  }
+
+  phaseElapsed(): number {
+    return this.phaseAt ? Math.max(0, Date.now() - this.phaseAt) : this.elapsed();
+  }
+}
+
 const THREADS_FIELD = 'input[id$="-threads"]';
 const RUN_LOCK_ATTR = 'runLock';
 

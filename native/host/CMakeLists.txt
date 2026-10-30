@@ -28,7 +28,7 @@ target_compile_definitions(aio-host PRIVATE
 target_compile_options(aio-host PRIVATE
   -Wall -Wextra -Wno-unknown-pragmas -Wno-cast-function-type -Wno-non-virtual-dtor)
 # Windows-only libraries; COM/WinRT support comes from ole32/oleaut32.
-target_link_libraries(aio-host PRIVATE ole32 oleaut32 shell32 user32 gdi32 comdlg32 advapi32)
+target_link_libraries(aio-host PRIVATE ole32 oleaut32 shell32 user32 gdi32 comdlg32 advapi32 dwmapi)
 target_include_directories(aio-host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 target_link_options(aio-host PRIVATE -static-libgcc -static-libstdc++)
 set_target_properties(aio-host PROPERTIES OUTPUT_NAME "aio-host")
