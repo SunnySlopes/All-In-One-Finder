@@ -35,6 +35,7 @@ std::atomic_int gPhaseCurrent{0};
 std::atomic_int gPhaseTotal{0};
 std::atomic_int gOverallCurrent{0};
 std::atomic_int gOverallTotal{0};
+std::atomic_int gStage{0};
 
 void resetControl()
 {
@@ -45,6 +46,7 @@ void resetControl()
     gPhaseTotal.store(0);
     gOverallCurrent.store(0);
     gOverallTotal.store(0);
+    gStage.store(0);
 }
 
 void publishHits()
@@ -96,7 +98,8 @@ void job(FlowerRequest request)
 {
     std::string error;
     FlowerSearchControl control{&gCurrent, &gTotal, &gPhase, &gPause, &gStop,
-                                &gPhaseCurrent, &gPhaseTotal, &gOverallCurrent, &gOverallTotal};
+                                &gPhaseCurrent, &gPhaseTotal, &gOverallCurrent, &gOverallTotal,
+                                &gStage};
     const int frameStep = request.fastMode ? 16 : 4;
 
     for (size_t index = 0; index < request.seeds.size(); index++) {
@@ -115,12 +118,17 @@ void job(FlowerRequest request)
 
         const int64_t seed = request.seeds[index];
         std::vector<FlowerRow> rows;
+        FlowerSearchOptions options;
+        options.requireBothWildflowers = request.bothWildflowers;
+        options.requireBasaltDeltas = request.requireBasalt;
+        options.orientation = request.orientation;
+        options.flowerCenterMargin = request.flowerCenterMargin;
         try {
             rows = runFlowerFarmSearchRows(
                 static_cast<uint64_t>(seed), request.mc,
                 request.minX, request.minZ, request.maxX, request.maxZ,
                 request.longSide, request.shortSide, request.squareOnly,
-                frameStep, request.threads, control);
+                frameStep, request.threads, control, options);
         } catch (const std::bad_alloc &) {
             error = "out-of-memory";
             break;
@@ -142,6 +150,8 @@ void job(FlowerRequest request)
 
 bool validWindow(const FlowerRequest &request)
 {
+    if (request.orientation < 0 || request.orientation > 2) return false;
+    if (request.flowerCenterMargin < 0) return false;
     if (request.longSide < kMinWindow || request.longSide > kMaxWindow) return false;
     if (request.squareOnly) return true;
     return request.shortSide >= kMinWindow && request.shortSide <= kMaxWindow &&
@@ -221,11 +231,16 @@ FlowerStatus flowerPoll()
     if (!running && gThread.joinable()) gThread.join();
 
     std::lock_guard<std::mutex> lock(gMu);
-    gStatus.phase = gPhase.load();
+    const int rawPhase = gPhase.load();
+    /* The engine's merge/cluster tail (stage=1) is phase 2; verification is
+     * phase 3 in the submodule's phase order. */
+    gStatus.phase = (rawPhase == 1 && gStage.load() != 0) ? 2 : rawPhase;
     gStatus.current = gCurrent.load();
     gStatus.total = gTotal.load();
-    gStatus.phaseCurrent = gPhaseCurrent.load();
-    gStatus.phaseTotal = gPhaseTotal.load();
+    /* phaseCurrent/phaseTotal mirror the live phase counters: phase 1 gets its
+     * concrete totals from the engine (not the 1-unit placeholder). */
+    gStatus.phaseCurrent = gStatus.current;
+    gStatus.phaseTotal = gStatus.total;
     gStatus.overallCurrent = gOverallCurrent.load();
     gStatus.overallTotal = gOverallTotal.load();
     gStatus.paused = gPause.load();

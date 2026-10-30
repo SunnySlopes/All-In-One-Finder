@@ -68,6 +68,12 @@ export class FlowerPanel {
   private shortSide!: HTMLInputElement;
   private windowSquare!: HTMLInputElement;
   private fastMode!: HTMLInputElement;
+  private bothWildflowers!: HTMLInputElement;
+  private basaltDeltas!: HTMLInputElement;
+  private orientationRequired!: HTMLInputElement;
+  private orientationAxis!: HTMLSelectElement;
+  private flowerMargin!: HTMLInputElement;
+  private flowerMarginValue!: HTMLInputElement;
   private viewDistance!: HTMLInputElement;
   private seedMode: SeedMode = 'single';
   private tier: FlowerVersionTier = 'latest';
@@ -80,6 +86,8 @@ export class FlowerPanel {
   private paused = false;
   private pollTimer = 0;
   private searchStartedAt = 0;
+  private phaseStartedAt = 0;
+  private lastPhase = -1;
   private shownError = '';
 
   constructor() {
@@ -120,6 +128,21 @@ export class FlowerPanel {
           <label class="feature"><input id="f-window-square" type="checkbox" /><span data-i18n="flower.windowSquare"></span></label>
           <label class="feature"><input id="f-fast" type="checkbox" checked /><span data-i18n="flower.fastMode"></span></label>
         </div>
+        <div class="row">
+          <label class="feature"><input id="f-both-wildflowers" type="checkbox" /><span data-i18n="flower.bothWildflowers"></span></label>
+          <label class="feature"><input id="f-basalt" type="checkbox" /><span data-i18n="flower.basaltDeltas"></span></label>
+        </div>
+        <div class="square-row">
+          <label class="feature"><input id="f-orientation" type="checkbox" /><span data-i18n="flower.orientation"></span></label>
+          <select id="f-orientation-axis">
+            <option value="horizontal" data-i18n="flower.orientationHorizontal"></option>
+            <option value="vertical" data-i18n="flower.orientationVertical"></option>
+          </select>
+        </div>
+        <div class="square-row">
+          <label class="feature"><input id="f-flower-margin" type="checkbox" /><span data-i18n="flower.flowerCenterMargin"></span></label>
+          <input id="f-flower-margin-value" type="number" min="0" value="0" />
+        </div>
         <div class="grid">
           <label data-i18n="flower.simulationDistance"></label>
           <input id="f-view-distance" type="number" step="1" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
@@ -142,6 +165,12 @@ export class FlowerPanel {
     this.shortSide = this.root.querySelector('#f-short')!;
     this.windowSquare = this.root.querySelector('#f-window-square')!;
     this.fastMode = this.root.querySelector('#f-fast')!;
+    this.bothWildflowers = this.root.querySelector('#f-both-wildflowers')!;
+    this.basaltDeltas = this.root.querySelector('#f-basalt')!;
+    this.orientationRequired = this.root.querySelector('#f-orientation')!;
+    this.orientationAxis = this.root.querySelector('#f-orientation-axis')!;
+    this.flowerMargin = this.root.querySelector('#f-flower-margin')!;
+    this.flowerMarginValue = this.root.querySelector('#f-flower-margin-value')!;
     this.viewDistance = this.root.querySelector('#f-view-distance')!;
     this.threads.value = String(Math.min(32, navigator.hardwareConcurrency || 8));
     this.square.addEventListener('change', () => this.applySquare());
@@ -158,6 +187,8 @@ export class FlowerPanel {
     });
     this.windowSquare.addEventListener('change', () => this.applyWindowSquare());
     this.viewDistance.addEventListener('change', () => this.applyViewDistance());
+    this.orientationRequired.addEventListener('change', () => this.applyFilterState());
+    this.flowerMargin.addEventListener('change', () => this.applyFilterState());
     this.longSide.addEventListener('input', () => {
       if (this.windowSquare.checked) this.shortSide.value = this.longSide.value;
     });
@@ -249,6 +280,24 @@ export class FlowerPanel {
     this.applyWindowSquare();
   }
 
+  /**
+   * 筛选条件的可用状态：两种野花只在 1.21.4+ 有意义（旧档不统计野花加分）；
+   * 横向/竖向的下拉框跟随勾选框；运行中由面板统一锁定。
+   */
+  private applyFilterState(): void {
+    const legacy = this.tier === 'legacy';
+    if (legacy) this.bothWildflowers.checked = false;
+    this.bothWildflowers.disabled = legacy || this.running;
+    this.bothWildflowers.title = legacy ? t('flower.bothWildflowersLegacy') : '';
+    this.orientationRequired.disabled = this.running;
+    this.orientationAxis.disabled = this.running || !this.orientationRequired.checked;
+    this.flowerMargin.disabled = this.running;
+    this.flowerMarginValue.disabled = this.running || !this.flowerMargin.checked;
+    this.flowerMargin.title = t('flower.flowerCenterMarginHint');
+    this.flowerMarginValue.title = t('flower.flowerCenterMarginHint');
+    this.basaltDeltas.disabled = this.running;
+  }
+
   private renderSeedBlock(): void {
     const host = this.root.querySelector('#f-seed-block')!;
     if (this.seedMode === 'single') {
@@ -273,6 +322,7 @@ export class FlowerPanel {
     this.version.value = this.tier;
     this.renderSeedBlock();
     this.applyWindowSquare();
+    this.applyFilterState();
     this.viewDistance.title = t('flower.simulationDistanceHint');
     this.footer.innerHTML = `
       <div class="row">
@@ -340,6 +390,18 @@ export class FlowerPanel {
       return;
     }
 
+    let flowerCenterMargin = 0;
+    if (this.flowerMargin.checked) {
+      const raw = this.flowerMarginValue.value.trim();
+      const margin = Number(raw);
+      const maxMargin = Math.floor((Math.min(longSide, shortSide) - 1) / 2);
+      if (!raw || !Number.isInteger(margin) || margin < 0 || margin > maxMargin) {
+        await showNotice(t('flower.badFlowerMargin', { max: maxMargin }));
+        return;
+      }
+      flowerCenterMargin = margin;
+    }
+
     const seeds = listMode ? this.seedText : this.seed;
     if (!seeds.trim()) {
       await showNotice(t('common.error.bad-seed'));
@@ -347,6 +409,9 @@ export class FlowerPanel {
     }
 
     const threads = Math.max(1, Math.min(256, Number(this.threads.value) || 1));
+    const bothWildflowers = this.tier === 'latest' && this.bothWildflowers.checked;
+    const requireBasalt = this.basaltDeltas.checked;
+    const orientation = this.orientationRequired.checked ? this.orientationAxis.value : '';
     this.searchTier = this.tier;
     try {
       await call('flowerFarmStart', {
@@ -360,6 +425,10 @@ export class FlowerPanel {
         shortSide,
         squareOnly: this.windowSquare.checked,
         fastMode: this.fastMode.checked,
+        bothWildflowers,
+        requireBasalt,
+        orientation,
+        flowerCenterMargin,
         seeds,
       });
       this.results?.clearFlower(this.searchTier, listMode);
@@ -367,6 +436,8 @@ export class FlowerPanel {
       this.paused = false;
       this.shownError = '';
       this.searchStartedAt = Date.now();
+      this.phaseStartedAt = this.searchStartedAt;
+      this.lastPhase = -1;
       this.render();
       this.poll();
     } catch (error) {
@@ -392,6 +463,10 @@ export class FlowerPanel {
         const status = await call<FlowerStatus>('flowerFarmPoll');
         this.running = status.running;
         this.paused = status.paused;
+        if (status.phase !== this.lastPhase) {
+          this.lastPhase = status.phase;
+          this.phaseStartedAt = Date.now();
+        }
         const progress = this.footer.querySelector('#f-progress');
         const overall = this.footer.querySelector('#f-overall');
         const eta = this.footer.querySelector('#f-eta');
@@ -406,9 +481,17 @@ export class FlowerPanel {
           });
         }
         if (bar) {
-          const current = status.overallTotal > 0 ? status.overallCurrent : status.current;
-          const total = status.overallTotal > 0 ? status.overallTotal : status.total;
-          const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
+          /* The bar follows the live phase: phase 1 numbers come from the
+           * engine, phase 3 from the verification loop, and the merge tail
+           * (phase 2) is indeterminate so it stays at 100%. */
+          let pct = 0;
+          if (status.phase === 2) {
+            pct = 100;
+          } else {
+            const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
+            const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
+            pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
+          }
           bar.style.width = `${pct}%`;
         }
         this.results?.setFlowerHits(status.hits, this.searchTier);
@@ -457,10 +540,12 @@ export class FlowerPanel {
   private etaText(status: FlowerStatus): string {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
-    const current = status.overallTotal > 0 ? status.overallCurrent : status.current;
-    const total = status.overallTotal > 0 ? status.overallTotal : status.total;
+    if (status.phase === 2) return t('flower.merging');
+    const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
+    const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     if (!(current > 0 && total > current)) return t('common.search.eta.calculating');
-    const elapsed = Date.now() - this.searchStartedAt;
+    const phaseStart = this.phaseStartedAt || this.searchStartedAt;
+    const elapsed = Date.now() - phaseStart;
     const remaining = elapsed * ((total - current) / current);
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });

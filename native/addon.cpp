@@ -508,6 +508,23 @@ Napi::Value FlowerFarmStart(const Napi::CallbackInfo &info)
     request.shortSide = args.Get("shortSide").As<Napi::Number>().Int32Value();
     request.squareOnly = readBool(args, "squareOnly");
     request.fastMode = readBool(args, "fastMode");
+    request.bothWildflowers = readBool(args, "bothWildflowers");
+    request.requireBasalt = readBool(args, "requireBasalt");
+    if (args.Has("flowerCenterMargin")) {
+        Napi::Value value = args.Get("flowerCenterMargin");
+        if (value.IsNumber()) {
+            request.flowerCenterMargin = value.As<Napi::Number>().Int32Value();
+        }
+    }
+    if (args.Has("orientation")) {
+        Napi::Value value = args.Get("orientation");
+        if (value.IsString()) {
+            const std::string axis = value.As<Napi::String>().Utf8Value();
+            request.orientation = axis == "horizontal" ? 1 : axis == "vertical" ? 2 : 0;
+        } else if (value.IsNumber()) {
+            request.orientation = value.As<Napi::Number>().Int32Value();
+        }
+    }
     request.seeds = readSeeds(info.Env(), args.Get("seeds"));
     std::string error = flowerStart(request);
     if (!error.empty()) throw Napi::Error::New(info.Env(), error);

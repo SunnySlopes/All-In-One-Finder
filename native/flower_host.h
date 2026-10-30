@@ -31,7 +31,7 @@ struct FlowerStatus {
     bool running = false;
     bool done = false;
     bool paused = false;
-    int phase = 0; /* 0 = prepare, 1 = climate screen, 2 = verify */
+    int phase = 0; /* 0 = prepare, 1 = climate screen, 2 = merge tail, 3 = verify */
     int64_t current = 0;
     int64_t total = 0;
     int64_t phaseCurrent = 0;
@@ -55,6 +55,11 @@ struct FlowerRequest {
     int shortSide = 320;
     bool squareOnly = false;
     bool fastMode = true;
+    /* Optional result filters (see FlowerSearchOptions). */
+    bool bothWildflowers = false;
+    bool requireBasalt = false;
+    int orientation = 0; /* 0 any, 1 horizontal (sideX >= sideZ), 2 vertical */
+    int flowerCenterMargin = 0; /* flower-forest edge margin in blocks; 0 = off */
     std::vector<int64_t> seeds;
 };
 

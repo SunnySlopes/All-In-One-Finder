@@ -146,6 +146,13 @@ export class ResultsColumn {
     this.exportSeedsBtn = this.root.querySelector('#r-export-seeds')!;
     this.exportAllBtn = this.root.querySelector('#r-export-all')!;
     this.root.querySelector('#r-go')!.addEventListener('click', () => this.jumpFromInputs());
+    const jumpOnEnter = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      this.jumpFromInputs();
+    };
+    this.jumpX.addEventListener('keydown', jumpOnEnter);
+    this.jumpZ.addEventListener('keydown', jumpOnEnter);
     this.root.querySelector('#r-parse-btn')!.addEventListener('click', () => this.parse());
     this.spawnCheck.addEventListener('change', () => {
       if (!this.spawnCheck.checked) this.map.clearSpawnCircles();
@@ -572,6 +579,34 @@ export class ResultsColumn {
     requestAnimationFrame(jump);
   }
 
+  private performFlowerNetherJump(hit: FlowerHit): void {
+    // 主世界窗口按 1:8 映射到地狱：中心与边长都除以 8，跳地狱并在同一点画对应矩形。
+    const nether = flowerNetherCoords(hit);
+    this.spawnCheck.checked = false;
+    const jump = () => {
+      this.map.clearSpawnCircles();
+      this.map.jumpTo({
+        x: nether.x,
+        z: nether.z,
+        seed: hit.seed,
+        y: 64,
+        dimension: -1,
+        mcVersion: flowerMapVersion(this.flowerVersion, this.map.getVersionName()),
+        largeBiomes: false,
+        areaOverlay: {
+          kind: 'rect',
+          x: nether.x,
+          z: nether.z,
+          width: Math.max(1, Math.trunc(hit.sideX / 8)),
+          height: Math.max(1, Math.trunc(hit.sideZ / 8)),
+          color: '#d06a4a',
+        },
+        spawnCircles: false,
+      });
+    };
+    requestAnimationFrame(jump);
+  }
+
   private performTrialJump(hit: TrialHit): void {
     // Cards never show Y; the jump uses the engine's display height (-30) and draws the
     // statistics window (circle radius, or long/short rectangle sides) around the center.
@@ -745,19 +780,24 @@ export class ResultsColumn {
         `<span>${escapeText(t('flower.nether', { biome: biomeLabel(hit.nether) }))}</span>`,
         flowerBonusText(hit.bonus),
       ].filter(Boolean).join('');
+      const nether = flowerNetherCoords(hit);
       return `<article class="result-card result-flower" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.z})</span>
           <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
         </div>
+        <div class="row">
+          <button type="button" class="result-nether-btn" data-index="${index}">${escapeText(t('flower.gotoNether'))}</button>
+        </div>
         <div class="result-stats">${stats}</div>
+        <div class="result-nether">${escapeText(t('flower.netherCoords', { x: nether.x, z: nether.z }))}</div>
       </article>`;
     }).join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
-        if (target.closest('.result-copy')) return;
+        if (target.closest('.result-copy, .result-nether-btn')) return;
         const hit = this.flowerHits[Number(card.dataset.index)];
         if (!hit) return;
         this.jumpX.value = String(hit.x);
@@ -771,6 +811,17 @@ export class ResultsColumn {
         const hit = this.flowerHits[Number(button.dataset.index)];
         if (!hit) return;
         void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
+      });
+    });
+    this.list.querySelectorAll<HTMLButtonElement>('.result-nether-btn').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hit = this.flowerHits[Number(button.dataset.index)];
+        if (!hit) return;
+        const nether = flowerNetherCoords(hit);
+        this.jumpX.value = String(nether.x);
+        this.jumpZ.value = String(nether.z);
+        this.performFlowerNetherJump(hit);
       });
     });
     applyI18n(this.list);
@@ -1379,6 +1430,11 @@ function formatArea(value: number): string {
 
 function flowerSide(hit: FlowerHit): string {
   return hit.sideX === hit.sideZ ? String(hit.sideX) : `${hit.sideX}x${hit.sideZ}`;
+}
+
+/** 主世界坐标 → 地狱坐标（方块坐标按 1:8 向下取整）。 */
+function flowerNetherCoords(hit: FlowerHit): { x: number; z: number } {
+  return { x: Math.floor(hit.x / 8), z: Math.floor(hit.z / 8) };
 }
 
 function flowerBonusText(bonus: string): string {

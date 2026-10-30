@@ -134,7 +134,7 @@ export interface FlowerStatus {
   running: boolean;
   done: boolean;
   paused: boolean;
-  /** 0 = prepare, 1 = climate screen, 2 = verify. */
+  /** 0 = prepare, 1 = climate screen, 2 = merge tail, 3 = verify. */
   phase: number;
   current: number;
   total: number;
