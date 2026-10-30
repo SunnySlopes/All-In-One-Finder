@@ -36,6 +36,8 @@ std::atomic_int gPhaseTotal{0};
 std::atomic_int gOverallCurrent{0};
 std::atomic_int gOverallTotal{0};
 std::atomic_int gStage{0};
+std::atomic_int gAuxCurrent{0};
+std::atomic_int gAuxTotal{0};
 
 void resetControl()
 {
@@ -47,6 +49,8 @@ void resetControl()
     gOverallCurrent.store(0);
     gOverallTotal.store(0);
     gStage.store(0);
+    gAuxCurrent.store(0);
+    gAuxTotal.store(0);
 }
 
 void publishHits()
@@ -99,7 +103,7 @@ void job(FlowerRequest request)
     std::string error;
     FlowerSearchControl control{&gCurrent, &gTotal, &gPhase, &gPause, &gStop,
                                 &gPhaseCurrent, &gPhaseTotal, &gOverallCurrent, &gOverallTotal,
-                                &gStage};
+                                &gStage, &gAuxCurrent, &gAuxTotal};
     const int frameStep = request.fastMode ? 16 : 4;
 
     for (size_t index = 0; index < request.seeds.size(); index++) {
@@ -162,6 +166,14 @@ bool validWindow(const FlowerRequest &request)
 
 std::string flowerStart(const FlowerRequest &request)
 {
+    /* Match the submodule's JNI load hook: keep idle OpenMP workers from
+     * spinning into the serial merge/sort tail and the UI. Existing user
+     * settings are preserved; this only takes effect before the first
+     * parallel region. */
+#ifdef _WIN32
+    if (std::getenv("GOMP_SPINCOUNT") == nullptr) _putenv_s("GOMP_SPINCOUNT", "0");
+    if (std::getenv("OMP_WAIT_POLICY") == nullptr) _putenv_s("OMP_WAIT_POLICY", "passive");
+#endif
     if (request.mc <= 0) return "unsupported-version";
     if (request.seeds.empty()) return "no-seeds";
     if (request.maxX < request.minX || request.maxZ < request.minZ) return "bad-bounds";
@@ -232,11 +244,21 @@ FlowerStatus flowerPoll()
 
     std::lock_guard<std::mutex> lock(gMu);
     const int rawPhase = gPhase.load();
-    /* The engine's merge/cluster tail (stage=1) is phase 2; verification is
-     * phase 3 in the submodule's phase order. */
-    gStatus.phase = (rawPhase == 1 && gStage.load() != 0) ? 2 : rawPhase;
-    gStatus.current = gCurrent.load();
-    gStatus.total = gTotal.load();
+    const bool merging = rawPhase == 1 && gStage.load() != 0;
+    const int auxCurrent = gAuxCurrent.load();
+    const int auxTotal = gAuxTotal.load();
+    /* The engine's merge/cluster tail (stage=1) is phase 2 and publishes its own
+     * candidate-hit counters; verification is phase 3. Until the merge counters
+     * are visible, keep showing the phase-1 frame instead of mixing units. */
+    if (merging && auxTotal > 0) {
+        gStatus.phase = 2;
+        gStatus.current = auxCurrent;
+        gStatus.total = auxTotal;
+    } else {
+        gStatus.phase = rawPhase;
+        gStatus.current = gCurrent.load();
+        gStatus.total = gTotal.load();
+    }
     /* phaseCurrent/phaseTotal mirror the live phase counters: phase 1 gets its
      * concrete totals from the engine (not the 1-unit placeholder). */
     gStatus.phaseCurrent = gStatus.current;

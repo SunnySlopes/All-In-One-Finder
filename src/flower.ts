@@ -481,17 +481,12 @@ export class FlowerPanel {
           });
         }
         if (bar) {
-          /* The bar follows the live phase: phase 1 numbers come from the
-           * engine, phase 3 from the verification loop, and the merge tail
-           * (phase 2) is indeterminate so it stays at 100%. */
-          let pct = 0;
-          if (status.phase === 2) {
-            pct = 100;
-          } else {
-            const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
-            const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
-            pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
-          }
+          /* Every phase now reports its own numeric counters: phase 1 the
+           * climate screen (including coarse-field rows), phase 2 the merged
+           * candidates, phase 3 the verified candidates. */
+          const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
+          const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
+          const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
           bar.style.width = `${pct}%`;
         }
         this.results?.setFlowerHits(status.hits, this.searchTier);
@@ -540,7 +535,6 @@ export class FlowerPanel {
   private etaText(status: FlowerStatus): string {
     if (status.done) return t('common.search.eta.completed');
     if (status.paused) return t('common.search.eta.paused');
-    if (status.phase === 2) return t('flower.merging');
     const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
     const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     if (!(current > 0 && total > current)) return t('common.search.eta.calculating');

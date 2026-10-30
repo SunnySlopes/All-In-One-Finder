@@ -412,7 +412,7 @@
       "0": "Prepare",
       "1": "Climate screen",
       "2": "Merge candidates",
-      "3": "Verify"
+      "3": "Biome verify"
     },
     "merging": "Merging candidate windows…",
     "overallProgress": "Overall {current}/{total}",
