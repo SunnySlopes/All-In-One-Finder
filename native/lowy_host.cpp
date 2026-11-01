@@ -13,9 +13,11 @@
 #include <stdexcept>
 #include <thread>
 
-#ifndef DRIPSTONECAVE_FINDER_JNI_LIB
-#define DRIPSTONECAVE_FINDER_JNI_LIB
-#endif
+/* LowYDripstoneCaveFinderBase 把引擎内部源文件包在 namespace lowyd 里（公共入口
+ * 是 lowydripstonecavefinder.h）。AIO 需要自己的多种子 / 进度 / 过滤编排，所以
+ * 仍直接 include 引擎 TU；这里只补上引擎内部共用的 Progress 类型。 */
+#include "lowydripstonecavefinder.h"
+using lowyd::Progress;
 #include "dripstonecave_finder.cpp"
 #include "LargePitSearch.cpp"
 

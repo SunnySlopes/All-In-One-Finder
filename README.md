@@ -51,7 +51,7 @@
 环境要求：Node.js（建议 ≥ 22）、MSYS2 UCRT64 的 GCC / CMake / Ninja、WebView2 Evergreen 运行时（Windows 10/11 一般随 Edge 自带）。
 
 ```powershell
-git submodule update --init --recursive
+git submodule update --init
 npm install
 
 npm run build       # 前端 → dist/
@@ -72,6 +72,7 @@ npm run verify      # 发布门禁：体积 / 版本资源 / stage 清单 / 系�
 
 - 便携版解压到 `%TEMP%` 运行；会话优先保存到 `%LOCALAPPDATA%\All-In-One Finder\session`。若该位置不可写，会自动回退到 `%APPDATA%\All-In-One Finder`、`Documents\All-In-One Finder` 或 `%TEMP%\All-In-One Finder`；WebView2 配置与试炼/紫水晶检查点也放在同一个可写基目录下。可用环境变量 `AIO_SESSION_BASE` 强制指定基目录。旧版放在 exe 旁的 `session/map.json` 会在首次启动时自动迁移。
 - `npm run engine` 需要子模块就位，并且只支持 MSYS2 UCRT64（引擎依赖 GCC 的浮点口径与 AVX2 优化）。
+- 不要对搜索子模块执行 `--recursive`：它们自带的 `cubiomes/` 必须保持未初始化，引擎只编译共享的 `tools/cubiomes`，否则会出现重复或版本不一致的 cubiomes 头文件。
 - WebView2 需要 2021 年后的 Evergreen 运行时（`ICoreWebView2_3`）；缺失时启动会弹窗提示安装。
 
 ## 许可
@@ -89,10 +90,10 @@ Copyright (C) 2026 SunnySlopes
 感谢所有人的贡献，没有你们的贡献，就没有这款搜索器
 - 界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City
 - 地图展示：https://github.com/xpple/cubiomes ，作者：Cubitect、xpple
-- 低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHut ，作者：M33三角座星系、SunnySlopes
+- 低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase ，作者：M33三角座星系、SunnySlopes
 - 河流：https://github.com/SunnySlopes/RiverFinderGUI 、
 https://github.com/Melationin/RiverFinder ，作者：若莫、SunnySlopes
-- 低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI ，作者：SunnySlopes
+- 低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase ，作者：SunnySlopes
 - 史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar 、
 https://github.com/CITYWIDESIGN/SlimeOptimizer ，作者：Bot_City
 - 二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed ，作者：SunnySlopes
@@ -100,5 +101,5 @@ https://github.com/CITYWIDESIGN/SlimeOptimizer ，作者：Bot_City
 - 地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI ，作者：SunnySlopes
 - 试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native ，作者：打野别说话
 - 紫水晶母岩：https://github.com/qk-yiyihehe/geode-native ，作者：打野别说话
-- 全花农场：https://github.com/SunnySlopes/FlowerFinderGUI ，作者：SunnySlopes
+- 全花农场：https://github.com/SunnySlopes/FlowerFinderBase ，作者：SunnySlopes
 - 其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导

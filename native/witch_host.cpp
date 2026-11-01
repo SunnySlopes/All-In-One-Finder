@@ -3,17 +3,16 @@
 #include "search_gate.h"
 
 /*
- * lysh-c 是纯 C 库：头文件里的函数没有 C++ linkage 标记，必须整组放进
- * extern "C" 里包含。include 路径用相对路径，避免把 lysh-c/src 加进
- * allinone 的全局 include 路径（那会把 lysh 的 noise.h / biomes.h 名字
- * 暴露给所有源文件）。见方案 3.8 的说明。
+ * LowYSwampHutFinderBase 的 C 内核是纯 C 库：头文件里的函数没有 C++ linkage
+ * 标记，必须整组放进 extern "C" 里包含。include 路径用相对路径，避免把
+ * 内核的 src 加进 allinone 的全局 include 路径（那会把 lysh 的 noise.h /
+ * biomes.h 名字暴露给所有源文件）。见方案 3.8 的说明。
  */
 extern "C" {
-#include "../tools/lowyswamphut/lysh-c/src/eval.h"
-#include "../tools/lowyswamphut/lysh-c/src/search.h"
+#include "../tools/lowyswamphut/src/eval.h"
+#include "../tools/lowyswamphut/src/search.h"
 }
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -35,7 +34,6 @@ constexpr int kMaxThreads = 256;
 std::mutex gMu;
 std::thread gThread;
 WitchStatus gStatus;
-std::vector<WitchHit> gCollected;
 std::atomic<bool> gPause{false};
 std::atomic<bool> gStop{false};
 
@@ -113,9 +111,10 @@ int witchHook(void *user, lysh_search_ctx *ctx, int rx, int rz, int hutX, int hu
     hit.flooded = result.flooded;
     hit.reject = result.reject;
 
-    /* 收集后统一排序截断（Y 升序 → 原点距离升序），不在扫描中发布。 */
+    /* 搜到即输出：命中直接写入 gStatus.hits，不缓冲、不排序、不截断。
+     * 前端每 100 ms 轮询一次并按新增长度增量 append；排序交给页面按钮。 */
     std::lock_guard<std::mutex> lock(gMu);
-    gCollected.push_back(hit);
+    gStatus.hits.push_back(hit);
     return 1;
 }
 
@@ -129,21 +128,8 @@ void publishProgress(int64_t current, int64_t total)
 
 void publishDone(const std::string &error)
 {
+    /* 命中已经在扫描途中逐条写入 gStatus.hits，这里只落最终状态。 */
     std::lock_guard<std::mutex> lock(gMu);
-    if (!gStop.load()) {
-        std::sort(gCollected.begin(), gCollected.end(), [](const WitchHit &a, const WitchHit &b) {
-            if (a.y != b.y) return a.y < b.y;
-            const int64_t da = static_cast<int64_t>(a.x) * a.x + static_cast<int64_t>(a.z) * a.z;
-            const int64_t db = static_cast<int64_t>(b.x) * b.x + static_cast<int64_t>(b.z) * b.z;
-            if (da != db) return da < db;
-            if (a.x != b.x) return a.x < b.x;
-            return a.z < b.z;
-        });
-        if (gCollected.size() > 1000) gCollected.resize(1000);
-        gStatus.hits = std::move(gCollected);
-    } else {
-        gCollected.clear();
-    }
     gStatus.running = false;
     gStatus.done = true;
     gStatus.error = error;
@@ -304,7 +290,6 @@ std::string witchStart(const WitchRequest &request)
     {
         std::lock_guard<std::mutex> lock(gMu);
         gStatus = {};
-        gCollected.clear();
         gStatus.running = true;
         gStatus.total = spanX * spanZ;
         gStatus.seedCount = static_cast<int>(request.seeds.size());

@@ -51,7 +51,7 @@ Map and structure locating rely on [cubiomes](https://github.com/xpple/cubiomes)
 Requirements: Node.js (>= 22 recommended), GCC / CMake / Ninja from MSYS2 UCRT64, and the WebView2 Evergreen Runtime (usually bundled with Edge on Windows 10/11).
 
 ```powershell
-git submodule update --init --recursive
+git submodule update --init
 npm install
 
 npm run build       # frontend -> dist/
@@ -72,6 +72,7 @@ Notes:
 
 - The portable build is extracted to `%TEMP%` before running; sessions are saved to `%LOCALAPPDATA%\All-In-One Finder\session` first. If that location is not writable, it falls back to `%APPDATA%\All-In-One Finder`, `Documents\All-In-One Finder`, or `%TEMP%\All-In-One Finder`; the WebView2 profile and the trial/geode checkpoints live under the same writable base directory. Set the `AIO_SESSION_BASE` environment variable to force a base directory. A legacy `session/map.json` next to the exe is migrated automatically on first launch.
 - `npm run engine` requires the submodules and only supports MSYS2 UCRT64 (the engine relies on GCC's floating-point behavior and AVX2 optimization).
+- Do not use `--recursive` for the search submodules: their nested `cubiomes/` checkouts must stay uninitialized so the engine compiles only the shared `tools/cubiomes`; otherwise a duplicate or mismatched cubiomes header set is used.
 - WebView2 requires an Evergreen Runtime from 2021 or later (`ICoreWebView2_3`); if it is missing, a dialog prompts you to install it.
 
 ## License
@@ -91,10 +92,10 @@ Thanks to everyone who contributed; without your contributions this finder would
 
 - UI author: SunnySlopes, with design inspired by SlimeFinderGUI, author: Bot_City
 - Map display: <https://github.com/xpple/cubiomes>, authors: Cubitect, xpple
-- Low-Y Swamp Hut: <https://github.com/M33Galaxy/LowYSwampHut>, authors: M33_Galaxy, SunnySlopes
+- Low-Y Swamp Hut: <https://github.com/M33Galaxy/LowYSwampHutFinderBase>, authors: M33_Galaxy, SunnySlopes
 - River: <https://github.com/SunnySlopes/RiverFinderGUI>,
   <https://github.com/Melationin/RiverFinder>, authors: Ruo_Mo, SunnySlopes
-- Low-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: <https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI>, author: SunnySlopes
+- Low-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: <https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase>, author: SunnySlopes
 - Slime Chunks: <https://github.com/CITYWIDESIGN/SlimeRadar>,
   <https://github.com/CITYWIDESIGN/SlimeOptimizer>, author: Bot_City
 - Double Ocean Monument: <https://github.com/SunnySlopes/DoubleMonumentForFixedSeed>, author: SunnySlopes
@@ -102,5 +103,5 @@ Thanks to everyone who contributed; without your contributions this finder would
 - Fortress Crossroads and Fortress Large Range: <https://github.com/SunnySlopes/FortressFinderGUI>, author: SunnySlopes
 - Trial Spawner: <https://github.com/qk-yiyihehe/trial-spawner-native>, author: qk-yiyihehe
 - Budding Amethyst: <https://github.com/qk-yiyihehe/geode-native>, author: qk-yiyihehe
-- All Flower Farm: <https://github.com/SunnySlopes/FlowerFinderGUI>, author: SunnySlopes
+- All Flower Farm: <https://github.com/SunnySlopes/FlowerFinderBase>, author: SunnySlopes
 - The Low-Y Dripstone Cave Searcher and the All Flower Farm Searcher also thank M33_Galaxy for guidance

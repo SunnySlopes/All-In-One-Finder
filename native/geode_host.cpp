@@ -278,7 +278,8 @@ void job(GeodeRequest request, int startSeed)
         bool finishedSeed = false;
         try {
             options = optionsFor(request, request.seeds[index], budget, fullMap, checkpointDir);
-            output = geode::search(options, *control, [&](const std::string &phase, uint64_t done, uint64_t total) {
+            output = geode::search(options, *control, [&](const std::string &phase, uint64_t done, uint64_t total,
+                                                          uint64_t /*scannedChunks*/) {
                 int code = phase == "scan" ? 1 : phase == "simulate" ? 2 : 3;
                 updatePhase(code, done, total);
             }, [](const std::string &backend, const std::string &detail) {

@@ -18,7 +18,7 @@ $exe = Join-Path $root "release\All-In-One Finder $version.exe"
 $objdump = 'C:\msys64\ucrt64\bin\objdump.exe'
 $allow = @(
     'KERNEL32.dll', 'USER32.dll', 'GDI32.dll', 'SHELL32.dll', 'ole32.dll', 'comdlg32.dll',
-    'advapi32.dll', 'oleaut32.dll', 'shlwapi.dll'
+    'advapi32.dll', 'oleaut32.dll', 'shlwapi.dll', 'dwmapi.dll'
 )
 $apiPrefix = 'api-ms-win-crt-'
 

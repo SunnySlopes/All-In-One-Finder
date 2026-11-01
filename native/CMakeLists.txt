@@ -10,22 +10,35 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CUBI "${CMAKE_SOURCE_DIR}/../tools/cubiomes")
-set(LOWY "${CMAKE_SOURCE_DIR}/../tools/dripstonecave/jni")
+# geode/trial 的上游 26.3 支持依赖 qk-yiyihehe/cubiomes 的补丁（float Perlin、
+# CLIMATE263 样条与 biome climate 接口）。这里只借用它的 26.3 专用接口与
+# 头文件，基线 cubiomes 实现仍来自共享子模块，从而在整个 allinone DSO 中
+# 只保留一份 cubiomes 符号，且 1.18–26.2 的结果保持不变。
+set(CUBI263 "${CMAKE_SOURCE_DIR}/../tools/geode/third_party/cubiomes")
+set(LOWY "${CMAKE_SOURCE_DIR}/../tools/dripstonecave")
 set(SLIME "${CMAKE_SOURCE_DIR}/../tools/slime")
 set(SLIMERADAR "${SLIME}/slimeradar/src")
 set(SLIMEOPT "${SLIME}/slimeoptimizer")
 set(RIVER "${CMAKE_SOURCE_DIR}/../tools/river")
-set(LYSH "${CMAKE_SOURCE_DIR}/../tools/lowyswamphut/lysh-c")
+set(LYSH "${CMAKE_SOURCE_DIR}/../tools/lowyswamphut")
 set(FORTRESS "${CMAKE_SOURCE_DIR}/../tools/fortress")
 set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
 set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
-set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower/jni")
+set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower")
 set(TRIAL "${CMAKE_SOURCE_DIR}/../tools/trial")
 set(GEODE "${CMAKE_SOURCE_DIR}/../tools/geode")
 if (EXISTS "${FLOWER}/cubiomes/biomes.h")
   message(WARNING
-    "tools/flower/jni/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
+    "tools/flower/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
     "Keep the nested cubiomes empty (or change the includes to angle brackets) so the single-node cubiomes stays unified.")
+endif()
+# LowYDripstoneCaveFinderBase also carries a nested cubiomes submodule. AIO keeps
+# only the shared tools/cubiomes so every engine in the DLL uses the same headers
+# and one cubiomes implementation; leave tools/dripstonecave/cubiomes empty.
+if (EXISTS "${LOWY}/cubiomes/generator.h")
+  message(WARNING
+    "tools/dripstonecave/cubiomes is populated; the dripstone engine will include that copy instead of the shared tools/cubiomes. "
+    "Keep the nested cubiomes empty so the single-node cubiomes stays unified.")
 endif()
 
 option(AIO_DOUBLE_MONUMENT_REFACTORED "doublemonument branch already renamed for AIO" ON)
@@ -38,6 +51,10 @@ set(CUBI_SOURCES "")
 foreach(src ${CUBI_ROOT_SOURCES})
   list(APPEND CUBI_SOURCES "${CUBI}/${src}")
 endforeach()
+# 26.3 需要的 float Perlin / climate 接口只在补丁版里存在。这里不编译整份
+# 补丁版 biomenoise.c（那会改变 1.18–26.2 的既有结果），而是把 26.3 分支
+# 单独放进 cubiomes263_compat.c，旧版本继续使用共享子模块的基线实现。
+list(APPEND CUBI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cubiomes263_compat.c")
 file(GLOB CUBI_FEATURES "${CUBI}/features/*.c")
 # AIO never calls the loot generation API; keep the headers but do not compile
 # loot/** (it is ~1.5 MB of object code and none of it is reachable).
@@ -45,7 +62,7 @@ list(APPEND CUBI_SOURCES ${CUBI_FEATURES})
 
 add_library(cubiomes_objs OBJECT ${CUBI_SOURCES})
 set_target_properties(cubiomes_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(cubiomes_objs PUBLIC "${CUBI}")
+target_include_directories(cubiomes_objs PUBLIC "${CUBI263}" "${CUBI}")
 target_compile_options(cubiomes_objs PRIVATE
   -O3 -DNDEBUG -fwrapv -fno-semantic-interposition -mpopcnt
   -ffp-contract=off -fno-lto
@@ -94,12 +111,12 @@ set(FLOWER_C
   "${FLOWER}/cts/engine.c"
 )
 add_library(flower_objs OBJECT
-  "${FLOWER}/FlowerFarmSearch.cpp"
+  "${FLOWER}/src/FlowerFarmSearch.cpp"
   ${FLOWER_C}
 )
 set_target_properties(flower_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(flower_objs PRIVATE
-  "${FLOWER}"
+  "${FLOWER}/include"
   "${FLOWER}/cts"
   "${CMAKE_SOURCE_DIR}/../tools"
   "${CUBI}"
@@ -122,11 +139,16 @@ set_target_properties(trial_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(trial_objs PRIVATE
   "${TRIAL}/src"
   "${TRIAL}/data"
+  "${CUBI263}"
   "${CUBI}"
 )
 target_compile_definitions(trial_objs PRIVATE
   _WIN32
-  TRIAL_ENGINE_VERSION="3.0.4"
+  TRIAL_ENGINE_VERSION="3.1.2"
+  # 与 geode/trial 上游锁定的 qk-yiyihehe/cubiomes 补丁版本一致，避免恢复
+  # 旧版 26.3 断点时把不兼容的结果当成同一任务。
+  CUBIOMES_REVISION="ea575d85536eba8e89a4e2a0528a60d2094221c8"
+  CUBIOMES_FINGERPRINT=0xea575d85536eba8eULL
 )
 target_compile_options(trial_objs PRIVATE
   -O3 -DNDEBUG -fwrapv -fexceptions -ffp-contract=off -fno-lto
@@ -135,7 +157,7 @@ target_compile_options(trial_objs PRIVATE
 
 add_library(trial_bridge OBJECT "${TRIAL}/src/biome_bridge.c")
 set_target_properties(trial_bridge PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(trial_bridge PRIVATE "${CUBI}")
+target_include_directories(trial_bridge PRIVATE "${CUBI263}" "${CUBI}")
 target_compile_options(trial_bridge PRIVATE
   -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
   -ffunction-sections -fdata-sections
@@ -159,9 +181,14 @@ target_include_directories(geode_objs PRIVATE
   "${GEODE}/src"
   "${GEODE}/data"
   "${GEODE}/src/structure_layout"
+  "${CUBI263}"
   "${CUBI}"
 )
-target_compile_definitions(geode_objs PRIVATE _WIN32)
+target_compile_definitions(geode_objs PRIVATE
+  _WIN32
+  CUBIOMES_REVISION="ea575d85536eba8e89a4e2a0528a60d2094221c8"
+  CUBIOMES_FINGERPRINT=0xea575d85536eba8eULL
+)
 target_compile_options(geode_objs PRIVATE
   -O3 -DNDEBUG -fwrapv -fexceptions -ffp-contract=off -fno-lto
   -ffunction-sections -fdata-sections
@@ -169,7 +196,7 @@ target_compile_options(geode_objs PRIVATE
 
 add_library(geode_bridge OBJECT "${GEODE}/src/structure_layout/biome_bridge.c")
 set_target_properties(geode_bridge PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(geode_bridge PRIVATE "${CUBI}")
+target_include_directories(geode_bridge PRIVATE "${CUBI263}" "${CUBI}")
 target_compile_options(geode_bridge PRIVATE
   -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
   -ffunction-sections -fdata-sections
@@ -251,17 +278,18 @@ set_target_properties(allinone PROPERTIES
 target_include_directories(allinone PRIVATE
   ${ALLINONE_BINDING_INCLUDES}
   "${CMAKE_SOURCE_DIR}/../tools"
-  "${FLOWER}"
+  "${FLOWER}/include"
   "${FLOWER}/cts"
   "${TRIAL}/src"
   "${GEODE}/src"
+  "${CUBI263}"
+  "${CUBI}"
   "${LOWY}"
   "${SLIMERADAR}"
   "${SLIMEOPT}/include"
   "${RIVER}"
 )
 target_compile_definitions(allinone PRIVATE
-  DRIPSTONECAVE_FINDER_JNI_LIB
   _WIN32
 )
 if (AIO_DOUBLE_MONUMENT_REFACTORED)

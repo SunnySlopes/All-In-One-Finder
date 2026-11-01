@@ -3,10 +3,12 @@
 	url = https://github.com/xpple/cubiomes
 [submodule "tools/dripstonecave"]
 	path = tools/dripstonecave
-	url = https://github.com/SunnySlopes/LowYDripstoneCaveFinderGUI
+	url = https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase
+	branch = main
 [submodule "tools/lowyswamphut"]
 	path = tools/lowyswamphut
-	url = https://github.com/M33Galaxy/LowYSwampHut.git
+	url = https://github.com/M33Galaxy/LowYSwampHutFinderBase
+	branch = main
 [submodule "tools/doublemonument"]
 	path = tools/doublemonument
 	url = https://github.com/SunnySlopes/DoubleMonumentForFixedSeed.git
@@ -21,10 +23,12 @@
 	branch = JNI
 [submodule "tools/fortress"]
 	path = tools/fortress
-	url = https://github.com/SunnySlopes/FortressFinderGUI.git
+	url = https://github.com/SunnySlopes/FortressFinderBase.git
+	branch = main
 [submodule "tools/flower"]
 	path = tools/flower
-	url = https://github.com/SunnySlopes/FlowerFinderGUI.git
+	url = https://github.com/SunnySlopes/FlowerFinderBase
+	branch = main
 [submodule "tools/slime/slimeradar"]
 	path = tools/slime/slimeradar
 	url = https://github.com/CITYWIDESIGN/SlimeRadar.git

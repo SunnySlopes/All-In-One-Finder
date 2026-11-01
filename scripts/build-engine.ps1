@@ -2,8 +2,10 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/build-engine.ps1
 #
-# Requires MSYS2 UCRT64 (gcc/g++/cmake/ninja) and the cubiomes submodules:
-#   git submodule update --init --recursive
+# Requires MSYS2 UCRT64 (gcc/g++/cmake/ninja) and the submodules:
+#   git submodule update --init
+# Do not use --recursive: the search submodules carry nested cubiomes checkouts
+# that must stay empty so the engine links the single shared tools/cubiomes.
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path

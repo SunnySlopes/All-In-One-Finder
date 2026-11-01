@@ -3,16 +3,17 @@
 #include "search_gate.h"
 
 /*
- * 要塞内核来自 tools/fortress。上游与 dripstonecave / 多联内核存在同名全局符号
- * （Progress / ThreadSafeResults / ThreadPool / SearchConfig / FortressHit），
- * 这里在 host TU 内用局部宏改名，上游源码与独立工具都不需要修改。
+ * 要塞内核来自 tools/fortress（FortressFinderBase）。上游与 dripstonecave /
+ * 多联内核存在同名全局符号（Progress / ThreadSafeResults / ThreadPool /
+ * SearchConfig / FortressHit），这里在 host TU 内用局部宏改名，上游源码与
+ * 独立 CLI/JNI 工具都不需要修改。
  */
 #define Progress FortressProgress
 #define SearchConfig FortressConfig
 #define FortressHit FfHit
 #define ThreadSafeResults FfResults
 #define ThreadPool FfPool
-#include "../tools/fortress/fortress_finder_JNI.cpp"
+#include "../tools/fortress/fortress_finder.cpp"
 #undef Progress
 #undef SearchConfig
 #undef FortressHit
