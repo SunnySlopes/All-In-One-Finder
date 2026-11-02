@@ -83,6 +83,29 @@ const TILE_CELLS = 128;
 const MAX_TILE_DRAW_PX = 4096;
 /** Keep at most this many cached tile canvases; off-screen ones are evicted first. */
 const MAX_TILE_CACHE = 256;
+/** Terrain tiles carry an extra cave canvas plus height/mask buffers; keep fewer of them. */
+const MAX_TILE_CACHE_TERRAIN = 192;
+/** Only 1:1 renders terrain; every coarser zoom level stays on the biome map. */
+const TERRAIN_SCALE = 1;
+/** Cave openings are only sampled at 1:1 and only exist for the overworld. */
+const CAVE_MAX_SCALE = 1;
+/** One cave cell covers 4x4 blocks, so a 128 px tile holds 32x32 cells. */
+const CAVE_CELL_SIZE = 4;
+const CAVE_CELLS = TILE_CELLS / CAVE_CELL_SIZE;
+/** Cave opening classes shared with the native mask byte. */
+const CAVE_WATER = 2;
+const CAVE_LAVA = 3;
+// Class 0 (no opening) and class 1 (dry opening) are part of the wire format but
+// are not painted: only water/lava get a fill, so the terrain stays untouched.
+/** Only the two fluid classes are painted; dry openings leave the terrain untouched. */
+const CAVE_FILL_WATER = 'rgba(80, 160, 255, 0.55)';
+const CAVE_FILL_LAVA = 'rgba(255, 140, 40, 0.65)';
+/** Vanilla floods everything below this level with lava; the map paints it flat. */
+const LAVA_LEVEL = -54;
+const LAVA_TOP_BLOCK = LAVA_LEVEL - 1;
+/** Terrain batches request more tiles per round trip than biome batches. */
+const TERRAIN_BATCH = 24;
+const BIOME_BATCH = 8;
 /** Drop pending jobs that fall outside the view expanded by this many tiles. */
 const PENDING_MARGIN_TILES = 1;
 const MAX_PENDING = 96;
@@ -145,8 +168,32 @@ interface MapSession {
   y: number;
   largeBiomes: boolean;
   grid: boolean;
+  terrain: boolean;
   features: string[];
   searchers?: Record<string, unknown>;
+}
+
+/** Effective native tile layer for a zoom level (see native/terrain_map.h). */
+type MapLayer = 0 | 1 | 2;
+
+/** A cached map tile: the biome/terrain bitmap plus its extra payloads. */
+interface CachedTile {
+  canvas: HTMLCanvasElement;
+  /** Cave opening overlay canvas (layer 2, 1:1 only). */
+  cave?: HTMLCanvasElement;
+  /** Surface Y per pixel (layer > 0, 1:1 only). */
+  height?: Int16Array;
+  /** Cave opening class per 4x4 cell (layer 2, 1:1 only). */
+  mask?: Uint8Array;
+  /** Highest fluid surface per cell for openings (layer 2, 1:1 only). */
+  floodY?: Int16Array;
+}
+
+interface TileJob {
+  scale: number;
+  x: number;
+  z: number;
+  layer: MapLayer;
 }
 
 type DetailState = 'none' | 'pending' | 'ready' | 'failed';
@@ -219,6 +266,9 @@ function parseSession(raw: string | null): MapSession | null {
       y: Number.isFinite(Number(data.y)) ? Number(data.y) : 256,
       largeBiomes: !!data.largeBiomes,
       grid: data.grid !== false,
+      // Older sessions have no state and must stay on the biome map; the
+      // retired `caves` flag from 0.9.0 is simply ignored.
+      terrain: data.terrain === true,
       features: Array.isArray(data.features)
         ? data.features.filter((item): item is string => typeof item === 'string')
         : [...DEFAULT_FEATURES],
@@ -286,9 +336,9 @@ export class MapView {
   private dragging = false;
   private lastX = 0;
   private lastZ = 0;
-  private tiles = new Map<string, HTMLCanvasElement>();
+  private tiles = new Map<string, CachedTile>();
   private inflight = new Set<string>();
-  private pending = new Map<string, { scale: number; x: number; z: number }>();
+  private pending = new Map<string, TileJob>();
   private attempts = new Map<string, number>();
   private flushQueued = false;
   private flushRunning = false;
@@ -302,6 +352,11 @@ export class MapView {
   private selectGen = 0;
   private press: { x: number; y: number; moved: boolean } | null = null;
   private grid!: HTMLInputElement;
+  private terrain!: HTMLInputElement;
+  private terrainRow!: HTMLElement;
+  private layerHint!: HTMLElement;
+  private currentLayer: MapLayer = 0;
+  private terrainFailed = false;
   private icons = new Map<string, HTMLImageElement>();
   private slimeCanvas: HTMLCanvasElement | null = null;
   private slimeSeed = '';
@@ -342,6 +397,10 @@ export class MapView {
       <div class="row">
         <label class="feature"><input id="map-grid" type="checkbox" checked /><span data-i18n="common.map.grid"></span></label>
       </div>
+      <div class="row" id="map-terrain-row">
+        <label class="feature"><input id="map-terrain" type="checkbox" /><span data-i18n="common.map.terrain"></span></label>
+      </div>
+      <div id="map-layer-hint" class="hint" hidden></div>
       <div id="map-features" class="features"></div>
     `;
     this.version = this.root.querySelector('#map-version')!;
@@ -351,6 +410,9 @@ export class MapView {
     this.large = this.root.querySelector('#map-large')!;
     this.featureBox = this.root.querySelector('#map-features')!;
     this.grid = this.root.querySelector('#map-grid')!;
+    this.terrain = this.root.querySelector('#map-terrain')!;
+    this.terrainRow = this.root.querySelector('#map-terrain-row')!;
+    this.layerHint = this.root.querySelector('#map-layer-hint')!;
     this.grid.checked = localStorage.getItem('aio.grid') !== '0';
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'map';
@@ -405,6 +467,7 @@ export class MapView {
       else this.y.value = String(defaultYForDim(dim));
       this.large.checked = session.largeBiomes;
       this.grid.checked = session.grid;
+      this.terrain.checked = session.terrain;
       localStorage.setItem('aio.grid', session.grid ? '1' : '0');
     }
     const enabledKeys = new Set(session?.features ?? DEFAULT_FEATURES);
@@ -413,6 +476,7 @@ export class MapView {
       if (enabledKeys.has(feature.key)) this.enabled.add(feature.id);
     }
     this.renderFeatures();
+    this.syncLayerControls();
     this.schedule(true);
     this.queueFeatures();
     this.loaded = true;
@@ -589,6 +653,7 @@ export class MapView {
       y: Number.isFinite(y) ? y : 256,
       largeBiomes: this.large.checked,
       grid: this.grid.checked,
+      terrain: this.terrain.checked,
       features: this.features.filter((feature) => this.enabled.has(feature.id)).map((feature) => feature.key),
       searchers: this.collectSearchers ? this.collectSearchers() : undefined,
     };
@@ -602,6 +667,7 @@ export class MapView {
     this.y.value = String(data.dim === 0 ? data.y : defaultYForDim(data.dim));
     this.large.checked = data.largeBiomes && data.dim === 0;
     this.grid.checked = data.grid;
+    this.terrain.checked = data.terrain === true;
     localStorage.setItem('aio.grid', data.grid ? '1' : '0');
     if (data.features.length) {
       this.enabled.clear();
@@ -611,6 +677,7 @@ export class MapView {
     }
     this.renderFeatures();
     this.persistSession();
+    this.syncLayerControls();
     this.schedule(true);
     this.queueFeatures();
     this.onSeedChange(data.seed);
@@ -621,7 +688,45 @@ export class MapView {
     this.dimension.querySelectorAll('option').forEach((option) => {
       option.textContent = t(`common.map.${option.dataset.key}`);
     });
+    this.syncLayerControls();
     this.renderSelectedInfo();
+  }
+
+  /**
+   * Native layer for a zoom level. The terrain toggle is a single feature:
+   * relief plus the cheese cave openings and the lava sea. Only 1:1 renders
+   * terrain; coarser levels silently fall back to the biome map while the
+   * checkbox state is kept.
+   */
+  private terrainLayerFor(scale: number): MapLayer {
+    if (!this.terrain.checked || this.terrainFailed) return 0;
+    if (Number(this.dimension.value) !== 0) return 0;
+    if (scale !== TERRAIN_SCALE) return 0;
+    return 2;
+  }
+
+  /**
+   * Keep the terrain toggle, its availability and the cache invalidation in
+   * sync. Called from every place that can change the effective layer.
+   */
+  private syncLayerControls(): void {
+    const overworld = Number(this.dimension.value) === 0;
+    this.terrainRow.hidden = !overworld;
+    this.terrain.title = t('common.map.terrainHint');
+
+    const scale = this.activeScale();
+    const layer = this.terrainLayerFor(scale);
+    const hint = layer > 0 ? t('common.map.terrainLegend') : '';
+    this.layerHint.hidden = !hint;
+    this.layerHint.textContent = hint;
+
+    if (layer !== this.currentLayer) {
+      this.currentLayer = layer;
+      this.persistSession();
+      // layer is part of the tile key, so the whole cache is stale now.
+      this.schedule(true);
+      this.queueFeatures();
+    }
   }
 
   private bind(): void {
@@ -640,9 +745,16 @@ export class MapView {
       this.y.value = String(defaultYForDim(Number(this.dimension.value)));
       this.renderFeatures();
       worldChanged();
+      this.syncLayerControls();
     });
     this.y.addEventListener('change', worldChanged);
     this.large.addEventListener('change', worldChanged);
+    this.terrain.addEventListener('change', () => {
+      // The layer is part of the tile key, so toggling drops the whole cache.
+      this.persistSession();
+      this.syncLayerControls();
+      this.queueDraw();
+    });
     this.seed.addEventListener('change', () => {
       this.clearSpawnCircles();
       this.persistSession();
@@ -746,6 +858,7 @@ export class MapView {
     }
     this.lastActiveScale = next;
     this.trialHover = null;
+    this.syncLayerControls();
     this.schedule();
     this.queueFeatures();
   }
@@ -1332,8 +1445,10 @@ export class MapView {
     return [t('common.map.trialCageColumn', { kind, x: column.x, z: column.z, ys })];
   }
 
-  private tileKey(state: ReturnType<MapView['state']>, scale: number, x: number, z: number): string {
-    return `${state.mc}|${state.seed}|${state.dim}|${state.largeBiomes ? 1 : 0}|${state.y}|${scale}|${x}|${z}`;
+  private tileKey(state: ReturnType<MapView['state']>, layer: number, scale: number, x: number, z: number): string {
+    // `layer` sits before `scale` so existing key parsers (which pop z/x/scale)
+    // keep working unchanged.
+    return `${state.mc}|${state.seed}|${state.dim}|${state.largeBiomes ? 1 : 0}|${state.y}|${layer}|${scale}|${x}|${z}`;
   }
 
   private async draw(): Promise<void> {
@@ -1382,8 +1497,83 @@ export class MapView {
   private syncReadout(): void {
     const parts = [`${Math.round(this.pointer.x)}, ${Math.round(this.pointer.z)}`];
     if (this.biomeName) parts.push(biomeLabel(this.biomeName));
+    parts.push(...this.terrainReadout());
     if (this.trialHover) parts.push(...this.trialCageLines(this.trialHover));
     this.readout.textContent = parts.join('  ');
+  }
+
+  /**
+   * Surface Y and cave-opening fluid level for the hovered 1:1 terrain tile.
+   * Returns nothing when the pointer is over an unloaded tile or a zoom level
+   * without the real terrain layer.
+   */
+  private terrainReadout(): string[] {
+    if (this.activeScale() !== 1 || this.terrainFailed) return [];
+    const layer = this.terrainLayerFor(1);
+    if (layer === 0) return [];
+    const tile = this.tiles.get(this.tileKey(this.state(), layer, 1,
+      Math.floor(this.pointer.x / TILE_CELLS) * TILE_CELLS,
+      Math.floor(this.pointer.z / TILE_CELLS) * TILE_CELLS));
+    if (!tile) return [];
+    const x0 = Math.floor(this.pointer.x / TILE_CELLS) * TILE_CELLS;
+    const z0 = Math.floor(this.pointer.z / TILE_CELLS) * TILE_CELLS;
+    const ix = Math.min(TILE_CELLS - 1, Math.max(0, Math.floor(this.pointer.x) - x0));
+    const iz = Math.min(TILE_CELLS - 1, Math.max(0, Math.floor(this.pointer.z) - z0));
+    const parts: string[] = [];
+    const theoretical = t('common.map.theoreticalSuffix');
+    if (tile.height) {
+      const y = tile.height[iz * TILE_CELLS + ix];
+      const text = t('common.map.heightY', { y });
+      parts.push(y <= -64 ? `${text}${theoretical}` : text);
+      // Vanilla floods everything under the lava level; the terrain layer
+      // paints those columns flat lava, so name the level in the readout too.
+      if (y <= LAVA_TOP_BLOCK) parts.push(t('common.map.lavaY', { y: LAVA_LEVEL }));
+    }
+    if (tile.mask && tile.floodY) {
+      const cell = (iz >> 2) * CAVE_CELLS + (ix >> 2);
+      const value = tile.mask[cell];
+      if (value === CAVE_WATER || value === CAVE_LAVA) {
+        const y = tile.floodY[cell];
+        const text = t('common.map.floodY', { y });
+        parts.push(y < -54 ? `${text}${theoretical}` : text);
+      }
+    }
+    return parts;
+  }
+
+  /**
+   * Draw the fluid-filled cheese cave openings into a tile-sized canvas.
+   * Only the filled classes are drawn: dry openings leave the terrain as-is
+   * (no outline), so the relief is never decorated by cave edges.
+   */
+  private buildCaveCanvas(mask: Uint8Array): HTMLCanvasElement | undefined {
+    const canvas = document.createElement('canvas');
+    canvas.width = TILE_CELLS;
+    canvas.height = TILE_CELLS;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+    let painted = false;
+    for (let cz = 0; cz < CAVE_CELLS; cz++) {
+      for (let cx = 0; cx < CAVE_CELLS; cx++) {
+        const value = mask[cz * CAVE_CELLS + cx];
+        if (value === CAVE_WATER) ctx.fillStyle = CAVE_FILL_WATER;
+        else if (value === CAVE_LAVA) ctx.fillStyle = CAVE_FILL_LAVA;
+        else continue;
+        ctx.fillRect(cx * CAVE_CELL_SIZE, cz * CAVE_CELL_SIZE, CAVE_CELL_SIZE, CAVE_CELL_SIZE);
+        painted = true;
+      }
+    }
+    return painted ? canvas : undefined;
+  }
+
+  /** Give up on the terrain layer for this session and go back to biome tiles. */
+  private failTerrain(): void {
+    if (this.terrainFailed) return;
+    this.terrainFailed = true;
+    this.terrain.checked = false;
+    showNotice(t('common.error.terrain-failed'));
+    this.syncLayerControls();
+    this.queueDraw();
   }
 
   private drawSpawnCircles(ctx: CanvasRenderingContext2D): void {
@@ -1468,28 +1658,31 @@ export class MapView {
     const size = tileBlocks * this.pixelsPerBlock;
     // Skip levels that would stretch past the safe canvas destination size.
     if (size > MAX_TILE_DRAW_PX) return;
+    const layer = this.terrainLayerFor(scale);
     const view = this.viewBounds();
     const x0 = Math.floor(view.x0 / tileBlocks) * tileBlocks;
     const z0 = Math.floor(view.z0 / tileBlocks) * tileBlocks;
     for (let z = z0; z < view.z1; z += tileBlocks) {
       for (let x = x0; x < view.x1; x += tileBlocks) {
-        const key = this.tileKey(state, scale, x, z);
+        const key = this.tileKey(state, layer, scale, x, z);
         const tile = this.tiles.get(key);
         const origin = this.worldToScreen(x, z);
         if (tile) {
           try {
-            ctx.drawImage(tile, origin.x, origin.y, size, size);
+            ctx.drawImage(tile.canvas, origin.x, origin.y, size, size);
+            // Cave openings sit above the relief but below the grid/structures.
+            if (tile.cave) ctx.drawImage(tile.cave, origin.x, origin.y, size, size);
           } catch {
             /* oversized/invalid draw must not blank the whole frame */
           }
         } else if (request) {
-          this.enqueueTile(key, scale, x / scale, z / scale);
+          this.enqueueTile(key, layer, scale, x / scale, z / scale);
         }
       }
     }
   }
 
-  private enqueueTile(key: string, scale: number, x: number, z: number): void {
+  private enqueueTile(key: string, layer: MapLayer, scale: number, x: number, z: number): void {
     if (this.tiles.has(key) || this.inflight.has(key) || this.pending.has(key)) return;
     if (this.pending.size >= MAX_PENDING) this.prunePendingOnly();
     if (this.pending.size >= MAX_PENDING) {
@@ -1510,7 +1703,7 @@ export class MapView {
       }
       if (farthest) this.pending.delete(farthest);
     }
-    this.pending.set(key, { scale, x, z });
+    this.pending.set(key, { layer, scale, x, z });
     this.kickFlush();
   }
 
@@ -1562,8 +1755,9 @@ export class MapView {
       while (this.pending.size && this.version.value) {
         this.prunePendingOnly();
         if (!this.pending.size) break;
-        // Prefer the active scale, then tiles closest to the current view center.
+        // Prefer the active scale/layer, then tiles closest to the view center.
         const preferScale = this.activeScale();
+        const preferLayer = this.terrainLayerFor(preferScale);
         const view = this.viewBounds();
         const midX = (view.x0 + view.x1) / 2;
         const midZ = (view.z0 + view.z1) / 2;
@@ -1572,14 +1766,17 @@ export class MapView {
           const bz = job.z * job.scale + (TILE_CELLS * job.scale) / 2;
           const dist = Math.abs(bx - midX) + Math.abs(bz - midZ);
           const scaleRank = job.scale === preferScale ? 0 : job.scale < preferScale ? 1 : 2;
-          return { key, job, dist, scaleRank };
+          const layerRank = job.layer === preferLayer ? 0 : 1;
+          return { key, job, dist, scaleRank, layerRank };
         });
-        ranked.sort((a, b) => a.scaleRank - b.scaleRank || a.dist - b.dist);
+        ranked.sort((a, b) => a.scaleRank - b.scaleRank || a.layerRank - b.layerRank || a.dist - b.dist);
         const pickScale = ranked[0]?.job.scale;
-        const batch: { key: string; scale: number; x: number; z: number }[] = [];
+        const pickLayer = ranked[0]?.job.layer;
+        const batchLimit = pickLayer > 0 ? TERRAIN_BATCH : BIOME_BATCH;
+        const batch: { key: string; scale: number; x: number; z: number; layer: MapLayer }[] = [];
         for (const item of ranked) {
-          if (item.job.scale !== pickScale) continue;
-          if (batch.length >= 8) break;
+          if (item.job.scale !== pickScale || item.job.layer !== pickLayer) continue;
+          if (batch.length >= batchLimit) break;
           batch.push({ key: item.key, ...item.job });
           this.pending.delete(item.key);
           this.inflight.add(item.key);
@@ -1587,9 +1784,18 @@ export class MapView {
         if (!batch.length) break;
         const generation = this.generation;
         const state = this.state();
+        // Native layout for this batch (mirrors addon.cpp).
+        const layer = batch[0].layer;
+        const scale = batch[0].scale;
+        const rgbaStride = TILE_CELLS * TILE_CELLS * 4;
+        const heightStride = layer > 0 && scale === 1 ? TILE_CELLS * TILE_CELLS * 2 : 0;
+        const maskStride = layer === 2 && scale === 1 ? CAVE_CELLS * CAVE_CELLS : 0;
+        const floodStride = maskStride ? CAVE_CELLS * CAVE_CELLS * 2 : 0;
+        const perTile = rgbaStride + heightStride + maskStride + floodStride;
         try {
           const buffer = await call<ArrayBuffer | Uint8Array>('renderTiles', {
             ...state,
+            layer,
             sx: TILE_CELLS,
             sz: TILE_CELLS,
             tiles: batch.map((job) => ({ scale: job.scale, x: job.x, z: job.z })),
@@ -1599,18 +1805,38 @@ export class MapView {
             break;
           }
           const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-          const stride = TILE_CELLS * TILE_CELLS * 4;
+          if (bytes.byteLength < batch.length * perTile) {
+            throw new Error('terrain-buffer-short');
+          }
           batch.forEach((job, index) => {
-            const start = index * stride;
-            const slice = bytes.subarray(start, start + stride);
-            if (slice.length !== stride || slice[3] === 0) return;
-            const copy = new Uint8ClampedArray(stride);
-            copy.set(slice);
+            const start = index * perTile;
+            // A fully transparent first pixel means the native side could not
+            // build this tile; keep it out of the cache so it is retried later.
+            if (bytes.length < start + rgbaStride || bytes[start + 3] === 0) return;
+            const copy = new Uint8ClampedArray(rgbaStride);
+            copy.set(bytes.subarray(start, start + rgbaStride));
             const image = new ImageData(copy, TILE_CELLS, TILE_CELLS);
-            const tile = document.createElement('canvas');
-            tile.width = TILE_CELLS;
-            tile.height = TILE_CELLS;
-            tile.getContext('2d')!.putImageData(image, 0, 0);
+            const canvas = document.createElement('canvas');
+            canvas.width = TILE_CELLS;
+            canvas.height = TILE_CELLS;
+            canvas.getContext('2d')!.putImageData(image, 0, 0);
+            const tile: CachedTile = { canvas };
+            // Copy the payloads out of the batch buffer so caching a tile does
+            // not retain the whole multi-tile response.
+            if (heightStride) {
+              tile.height = new Int16Array(TILE_CELLS * TILE_CELLS);
+              new Uint8Array(tile.height.buffer).set(
+                bytes.subarray(start + rgbaStride, start + rgbaStride + heightStride));
+            }
+            if (maskStride) {
+              const maskStart = start + rgbaStride + heightStride;
+              tile.mask = new Uint8Array(maskStride);
+              tile.mask.set(bytes.subarray(maskStart, maskStart + maskStride));
+              tile.floodY = new Int16Array(CAVE_CELLS * CAVE_CELLS);
+              new Uint8Array(tile.floodY.buffer).set(
+                bytes.subarray(maskStart + maskStride, maskStart + maskStride + floodStride));
+              tile.cave = this.buildCaveCanvas(tile.mask);
+            }
             this.tiles.set(job.key, tile);
             this.evictTiles(job.key);
             this.attempts.delete(job.key);
@@ -1619,10 +1845,16 @@ export class MapView {
         } catch (error) {
           this.readout.textContent = error instanceof Error ? error.message : String(error);
           if (generation === this.generation) {
+            if (batch.some((job) => job.layer > 0)) {
+              // Terrain/layer requests failed: fall back to the biome map once,
+              // tell the user, and never retry the expensive path this session.
+              this.failTerrain();
+              break;
+            }
             for (const job of batch) {
               const tries = (this.attempts.get(job.key) ?? 0) + 1;
               this.attempts.set(job.key, tries);
-              if (tries < 3) this.pending.set(job.key, { scale: job.scale, x: job.x, z: job.z });
+              if (tries < 3) this.pending.set(job.key, { scale: job.scale, x: job.x, z: job.z, layer: job.layer });
             }
             await new Promise((resolve) => window.setTimeout(resolve, 300));
           } else {
@@ -1652,6 +1884,7 @@ export class MapView {
   }
 
   private evictTiles(keep?: string): void {
+    const limit = this.terrain.checked ? MAX_TILE_CACHE_TERRAIN : MAX_TILE_CACHE;
     const keepView = this.expandedViewBounds(PENDING_MARGIN_TILES);
     // Always drop canvases that are no longer near the viewport.
     for (const cached of [...this.tiles.keys()]) {
@@ -1659,7 +1892,7 @@ export class MapView {
       if (this.tileVisible(cached, keepView)) continue;
       this.tiles.delete(cached);
     }
-    if (this.tiles.size <= MAX_TILE_CACHE) return;
+    if (this.tiles.size <= limit) return;
     // If still over budget, drop farthest visible tiles (keep `keep` and nearest).
     const view = this.viewBounds();
     const midX = (view.x0 + view.x1) / 2;
@@ -1677,7 +1910,7 @@ export class MapView {
       })
       .sort((a, b) => b.dist - a.dist);
     for (const item of ranked) {
-      if (this.tiles.size <= MAX_TILE_CACHE) break;
+      if (this.tiles.size <= limit) break;
       this.tiles.delete(item.key);
     }
   }

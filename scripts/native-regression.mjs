@@ -1,4 +1,4 @@
-﻿import crypto from 'node:crypto';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -183,6 +183,72 @@ cases.basic = {
   tile1: hash(await addon.renderTile({
     mc, seed: '123', dim: 0, largeBiomes: false, scale: 1, x: -64, z: -64, sx: 64, sz: 64, y: 64,
   })),
+};
+
+const SX = 128;
+const SZ = 128;
+const CAVE_CELLS = (SX / 4) * (SZ / 4);
+const RGBA_STRIDE = SX * SZ * 4;
+const HEIGHT_STRIDE = SX * SZ * 2;
+
+/** Cave opening class counts taken straight out of the packed layer-2 buffer. */
+function caveClasses(buffer) {
+  const start = RGBA_STRIDE + HEIGHT_STRIDE;
+  const counts = { none: 0, dry: 0, water: 0, lava: 0 };
+  for (let i = 0; i < CAVE_CELLS; i++) {
+    const value = buffer[start + i];
+    if (value === 1) counts.dry++;
+    else if (value === 2) counts.water++;
+    else if (value === 3) counts.lava++;
+    else counts.none++;
+  }
+  return counts;
+}
+
+/**
+ * Terrain/cave layer protocol case: length pins the wire layout and the hash
+ * pins the rendered result, so an accidental layout or sampling change fails.
+ */
+async function terrainCase(args, withCaves = false) {
+  const buffer = await addon.renderTiles({ sx: SX, sz: SZ, dim: 0, largeBiomes: false, y: 64, ...args });
+  const out = { len: buffer.length, hash: hash(buffer) };
+  if (withCaves) out.caves = caveClasses(buffer);
+  return out;
+}
+
+cases.terrain = {
+  // 1:1 cave-free relief (caves off) and the cave-aware relief of the same tile.
+  layer1: await terrainCase({ mc, seed: '123', layer: 1, tiles: [{ scale: 1, x: -64, z: -64 }] }),
+  layer2Same: await terrainCase({
+    mc, seed: '123', layer: 2, tiles: [{ scale: 1, x: -64, z: -64 }],
+  }, true),
+  // This tile has several water-classified cheese cave openings near sea level.
+  layer2: await terrainCase({
+    mc, seed: '2024930312894089656', layer: 2, tiles: [{ scale: 1, x: -256, z: -256 }],
+  }, true),
+  layer2Caves118: await terrainCase({
+    mc: versions.find((item) => item.name === '1.18').id, seed: '-1051743253566878335', layer: 2,
+    tiles: [{ scale: 1, x: 0, z: 0 }],
+  }, true),
+  // Same caves, caves off: a plain surface instead of the carved voids.
+  layer1NoCaves: await terrainCase({
+    mc: versions.find((item) => item.name === '1.18').id, seed: '-1051743253566878335', layer: 1,
+    tiles: [{ scale: 1, x: 0, z: 0 }],
+  }),
+  // Everything below the lava level is painted flat lava (vanilla lava sea).
+  lavaSea: await terrainCase({
+    mc, seed: '5004272888356068531', layer: 1, tiles: [{ scale: 1, x: 2355072, z: -8778880 }],
+  }),
+  lavaSeaCaves: await terrainCase({
+    mc, seed: '5004272888356068531', layer: 2, tiles: [{ scale: 1, x: 2355072, z: -8778880 }],
+  }, true),
+  // Nether/end fall back to biome colours but keep the terrain payload shape.
+  layer1Nether: await terrainCase({
+    mc, seed: '123', layer: 1, dim: -1, tiles: [{ scale: 1, x: -64, z: -64 }],
+  }),
+  // 1:4 never renders terrain: no height payload, and layer 2 degenerates to no mask.
+  layer1Scale4: await terrainCase({ mc, seed: '123', layer: 1, tiles: [{ scale: 4, x: -16, z: -16 }] }),
+  layer2Scale4: await terrainCase({ mc, seed: '123', layer: 2, tiles: [{ scale: 4, x: -16, z: -16 }] }),
 };
 
 cases.lowySingle = await runSearch(
@@ -425,11 +491,12 @@ console.log(JSON.stringify({
   out: outPath,
   cases: Object.fromEntries(Object.entries(cases).map(([key, value]) => [key,
     value && value.hits ? { done: value.done, error: value.error, hits: value.hits.length }
-      : value && value.startError ? { startError: value.startError }
-        : value && value.timeout ? { timeout: true } : 'basic'])),
+      : value && value.layer1 ? 'terrain layers'
+        : value && value.startError ? { startError: value.startError }
+          : value && value.timeout ? { timeout: true } : 'basic'])),
 }, null, 2));
 
-const failed = Object.entries(cases).some(([key, value]) => key !== 'basic' &&
+const failed = Object.entries(cases).some(([key, value]) => key !== 'basic' && key !== 'terrain' &&
   (!value || value.timeout || value.startError || value.error || !value.done));
 process.exit(failed ? 1 : 0);
 

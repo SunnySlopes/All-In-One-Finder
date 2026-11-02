@@ -11,6 +11,9 @@ A **set-seed** desktop tool for Minecraft Java Edition 1.18+: browse seed maps a
 - Enter a world seed and game version to browse **Overworld / Nether / End** biome maps
 - Supports Large Biomes, sample Y, coordinate grid, zoom, and pan
 - Overlays common structures and features (toggle by type)
+- Optional "Show terrain": **1:1 only** (one block per pixel) draws the real overworld surface with hill shading over the biome colours; 1:4 and coarser stay on the biome map. Relief, cave openings and the lava sea are one single toggle (there is no separate caves option, and no contour/boundary lines are drawn)
+- The relief comes from the full density field and also marks the **cheese cave openings that reach the surface**: water (blue) and lava (orange) get a translucent fill, dry openings are not annotated
+- Anything whose top solid block is below the lava level (y <= -55) is painted as lava (the vanilla lava sea), so deep voids show up orange; hovering reads `Y=` (cubiomes' topmost solid block, `-64` with a "theoretical" marker when no solid was found) and `lava=-54` for lava-sea columns
 - Jump to coordinates; parse coordinates from `/tp` or `(x, z)` text
 - Optionally draw spawn rings (24 / 128) to help plan AFK spots
 - Export / import sessions
@@ -64,7 +67,7 @@ Development and regression:
 
 ```powershell
 npm run dev         # Vite 5173 + host --dev (renderer hot reload)
-npm run regression  # 28 native cases, run through the same engine via aio-engine --serve
+npm run regression  # 29 native cases (incl. the terrain/cave layer protocol), via aio-engine --serve
 npm run verify      # release gate: size / version resources / stage manifest / system DLL dependencies / smoke test
 ```
 

@@ -7,6 +7,7 @@
 #include "multi_monument_host.h"
 #include "river_host.h"
 #include "slime_host.h"
+#include "terrain_map.h"
 #include "trial_detail.h"
 #include "trial_host.h"
 #include "witch_host.h"
@@ -84,6 +85,17 @@ Napi::Value RenderTiles(const Napi::CallbackInfo &info)
     int sz = args.Get("sz").As<Napi::Number>().Int32Value();
     bool large = readBool(args, "largeBiomes");
     int64_t seed = readSeed(args.Get("seed"), true);
+    // Optional layer: absent/0 keeps the historical biome path byte for byte.
+    int layer = MAP_LAYER_BIOME;
+    Napi::Value layerArg = args.Get("layer");
+    if (!layerArg.IsUndefined() && !layerArg.IsNull()) {
+        if (!layerArg.IsNumber()) throw Napi::Error::New(info.Env(), "bad-layer");
+        layer = layerArg.As<Napi::Number>().Int32Value();
+    }
+    if (layer < MAP_LAYER_BIOME || layer > MAP_LAYER_TERRAIN_CAVES)
+        throw Napi::Error::New(info.Env(), "bad-layer");
+    if (layer != MAP_LAYER_BIOME && (sx < 4 || sz < 4 || sx > 1024 || sz > 1024))
+        throw Napi::Error::New(info.Env(), "bad-size");
     Napi::Array requested = args.Get("tiles").As<Napi::Array>();
     if (requested.Length() > 512) throw Napi::Error::New(info.Env(), "too-many-tiles");
     std::vector<TileSpec> tiles;
@@ -99,12 +111,33 @@ Napi::Value RenderTiles(const Napi::CallbackInfo &info)
         tiles.push_back(tile);
     }
     std::vector<TileImage> images;
-    renderTiles(mc, static_cast<uint64_t>(seed), dim, mapFlags(large), y, tiles, images);
-    const size_t stride = static_cast<size_t>(sx) * static_cast<size_t>(sz) * 4;
-    std::vector<uint8_t> packed(images.size() * stride, 0);
+    if (layer == MAP_LAYER_BIOME) {
+        renderTiles(mc, static_cast<uint64_t>(seed), dim, mapFlags(large), y, tiles, images);
+    } else {
+        renderTerrainTiles(mc, static_cast<uint64_t>(seed), dim, mapFlags(large), y, layer, tiles, images);
+    }
+    const size_t rgbaStride = static_cast<size_t>(sx) * static_cast<size_t>(sz) * 4;
+    // Only 1:1 tiles carry the extra height/cave payload; both sides derive the
+    // layout from (layer, scale) so the lengths always agree.
+    const int firstScale = tiles.empty() ? 0 : tiles[0].scale;
+    const size_t cells = static_cast<size_t>(sx / 4) * static_cast<size_t>(sz / 4);
+    const size_t heightStride = layer > 0 && firstScale == 1
+        ? static_cast<size_t>(sx) * static_cast<size_t>(sz) * 2 : 0;
+    const size_t maskStride = layer == MAP_LAYER_TERRAIN_CAVES && firstScale == 1 ? cells : 0;
+    const size_t floodStride = maskStride ? cells * 2 : 0;
+    const size_t perTile = rgbaStride + heightStride + maskStride + floodStride;
+    std::vector<uint8_t> packed(images.size() * perTile, 0);
     for (size_t i = 0; i < images.size(); i++) {
-        if (images[i].rgba.size() == stride)
-            std::memcpy(packed.data() + i * stride, images[i].rgba.data(), stride);
+        uint8_t *base = packed.data() + i * perTile;
+        if (images[i].rgba.size() == rgbaStride)
+            std::memcpy(base, images[i].rgba.data(), rgbaStride);
+        if (heightStride && images[i].height.size() == static_cast<size_t>(sx) * sz)
+            std::memcpy(base + rgbaStride, images[i].height.data(), heightStride);
+        if (maskStride && images[i].cave.size() == cells)
+            std::memcpy(base + rgbaStride + heightStride, images[i].cave.data(), maskStride);
+        if (floodStride && images[i].floodY.size() == cells)
+            std::memcpy(base + rgbaStride + heightStride + maskStride,
+                        images[i].floodY.data(), floodStride);
     }
     return Napi::Buffer<uint8_t>::Copy(info.Env(), packed.data(), packed.size());
 }

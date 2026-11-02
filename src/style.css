@@ -178,9 +178,13 @@ button:disabled { opacity: 0.45; cursor: default; }
 .grid { display: grid; grid-template-columns: 96px 1fr; gap: 5px 6px; align-items: center; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* Author `display: flex` beats the UA `[hidden]` rule, so restate it here. */
+.row[hidden], .hint[hidden] { display: none; }
 .hint { color: #b7c0aa; font-size: 12px; line-height: 1.4; }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 12px; }
 .feature { display: flex; gap: 6px; align-items: center; }
+/* Disabled layer checkbox: the label text dims with its input. */
+.feature input:disabled + span { opacity: 0.45; }
 .grid .span-full { grid-column: 1 / -1; }
 .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
 .icon { width: 16px; height: 16px; flex: none; image-rendering: pixelated; }

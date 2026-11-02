@@ -118,6 +118,7 @@
       'y=' + (data.y == null ? 256 : data.y),
       'largeBiomes=' + (data.largeBiomes ? 'true' : 'false'),
       'grid=' + (data.grid ? 'true' : 'false'),
+      'terrain=' + (data.terrain ? 'true' : 'false'),
       'features=' + features,
       ''
     ].join('\n');

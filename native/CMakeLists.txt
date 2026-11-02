@@ -205,6 +205,7 @@ target_compile_options(geode_bridge PRIVATE
 set(HOT_CXX
   addon.cpp
   map_service.cpp
+  terrain_map.cpp
   lowy_host.cpp
   slime_host.cpp
   witch_host.cpp

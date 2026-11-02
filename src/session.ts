@@ -7,6 +7,11 @@ export interface MapSessionData {
   y: number;
   largeBiomes: boolean;
   grid: boolean;
+  /**
+   * 主世界地形叠加层（默认关闭，旧 session 缺省即关闭）。
+   * 0.9.0 的独立 `caves` 开关已并入这里，旧文件里的 `caves=` 直接忽略。
+   */
+  terrain?: boolean;
   features: string[];
   /** 每个搜索器当前填写的条件（form + 面板私有状态）。 */
   searchers?: Record<string, unknown>;
@@ -43,6 +48,7 @@ export function parseSessionFile(text: string): MapSessionData | null {
     y: Number(map.get('y') || 256),
     largeBiomes: map.get('largeBiomes') === 'true' || map.get('largeBiomes') === '1',
     grid: map.get('grid') !== 'false' && map.get('grid') !== '0',
+    terrain: map.get('terrain') === 'true' || map.get('terrain') === '1',
     features,
   });
 }
@@ -53,6 +59,7 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
   const dim = Number(data.dim);
   const y = Number(data.y);
   const named = typeof data.version === 'string' && !/^\d+$/.test(data.version) ? data.version : '';
+  const terrain = data.terrain === true;
   return {
     kind: 'aio-session',
     version: 1,
@@ -62,6 +69,7 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
     y: Number.isFinite(y) ? y : 256,
     largeBiomes: !!data.largeBiomes,
     grid: data.grid !== false,
+    terrain,
     features: Array.isArray(data.features)
       ? data.features.filter((item): item is string => typeof item === 'string')
       : [],

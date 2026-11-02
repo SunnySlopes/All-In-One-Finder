@@ -53,6 +53,12 @@ struct TileSpec {
 
 struct TileImage {
     std::vector<uint8_t> rgba;
+    /** Surface Y per pixel (topmost solid block), only for layer > 0 at 1:1. */
+    std::vector<int16_t> height;
+    /** Cave opening mask per 4x4 cell (0 none, 1 dry, 2 water, 3 lava), layer 2 at 1:1. */
+    std::vector<uint8_t> cave;
+    /** Highest fluid surface per 4x4 cell for layer 2 openings; no-fluid sentinel otherwise. */
+    std::vector<int16_t> floodY;
 };
 
 bool parseSeedText(const std::string &text, uint64_t *out, bool allowTextHash);
