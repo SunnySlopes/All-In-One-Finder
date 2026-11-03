@@ -102,7 +102,7 @@ Thanks to everyone who contributed; without your contributions this finder would
 - Low-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: <https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase>, author: SunnySlopes
 - Slime Chunks: <https://github.com/CITYWIDESIGN/SlimeRadar>,
   <https://github.com/CITYWIDESIGN/SlimeOptimizer>, author: Bot_City
-- Double Ocean Monument: <https://github.com/SunnySlopes/DoubleMonumentForFixedSeed>, author: SunnySlopes
+- Double Ocean Monument: <https://github.com/SunnySlopes/doubleMonumentFinderBase>, author: SunnySlopes
 - Multi Ocean Monument: <https://github.com/Whisperlyric/MultiMonumentFinder>, authors: Whisperlyric, SunnySlopes
 - Fortress Crossroads and Fortress Large Range: <https://github.com/SunnySlopes/FortressFinderGUI>, author: SunnySlopes
 - Trial Spawner: <https://github.com/qk-yiyihehe/trial-spawner-native>, author: qk-yiyihehe

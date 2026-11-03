@@ -13,6 +13,7 @@ import { SearchPanel } from './search';
 import { SlimePanel } from './slime';
 import { TrialPanel } from './trial';
 import { WitchPanel } from './witch';
+import { onRunLockChange, runLockOwner } from './run-lock';
 import { SEARCHER_ITEMS, type SearcherId } from './searchers';
 import { parseSessionFile, type MapSessionData } from './session';
 
@@ -73,6 +74,16 @@ river.onNavigate = (id) => show(id);
 witch.getLargeBiomes = () => map.getLargeBiomes();
 
 let current: SearcherId = 'map';
+
+// 全局“仅一个搜索”占用释放时，重新渲染当前页以恢复 Start 按钮。
+// 占用开始时不需要刷新：开始搜索的页就是当前页，其它页里的 Start 在 show() 时
+// 已经按占用状态渲染成 disabled。
+let hadRunLock = false;
+onRunLockChange(() => {
+  const owned = runLockOwner() !== null;
+  if (hadRunLock && !owned) refreshPanel(current);
+  hadRunLock = owned;
+});
 
 /** 存档中一并保存每个搜索器当前填写的条件。 */
 function collectSearcherStates(): Record<string, unknown> {
@@ -277,7 +288,13 @@ function show(which: SearcherId): void {
   paintSearcherBar();
   applyI18n();
   results.refresh();
+  refreshPanel(which);
+}
+
+/** 重新渲染某个搜索器的页脚/表单；用于切 Tab 和全局占用状态变化。 */
+function refreshPanel(which: SearcherId): void {
   if (which === 'map') map.refreshText();
+  else if (which === 'LowYDripstoneCave' || which === 'LowYPitDripstoneCave') search.refresh();
   else if (which === 'SlimeChunk') slime.refresh();
   else if (which === 'LowYSwampHut') witch.refresh();
   else if (which === 'FlowerFarm') flower.refresh();
@@ -288,7 +305,6 @@ function show(which: SearcherId): void {
   else if (which === 'NetherFortressOverall') fortressSpan.refresh();
   else if (which === 'DoubleMonument') monumentDouble.refresh();
   else if (which === 'MultiMonument') monumentMulti.refresh();
-  else search.refresh();
 }
 
 function setupColumnResize(): void {

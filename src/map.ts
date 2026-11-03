@@ -112,6 +112,8 @@ const MAX_PENDING = 96;
 const ICON_SIZE = 20;
 /** Ocean monuments are 58x58 blocks and centered on the structure position. */
 const MONUMENT_SIZE = 58;
+/** Swamp huts use the same 7x9 / 9x7 footprint frame color for every visible hut. */
+const SWAMP_HUT_FRAME_COLOR = '#9acd5a';
 /**
  * Trial chambers: only the whole-trial outline (outermost union of all pieces,
  * padded by one block) is drawn (from 1:4); cage columns appear at 1:1.
@@ -133,6 +135,12 @@ const TRIAL_FRAME_STROKE = 'rgba(208, 162, 74, 0.9)';
 const TRIAL_FRAME_FILL = 'rgba(208, 162, 74, 0.06)';
 const TRIAL_CAGE_FAST = '#ffd166';
 const TRIAL_CAGE_SLOW = '#7fd0c8';
+/**
+ * Poll interval for the biome under the pointer. The coordinates and terrain Y
+ * update synchronously on every pointer move; biomeAt is a native round trip,
+ * so it is throttled (not debounced) to keep following a moving mouse.
+ */
+const BIOME_POLL_MS = 30;
 const TRIAL_CAGE_EDGE = 'rgba(20, 20, 20, 0.8)';
 const SESSION_NAME = 'map';
 const DEFAULT_FEATURES = [
@@ -349,6 +357,9 @@ export class MapView {
   private featureTimer = 0;
   private featureGen = 0;
   private biomeTimer = 0;
+  private biomePolledAt = 0;
+  private biomeInFlight = false;
+  private biomeQueued = false;
   private pointer = { x: 0, z: 0 };
   private selected: SelectedStructure | null = null;
   private selectGen = 0;
@@ -839,8 +850,11 @@ export class MapView {
         this.lastZ = event.clientY;
         this.queueDraw();
       }
-      window.clearTimeout(this.biomeTimer);
-      this.biomeTimer = window.setTimeout(() => this.updateBiome(), 80);
+      // Coordinates and surface Y follow the pointer immediately; the biome
+      // lookup is throttled so it keeps updating while the mouse is moving
+      // instead of waiting for the pointer to stop.
+      this.syncReadout();
+      this.scheduleBiomePoll();
     });
     this.canvas.addEventListener('wheel', (event) => {
       event.preventDefault();
@@ -1514,7 +1528,8 @@ export class MapView {
     if (this.biomeName) parts.push(biomeLabel(this.biomeName));
     parts.push(...this.terrainReadout());
     if (this.trialHover) parts.push(...this.trialCageLines(this.trialHover));
-    this.readout.textContent = parts.join('  ');
+    const text = parts.join('  ');
+    if (this.readout.textContent !== text) this.readout.textContent = text;
   }
 
   /**
@@ -2220,6 +2235,10 @@ export class MapView {
         this.drawWorldRect(ctx, item.x - half, item.z - half,
           item.x + MONUMENT_SIZE - half - 1, item.z + MONUMENT_SIZE - half - 1,
           '#4fd1c5');
+      } else if (feature.key === 'swamp_hut' && item.large) {
+        // Native supplies the orientation-dependent 7x9 / 9x7 footprint.
+        this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ,
+          SWAMP_HUT_FRAME_COLOR);
       } else if (feature.key === 'fortress' && item.large) {
         this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ,
           '#e06a4a');
@@ -2290,18 +2309,42 @@ export class MapView {
     }
   }
 
+  /** Throttle the biome lookup: at most one request per BIOME_POLL_MS. */
+  private scheduleBiomePoll(): void {
+    if (this.biomeTimer) return;
+    const wait = Math.max(0, BIOME_POLL_MS - (performance.now() - this.biomePolledAt));
+    this.biomeTimer = window.setTimeout(() => {
+      this.biomeTimer = 0;
+      void this.updateBiome();
+    }, wait);
+  }
+
   private async updateBiome(): Promise<void> {
+    if (this.biomeInFlight) {
+      // The pointer moved again while a lookup was pending: run once more after it.
+      this.biomeQueued = true;
+      return;
+    }
     if (!this.version.value) return;
+    this.biomeInFlight = true;
+    this.biomePolledAt = performance.now();
+    let name = '';
     try {
       const biome = await call<{ name: string }>('biomeAt', {
         ...this.state(),
         x: Math.round(this.pointer.x),
         z: Math.round(this.pointer.z),
       });
-      this.biomeName = biome.name;
+      name = biome.name;
     } catch {
-      this.biomeName = '';
+      name = '';
     }
+    this.biomeName = name;
+    this.biomeInFlight = false;
     this.syncReadout();
+    if (this.biomeQueued) {
+      this.biomeQueued = false;
+      this.scheduleBiomePoll();
+    }
   }
 }

@@ -100,7 +100,7 @@ https://github.com/Melationin/RiverFinder ，作者：若莫、SunnySlopes
 - 低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase ，作者：SunnySlopes
 - 史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar 、
 https://github.com/CITYWIDESIGN/SlimeOptimizer ，作者：Bot_City
-- 二联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed ，作者：SunnySlopes
+- 二联海底神殿：https://github.com/SunnySlopes/doubleMonumentFinderBase ，作者：SunnySlopes
 - 多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder ，作者：浅唱清辞、SunnySlopes
 - 地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI ，作者：SunnySlopes
 - 试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native ，作者：打野别说话

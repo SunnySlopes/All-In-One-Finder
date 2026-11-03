@@ -338,7 +338,9 @@ void job(TrialRequest request, int startSeed)
         gControl.reset();
     }
     if (stopped) clearCheckpoints();
-    searchGateRelease(SearchOwner::Trial);
+    // 暂停时工作线程结束了，但搜索并未结束：继续持有全局闸门，保证暂停中也
+    // 不能启动第二个搜索。恢复 / 停止时再沿用或释放这把闸门。
+    if (!paused) searchGateRelease(SearchOwner::Trial);
 }
 
 bool validRequest(const TrialRequest &request, std::string &error)
@@ -572,6 +574,8 @@ void trialStop()
     // 显式“停止”丢弃断点；暂停/关闭程序仍保留断点以便续跑。
     if (pausedStop) {
         clearCheckpoints();
+        // 暂停中的任务仍持有闸门（见 job() 的 !paused 判断），停止时释放。
+        searchGateRelease(SearchOwner::Trial);
         return;
     }
     gStop.store(true);

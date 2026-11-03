@@ -40,6 +40,14 @@ if (EXISTS "${LOWY}/cubiomes/generator.h")
     "tools/dripstonecave/cubiomes is populated; the dripstone engine will include that copy instead of the shared tools/cubiomes. "
     "Keep the nested cubiomes empty so the single-node cubiomes stays unified.")
 endif()
+# doubleMonumentFinderBase also carries a nested cubiomes submodule, and
+# monument_search_core.c includes "cubiomes/*.h" with quotes, so a populated
+# tools/doublemonument/cubiomes would shadow the shared headers.  Keep it empty.
+if (EXISTS "${DOUBLE}/cubiomes/finders.h")
+  message(WARNING
+    "tools/doublemonument/cubiomes is populated; the double monument kernel will include that copy instead of the shared tools/cubiomes. "
+    "Keep the nested cubiomes empty so the single-node cubiomes stays unified.")
+endif()
 
 option(AIO_DOUBLE_MONUMENT_REFACTORED "doublemonument branch already renamed for AIO" ON)
 

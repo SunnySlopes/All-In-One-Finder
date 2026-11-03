@@ -92,11 +92,17 @@ export class RunTimer {
   }
 
   elapsed(): number {
-    return this.startedAt ? Math.max(0, Date.now() - this.startedAt) : 0;
+    if (!this.startedAt) return 0;
+    // While paused the anchors are not shifted yet (that happens on resume), so
+    // stop the clock at `pausedAt` instead of letting it keep counting.
+    const now = this.pausedAt || Date.now();
+    return Math.max(0, now - this.startedAt);
   }
 
   phaseElapsed(): number {
-    return this.phaseAt ? Math.max(0, Date.now() - this.phaseAt) : this.elapsed();
+    if (!this.phaseAt) return this.elapsed();
+    const now = this.pausedAt || Date.now();
+    return Math.max(0, now - this.phaseAt);
   }
 }
 

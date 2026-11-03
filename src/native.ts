@@ -1,3 +1,6 @@
+import { runLockOwner, setRunLockOwner } from './run-lock';
+import type { SearcherId } from './searchers';
+
 export interface McVersion {
   id: number;
   name: string;
@@ -383,6 +386,41 @@ const HIT_POLL_OPS = new Set([
   'doubleMonumentSearchPoll',
 ]);
 
+/** start RPC → 该搜索器在全局占用里的 id。 */
+const START_OWNER: Record<string, (args: Record<string, unknown> | undefined) => SearcherId> = {
+  searchStart: (args) => (args?.page === 'lowy-fast' ? 'LowYPitDripstoneCave' : 'LowYDripstoneCave'),
+  slimeFarmStart: () => 'SlimeChunk',
+  witchSearchStart: () => 'LowYSwampHut',
+  riverSearchStart: () => 'River',
+  flowerFarmStart: () => 'FlowerFarm',
+  trialStart: () => 'TrialSpawner',
+  geodeStart: () => 'BuddingAmethyst',
+  fortressSearchStart: (args) => (Number(args?.mode) === 1 ? 'NetherFortressOverall' : 'NetherFortressCross'),
+  doubleMonumentSearchStart: () => 'DoubleMonument',
+  multiMonumentSearchStart: () => 'MultiMonument',
+};
+
+/** poll RPC → 归属该 poll 的搜索器（两个低Y tab / 两个堡垒 tab 共用一个 poll）。 */
+const POLL_OWNERS: Record<string, SearcherId[]> = {
+  searchPoll: ['LowYDripstoneCave', 'LowYPitDripstoneCave'],
+  slimeFarmPoll: ['SlimeChunk'],
+  witchSearchPoll: ['LowYSwampHut'],
+  riverSearchPoll: ['River'],
+  flowerFarmPoll: ['FlowerFarm'],
+  trialPoll: ['TrialSpawner'],
+  geodePoll: ['BuddingAmethyst'],
+  fortressSearchPoll: ['NetherFortressCross', 'NetherFortressOverall'],
+  multiMonumentSearchPoll: ['MultiMonument'],
+  doubleMonumentSearchPoll: ['DoubleMonument'],
+};
+
+function releaseRunLockForPoll(op: string): void {
+  const owners = POLL_OWNERS[op];
+  if (!owners) return;
+  const current = runLockOwner();
+  if (current && owners.includes(current)) setRunLockOwner(null);
+}
+
 function normalize(op: string, value: unknown): unknown {
   if (!HIT_POLL_OPS.has(op) || !value || typeof value !== 'object') return value;
   const status = value as { hits: Array<{ seed: bigint | number | string }> };
@@ -406,6 +444,29 @@ export function call<T>(op: string, args?: unknown): Promise<T> {
   if (typeof rpc !== 'function') {
     return Promise.reject(new Error('native-host-unavailable'));
   }
-  return rpc(op, args).then((value) => normalize(op, value) as T);
+  const startOwner = START_OWNER[op];
+  const isPoll = POLL_OWNERS[op] !== undefined;
+  return rpc(op, args).then(
+    (value) => {
+      const normalized = normalize(op, value);
+      if (startOwner) {
+        // start 成功才占用；native 的 busy 拒绝不会走到这里。
+        setRunLockOwner(startOwner(args as Record<string, unknown> | undefined));
+      } else if (isPoll) {
+        const status = normalized as { done?: boolean; running?: boolean; paused?: boolean } | null;
+        // 暂停中的搜索同样占用：只有真正结束（done）或引擎已退出（非暂停的 running=false）
+        // 才释放，否则 trial 这类“暂停即结束工作线程”的搜索会让第二个搜索乘虚而入。
+        if (!status || status.done === true || (status.running === false && status.paused !== true)) {
+          releaseRunLockForPoll(op);
+        }
+      }
+      return normalized as T;
+    },
+    (error: unknown) => {
+      // poll 失败通常意味着引擎已经不在了：释放占用，避免所有 Start 永久锁死。
+      if (isPoll) releaseRunLockForPoll(op);
+      throw error;
+    },
+  );
 }
 

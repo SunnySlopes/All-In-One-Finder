@@ -11,7 +11,7 @@
 	branch = main
 [submodule "tools/doublemonument"]
 	path = tools/doublemonument
-	url = https://github.com/SunnySlopes/DoubleMonumentForFixedSeed.git
+	url = https://github.com/SunnySlopes/doubleMonumentFinderBase
 	branch = all-in-one-base
 [submodule "tools/multimonument"]
 	path = tools/multimonument

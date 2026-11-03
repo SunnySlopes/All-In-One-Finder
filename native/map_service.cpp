@@ -18,6 +18,10 @@
 #include <thread>
 #include <unordered_map>
 
+// lowyswamphut：小屋朝向（= footprint 7(x)×9(z) 还是 9(x)×7(z)）。与低 Y 女巫
+// 小屋搜索器共用同一份配方，地图上给每座可见小屋画结构范围边框。
+extern "C" int lysh_hut_orientation(uint64_t world_seed, int hut_x, int hut_z);
+
 namespace {
 
 std::mutex gMu;
@@ -586,6 +590,23 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
             item.hasFrame = true;
             item.large = bounds.large;
             item.pieces = std::move(bounds.pieces);
+        }
+    }
+
+    if (dim == DIM_OVERWORLD && wanted(types, Swamp_Hut)) {
+        // 小屋原点就是结构起点（chunkX*16, chunkZ*16），朝向决定 7×9 还是 9×7。
+        for (PlacedFeature &item : out) {
+            if (item.type != Swamp_Hut) continue;
+            const int dir = lysh_hut_orientation(seed, item.x, item.z);
+            const bool axisZ = dir == 0 || dir == 2;
+            item.hasFrame = true;
+            item.large = {};
+            item.large.minX = item.x;
+            item.large.maxX = item.x + (axisZ ? 7 : 9) - 1;
+            item.large.minY = 0;
+            item.large.maxY = 0;
+            item.large.minZ = item.z;
+            item.large.maxZ = item.z + (axisZ ? 9 : 7) - 1;
         }
     }
 

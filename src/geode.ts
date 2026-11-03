@@ -4,6 +4,7 @@ import { applyI18n, t } from './i18n';
 import { call, type GeodeStatus, type McVersion } from './native';
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 
 type SeedMode = 'single' | 'list';
 
@@ -179,6 +180,7 @@ export class GeodePanel {
           <input id="g-min-geodes" type="number" min="${MIN_GEODES}" value="20" />
           <label data-i18n="geode.minBudding"></label>
           <input id="g-min-budding" type="number" min="0" value="800" />
+          <div class="span-full hint" data-i18n="geode.buddingHint"></div>
           <div class="span-full">
             <label class="feature"><input id="g-allow-gpu" type="checkbox" /><span data-i18n="geode.allowGpu"></span></label>
           </div>
@@ -398,7 +400,8 @@ export class GeodePanel {
     const pauseLabel = this.pausing
       ? 'geode.pausingButton'
       : this.paused ? 'common.search.resume' : 'common.search.pause';
-    const startDisabled = this.running || this.pausing || this.stopping;
+    const startDisabled = this.running || this.pausing || this.stopping
+      || isOtherSearcherRunning('BuddingAmethyst');
     const pauseDisabled = this.stopping || this.pausing || (!this.running && !this.paused);
     const stopDisabled = (!this.running && !this.paused) || this.stopping;
     this.footer.innerHTML = `

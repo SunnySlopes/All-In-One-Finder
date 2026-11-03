@@ -1,8 +1,9 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type WitchStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { applyForm, applyRunLock, captureForm, RunTimer, escapeAttr, formatDuration, messageOf } from './panel-utils';
 import type { ResultsColumn } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 
 export type WitchVersionGroup = 0 | 1 | 2;
 
@@ -251,7 +252,7 @@ export class WitchPanel {
     this.updateSortButtons();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="w-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="w-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('LowYSwampHut') ? 'disabled' : ''}></button>
         <button id="w-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
         <button id="w-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>

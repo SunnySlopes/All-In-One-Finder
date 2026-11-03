@@ -3,6 +3,7 @@ import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SlimeStatus } from './native';
 import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
 import type { ResultsColumn } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 
 export type SlimeVersionGroup = '1.18' | 'middle' | 'modern';
 type SeedMode = 'single' | 'list';
@@ -271,7 +272,7 @@ export class SlimePanel {
     this.renderSeedBlock();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="sl-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="sl-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('SlimeChunk') ? 'disabled' : ''}></button>
         <button id="sl-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
         <button id="sl-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>

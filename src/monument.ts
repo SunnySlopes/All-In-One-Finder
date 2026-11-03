@@ -3,6 +3,7 @@ import { applyI18n, t } from './i18n';
 import { call, type McVersion, type MonumentStatus } from './native';
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
 
 export type MonumentVariant = 'double' | 'multi';
@@ -253,9 +254,9 @@ export class MonumentPanel {
     const params = this.root.querySelector('#m-params')!;
     if (this.variant === 'double') {
       params.innerHTML = `
+        ${biomeRow}
         <div class="hint" data-i18n="monument.double.help"></div>
-        <div class="hint" data-i18n="monument.double.lowHint"></div>
-        ${biomeRow}`;
+        <div class="hint" data-i18n="monument.double.lowHint"></div>`;
     } else {
       params.innerHTML = `
         <div class="grid">
@@ -299,7 +300,7 @@ export class MonumentPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="m-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="m-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
         <button id="m-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
         <button id="m-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>

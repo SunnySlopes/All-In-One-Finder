@@ -3,6 +3,7 @@ import { applyI18n, t } from './i18n';
 import { call, type TrialStatus } from './native';
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn, TrialWindowView } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 
 export type TrialVersionTier = 'legacy' | 'modern' | 'latest';
 
@@ -409,7 +410,8 @@ export class TrialPanel {
     const pauseLabel = this.pausing
       ? 'trial.pausingButton'
       : this.paused ? 'common.search.resume' : 'common.search.pause';
-    const startDisabled = this.running || this.pausing;
+    const startDisabled = this.running || this.pausing || this.paused
+      || isOtherSearcherRunning('TrialSpawner');
     const pauseDisabled = this.pausing || (!this.running && !this.paused);
     const stopDisabled = !this.running && !this.paused;
     this.footer.innerHTML = `

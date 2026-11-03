@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "About",
-      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHutFinderBase, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/qk-yiyihehe/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/qk-yiyihehe/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderBase, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
+      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHutFinderBase, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/doubleMonumentFinderBase, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/qk-yiyihehe/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/qk-yiyihehe/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderBase, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
     },
     "searcher": {
       "map": "Map",
@@ -45,6 +45,7 @@
       "pause": "Pause",
       "resume": "Resume",
       "stop": "Stop",
+      "stopping": "Stopping…",
       "working": "Working",
       "completed": "Completed",
       "unsupported": "This search does not support the selected version.",
@@ -260,10 +261,10 @@
     }
   },
   "dripstonecave": {
-    "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds. With \"Allow GPU\" checked, large searches try the OpenCL coarse scan and fall back to CPU automatically.",
+    "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds.",
     "helpPit": "Large-pit low-Y dripstone fast search. Single seed only.",
     "allowGpu": "Allow GPU",
-    "gpuHint": "Experimental: requires a usable OpenCL device; falls back to CPU when no device matches or the range is too small.",
+    "gpuHint": "The GPU coarse scan is only tried for large searches when \"Allow GPU\" is checked; it falls back to CPU when no usable device is found or the range is small.",
     "gpuLine": "Using GPU ({device})",
     "gpuUnknown": "Unknown",
     "gpuFallback": "GPU coarse scan not used (small window, many threads, or no usable device); using CPU",
@@ -339,7 +340,6 @@
       "scan": "Coarse scan",
       "refine": "Refine"
     },
-    "filtered": "At most 1000 results are kept, sorted by score.",
     "pausing": "Pausing",
     "toCave": "The river search area is very large and will lead to slow search and too many results. Do you want to switch to cave search to get higher efficiency?",
     "goCave": "Go to cave",
@@ -494,6 +494,7 @@
     "rangeLargeHint": "Large range: runtime increases noticeably; keep the automatic budget.",
     "minGeodes": "Min geodes",
     "minBudding": "Min budding",
+    "buddingHint": "Budding counts are estimates: different loading directions and some mods can make the actual budding count differ from the calculated one.",
     "allowGpu": "Allow GPU",
     "help": "The candidate budget is chosen automatically from the search range; values are in-model estimates, not in-game measurements. Large-Area(more than 1m*1m) searches only try the GPU coarse scan when \"Allow GPU\" is checked.",
     "fullMapSingleSeed": "Full map search supports a single seed only.",

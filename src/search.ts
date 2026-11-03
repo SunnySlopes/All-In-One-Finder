@@ -1,9 +1,10 @@
-import { ask } from './dialog';
+import { ask, showNotice } from './dialog';
 import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SearchStatus } from './native';
 import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
 import type { ResultsColumn } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
 
 const LUCKY_AREA = 6000001 * 6000001;
@@ -60,6 +61,12 @@ export class SearchPanel {
   private supported = true;
   private running = false;
   private paused = false;
+  /** Stop 已发出、等待引擎收尾；期间冻结计时并禁用按钮，避免重复点击/重复启动。 */
+  private stopping = false;
+  /** 最近一次展示过的运行错误，避免轮询重复弹窗。 */
+  private shownError = '';
+  /** 每次 start 递增；用于丢弃上一次搜索的迟到轮询结果。 */
+  private runSeq = 0;
   private pollTimer = 0;
   private versions: McVersion[] = [];
   private seed = '';
@@ -437,9 +444,9 @@ export class SearchPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="s-start" type="button" data-i18n="common.search.start" ${this.supported && !this.running ? '' : 'disabled'}></button>
-        <button id="s-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="s-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="s-start" type="button" data-i18n="common.search.start" ${this.supported && !this.running && !this.stopping && !isOtherSearcherRunning(this.searcher) ? '' : 'disabled'}></button>
+        <button id="s-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="s-stop" type="button" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="s-bar"></div></div>
       <div id="s-progress" class="hint"></div>
@@ -450,9 +457,9 @@ export class SearchPanel {
 
     this.footer.querySelector('#s-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#s-pause')?.addEventListener('click', () => void this.togglePause());
-    this.footer.querySelector('#s-stop')?.addEventListener('click', () => void call('searchStop'));
+    this.footer.querySelector('#s-stop')?.addEventListener('click', () => void this.stop());
     applyI18n(this.root);
-    applyRunLock(this.root, this.running, this.paused);
+    applyRunLock(this.root, this.running || this.stopping, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
   }
 
@@ -581,6 +588,8 @@ export class SearchPanel {
       this.results?.setLowyMapVersion(this.searchTab, this.searchMapVersion);
       this.running = true;
       this.paused = false;
+      this.stopping = false;
+      this.shownError = '';
       this.lastStatus = null;
       this.restoredElapsed = null;
       delete this.statusByTab[this.searchTab];
@@ -594,23 +603,61 @@ export class SearchPanel {
   }
 
   private async togglePause(): Promise<void> {
-    if (this.paused) {
-      await call('searchResume');
-      this.paused = false;
-      this.timer.resume();
-    } else {
-      await call('searchPause');
-      this.paused = true;
-      this.timer.pause();
+    if (this.stopping) return;
+    try {
+      if (this.paused) {
+        await call('searchResume');
+        this.paused = false;
+        this.timer.resume();
+      } else {
+        await call('searchPause');
+        this.paused = true;
+        this.timer.pause();
+      }
+    } catch (error) {
+      await showNotice(messageOf(error));
     }
+    this.render();
+  }
+
+  /** 停止搜索：先冻结计时并锁住按钮，再由轮询确认引擎真正结束。 */
+  private async stop(): Promise<void> {
+    if (this.stopping) return;
+    this.stopping = true;
+    this.timer.pause();
+    this.render();
+    try {
+      await call('searchStop');
+    } catch (error) {
+      await showNotice(messageOf(error));
+    }
+    // 不在这里解锁 running：等 searchPoll 报告 done / running=false 后再恢复 UI，
+    // 否则引擎还在收尾时用户可以立刻再开一个搜索。
+    this.render();
+  }
+
+  private finishRun(status: SearchStatus): void {
+    window.clearInterval(this.pollTimer);
+    this.running = false;
+    this.paused = false;
+    this.stopping = false;
+    const elapsed = this.timer.elapsed();
+    this.statusByTab[this.searchTab] = {
+      status,
+      elapsed,
+      pit: this.searchPit,
+    };
+    this.restoredElapsed = elapsed;
     this.render();
   }
 
   private poll(): void {
     window.clearInterval(this.pollTimer);
+    const seq = ++this.runSeq;
     this.pollTimer = window.setInterval(async () => {
       try {
         const status = await call<SearchStatus>('searchPoll');
+        if (seq !== this.runSeq) return;
         this.lastStatus = status;
         this.restoredElapsed = null;
         this.running = status.running;
@@ -621,22 +668,21 @@ export class SearchPanel {
         }
         this.paintStatus(status);
         this.results?.setHits(status.hits, this.searchTab, this.searchListMode);
-        if (status.done) {
-          window.clearInterval(this.pollTimer);
-          this.running = false;
-          this.paused = false;
-          const elapsed = this.timer.elapsed();
-          this.statusByTab[this.searchTab] = {
-            status,
-            elapsed,
-            pit: this.searchPit,
-          };
-          this.restoredElapsed = elapsed;
-          this.render();
+        if (status.error && status.error !== this.shownError) {
+          this.shownError = status.error;
+          await showNotice(messageOf(status.error));
+        }
+        // done 或“运行已结束但没报 done”（引擎侧提前收尾）都要恢复 UI。
+        if (status.done || !status.running) {
+          this.finishRun(status);
         }
       } catch {
+        if (seq !== this.runSeq) return;
         window.clearInterval(this.pollTimer);
         this.running = false;
+        this.paused = false;
+        this.stopping = false;
+        this.render();
       }
     }, 100);
   }
@@ -699,7 +745,7 @@ export class SearchPanel {
     const pct = complete
       ? 100
       : status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
-    return `${seeds}${phase} ${status.current}/${status.total} (${pct}%)${status.error ? ` ${t(`common.error.${status.error}`) || status.error}` : ''}`;
+    return `${seeds}${phase} ${status.current}/${status.total} (${pct}%)${status.error ? ` ${messageOf(status.error)}` : ''}`;
   }
 
   private etaText(status: SearchStatus): string {

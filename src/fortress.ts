@@ -3,6 +3,7 @@ import { applyI18n, t } from './i18n';
 import { call, type FortressStatus, type McVersion } from './native';
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
+import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
 
 export type FortressMode = 'cross' | 'span';
@@ -324,7 +325,7 @@ export class FortressPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="f-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="f-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
         <button id="f-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
         <button id="f-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
