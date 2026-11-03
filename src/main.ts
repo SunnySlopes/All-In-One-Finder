@@ -234,6 +234,7 @@ function showAbout(): void {
 function show(which: SearcherId): void {
   current = which;
   if (which === 'map') {
+    map.commitDraft();
     panel.replaceChildren(map.root);
   } else if (which === 'LowYDripstoneCave' || which === 'LowYPitDripstoneCave') {
     search.setSeedFromMap(map.getSeed());

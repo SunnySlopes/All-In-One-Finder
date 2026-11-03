@@ -260,8 +260,15 @@
     }
   },
   "dripstonecave": {
-    "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds.",
+    "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds. With \"Allow GPU\" checked, large searches try the OpenCL coarse scan and fall back to CPU automatically.",
     "helpPit": "Large-pit low-Y dripstone fast search. Single seed only.",
+    "allowGpu": "Allow GPU",
+    "gpuHint": "Experimental: requires a usable OpenCL device; falls back to CPU when no device matches or the range is too small.",
+    "gpuLine": "Using GPU ({device})",
+    "gpuUnknown": "Unknown",
+    "gpuFallback": "GPU coarse scan not used (small window, many threads, or no usable device); using CPU",
+    "gpuNoOpencl": "No usable OpenCL driver found; using CPU",
+    "gpuNoDevice": "The GPU does not meet the OpenCL scan requirements (workgroup/local memory); using CPU",
     "riverWeight": "River weight",
     "ratio": "Minimum area ratio %",
     "area": "Minimum area",
@@ -481,9 +488,8 @@
     "structures": "Structures {count}"
   },
   "geode": {
-    "tickRadius": "Tick radius (1.21.4-)",
     "simulationDistance": "Simulation distance (1.21.5+)",
-    "activityLegacy": "1.21.4-: circular tick radius, strict chunk-center circle",
+    "activityLegacy": "1.21.4-: fixed 128-block tick radius, strict chunk-centre circle",
     "activityModern": "1.21.5+: player chunk + square simulation distance",
     "rangeLargeHint": "Large range: runtime increases noticeably; keep the automatic budget.",
     "minGeodes": "Min geodes",

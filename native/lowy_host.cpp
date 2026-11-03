@@ -1,6 +1,9 @@
 #include "lowy_host.h"
 
+#include "Bench.h"
+#include "GpuCoarse.h"
 #include "OctaveFieldCache.h"
+#include "PerlinTable.h"
 #include "cubiomes/generator.h"
 #include "search_gate.h"
 
@@ -18,6 +21,10 @@
  * 仍直接 include 引擎 TU；这里只补上引擎内部共用的 Progress 类型。 */
 #include "lowydripstonecavefinder.h"
 using lowyd::Progress;
+/* LargePitSearch.cpp calls samplePerlinTable() unqualified; the engine TU pulls
+ * it in inside namespace lowyd, but this host includes the same sources at
+ * global scope. */
+using lowyd::samplePerlinTable;
 #include "dripstonecave_finder.cpp"
 #include "LargePitSearch.cpp"
 
@@ -33,6 +40,33 @@ Progress gProgress;
 ThreadSafeResults<Res> gResults;
 LowyStatus gStatus;
 bool gJoined = true;
+
+/* OpenCL coarse backend state, mirrored into LowyStatus for the UI. The engine
+ * only reports the device/reason through lowyd_gpu::info(), so the host keeps
+ * its own copy and serialises it with gMu. */
+std::atomic<int> gBackend{0}; /* 0 = cpu, 1 = gpu */
+std::string gGpuDevice;
+std::string gGpuReason;
+
+/* Same gates as LowYDripstoneCaveFinderBase's search(): the device only wins
+ * for large windows, and for medium windows only when the CPU pool is small. */
+constexpr long long kGpuMinUserSide = 2000001LL;
+constexpr long long kGpuThreadedUserSide = 524288LL;
+constexpr int kGpuMaxThreads = 12;
+
+/** Ends the GPU section of a search on every return path. */
+struct GpuSession
+{
+    ~GpuSession() { lowyd_gpu::deactivate(); }
+};
+
+void setGpuStatus(bool active, const std::string &device, const std::string &reason)
+{
+    std::lock_guard<std::mutex> lock(gMu);
+    gBackend.store(active ? 1 : 0);
+    gGpuDevice = device;
+    gGpuReason = reason;
+}
 
 uint64_t rol64(uint64_t a, int bits)
 {
@@ -156,6 +190,8 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
     resetCounters();
 
     if (request.mode == 2) {
+        /* The large-pit path has no OpenCL backend; report CPU explicitly. */
+        setGpuStatus(false, "", "");
         const int boxMinX = startX + kRing;
         const int boxMaxX = startX + width - 1 - kRing;
         const int boxMinZ = startZ + kRing;
@@ -183,6 +219,26 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
         weirdScale = 16;
     }
 
+    /* GPU coarse backend for the phase-1 noise grids; the same window/thread
+     * gates as LowYDripstoneCaveFinderBase's search(). A disabled checkbox or a
+     * window below the gate never touches OpenCL, so the CPU path is unchanged. */
+    GpuSession gpuSession;
+    bool gpuActive = false;
+    {
+        const bool gate = request.allowGpu &&
+            ((userW >= kGpuMinUserSide && userH >= kGpuMinUserSide) ||
+             (threads <= kGpuMaxThreads && userW >= kGpuThreadedUserSide &&
+              userH >= kGpuThreadedUserSide));
+        gpuActive = lowyd_gpu::activate(&generator, gate);
+        if (gpuActive) {
+            setGpuStatus(true, lowyd_gpu::info().device, "");
+        } else {
+            const lowyd_gpu::Info &info = lowyd_gpu::info();
+            setGpuStatus(false, "", info.probed ? info.reason : std::string());
+        }
+    }
+    const int phase1Threads = threads;
+
     if (wantPhase0) {
         gProgress.phase1.store(0);
         const int contSc = contScale > 0 ? contScale : SearchConfig::PHASE1_CONT_PREFILTER_SCALE;
@@ -206,13 +262,14 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
     gProgress.total.store(0);
     gProgress.chunkInRunning.store(0);
     if (contScale <= 0 && weirdScale <= 0) {
-        findBiggestRiverParallelPool(gResults, &generator, startX, startZ, width, height, minArea, &gProgress, threads);
+        findBiggestRiverParallelPool(gResults, &generator, startX, startZ, width, height, minArea, &gProgress,
+                                     phase1Threads);
     } else {
         int cont = contScale > 0 ? contScale : SearchConfig::PHASE1_CONT_PREFILTER_SCALE;
         int weird = weirdScale > 0 ? weirdScale : SearchConfig::PHASE1_WEIRDNESS_GRID_SCALE;
         if (cont % weird != 0) cont = weird;
         findBiggestRiverParallelPool(gResults, &generator, startX, startZ, width, height, minArea,
-                                     &gProgress, threads, cont, 1, weird);
+                                     &gProgress, phase1Threads, cont, 1, weird);
     }
     setActiveOctaveACache(nullptr);
     auto coarse = gResults.getAllResults();
@@ -281,6 +338,9 @@ void publish(const std::vector<LowyHit> &hits, bool running, bool done, const st
     gStatus.current = gProgress.current.load();
     gStatus.total = gProgress.total.load();
     gStatus.paused = gProgress.try_pause.load();
+    gStatus.scanBackend = gBackend.load() ? "gpu" : "cpu";
+    gStatus.gpuDevice = gGpuDevice;
+    gStatus.gpuReason = gGpuReason;
 }
 
 void job(LowyRequest request)
@@ -383,6 +443,9 @@ std::string lowyStart(const LowyRequest &request)
         gStatus = {};
         gStatus.running = true;
         gStatus.seedCount = (int)request.seeds.size();
+        gBackend.store(0);
+        gGpuDevice.clear();
+        gGpuReason.clear();
     }
     gJoined = false;
     try {
@@ -414,5 +477,8 @@ LowyStatus lowyPoll()
     gStatus.current = gProgress.current.load();
     gStatus.total = gProgress.total.load();
     gStatus.paused = gProgress.try_pause.load();
+    gStatus.scanBackend = gBackend.load() ? "gpu" : "cpu";
+    gStatus.gpuDevice = gGpuDevice;
+    gStatus.gpuReason = gGpuReason;
     return gStatus;
 }

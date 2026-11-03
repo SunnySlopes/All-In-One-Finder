@@ -1,4 +1,5 @@
 import { ask } from './dialog';
+import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SearchStatus } from './native';
 import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
@@ -66,6 +67,8 @@ export class SearchPanel {
   private ratio = DEFAULT_RATIO;
   private fastMode = true;
   private fastRatio = '90';
+  /** Opt-in GPU coarse scan; the engine still gates it by window size / threads. */
+  private allowGpu = false;
   private seedText = '';
   private readonly timer = new RunTimer();
   private lastPhase = Number.NaN;
@@ -223,6 +226,13 @@ export class SearchPanel {
     applyForm(this.root, state);
     this.render();
     applyForm(this.root, state);
+    this.syncGpuField();
+  }
+
+  /** 读档/切 tab 后让 allowGpu 与复选框实际状态一致。 */
+  private syncGpuField(): void {
+    const gpu = this.root.querySelector<HTMLInputElement>('#p-gpu');
+    if (gpu) this.allowGpu = gpu.checked;
   }
 
   setSeedFromMap(seed: string): void {
@@ -328,6 +338,12 @@ export class SearchPanel {
     return ratio;
   }
 
+  /** GPU opt-in row shared by the single/list cave pages (the pit page has no GPU path). */
+  private gpuToggleHtml(): string {
+    return `<div class="span-full"><label class="feature"><input id="p-gpu" type="checkbox" ${this.allowGpu ? 'checked' : ''} /><span data-i18n="dripstonecave.allowGpu"></span></label></div>
+        <div class="span-full hint" data-i18n="dripstonecave.gpuHint"></div>`;
+  }
+
   private async refreshSupport(): Promise<void> {
     try {
       this.supported = await call<boolean>('lowySupports', this.shared().mc);
@@ -382,14 +398,16 @@ export class SearchPanel {
         <label data-i18n="dripstonecave.riverWeight"></label><input id="p-river" type="number" min="0" max="1" step="0.05" value="${escapeAttr(this.river)}" />
         <label data-i18n="dripstonecave.ratio"></label><input id="p-ratio" type="number" min="40" max="95" step="1" value="${escapeAttr(this.ratio)}" />
         <label data-i18n="dripstonecave.area"></label><input id="p-area" type="number" min="0" step="1" value="${this.caveAreaValue(false)}" />
-        <label data-i18n="dripstonecave.fastMode"></label><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} />
+        <label class="feature span-full"><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} /><span data-i18n="dripstonecave.fastMode"></span></label>
+        ${this.gpuToggleHtml()}
       </div>${help}`;
     } else {
       params.innerHTML = `${notice}<div class="grid">
         <label data-i18n="dripstonecave.riverWeight"></label><input id="p-river" type="number" min="0" max="1" step="0.05" value="${escapeAttr(this.river)}" />
         <label data-i18n="dripstonecave.ratio"></label><input id="p-ratio" type="number" min="40" max="95" step="1" value="${escapeAttr(this.ratio)}" />
         <label data-i18n="dripstonecave.area"></label><input id="p-area" type="number" min="0" step="1" value="${this.caveAreaValue(false)}" />
-        <label data-i18n="dripstonecave.fastMode"></label><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} />
+        <label class="feature span-full"><input id="p-fast" type="checkbox" ${this.fastMode ? 'checked' : ''} /><span data-i18n="dripstonecave.fastMode"></span></label>
+        ${this.gpuToggleHtml()}
       </div>${help}`;
     }
 
@@ -412,6 +430,10 @@ export class SearchPanel {
       const fast = params.querySelector<HTMLInputElement>('#p-fast');
       if (fast) this.fastMode = fast.checked;
     });
+    params.querySelector<HTMLInputElement>('#p-gpu')?.addEventListener('change', () => {
+      const gpu = params.querySelector<HTMLInputElement>('#p-gpu');
+      if (gpu) this.allowGpu = gpu.checked;
+    });
 
     this.footer.innerHTML = `
       <div class="row">
@@ -421,6 +443,7 @@ export class SearchPanel {
       </div>
       <div class="progress-track"><div class="progress-fill" id="s-bar"></div></div>
       <div id="s-progress" class="hint"></div>
+      <div id="s-gpu" class="hint" hidden></div>
       <div id="s-elapsed" class="hint"></div>
       <div id="s-eta" class="hint"></div>
     `;
@@ -438,12 +461,14 @@ export class SearchPanel {
     const river = this.root.querySelector<HTMLInputElement>('#p-river');
     const ratio = this.root.querySelector<HTMLInputElement>('#p-ratio');
     const fast = this.root.querySelector<HTMLInputElement>('#p-fast');
+    const gpu = this.root.querySelector<HTMLInputElement>('#p-gpu');
     if (seed) this.seed = seed.value.trim();
     if (river) this.river = river.value;
     if (this.searcher === 'LowYPitDripstoneCave') {
       if (ratio) this.fastRatio = ratio.value;
     } else if (ratio) this.ratio = ratio.value;
     if (fast) this.fastMode = fast.checked;
+    if (gpu) this.allowGpu = gpu.checked;
   }
 
   private async pickFile(): Promise<void> {
@@ -546,6 +571,7 @@ export class SearchPanel {
         page: this.pageId(),
         ...box,
         fastMode: fastPage ? true : this.fastMode,
+        allowGpu: fastPage ? false : this.allowGpu,
         ratio,
         riverWeight: Number(this.river) || 0.75,
         seed: this.seed,
@@ -631,10 +657,23 @@ export class SearchPanel {
   /** 把一次状态写入页脚；render() 重建页脚后会再用 lastStatus 调用它恢复进度。 */
   private paintStatus(status: SearchStatus): void {
     const progress = this.footer.querySelector('#s-progress');
+    const gpu = this.footer.querySelector<HTMLElement>('#s-gpu');
     const eta = this.footer.querySelector('#s-eta');
     const elapsed = this.footer.querySelector('#s-elapsed');
     const bar = this.footer.querySelector<HTMLElement>('#s-bar');
     if (progress) progress.textContent = this.progressText(status);
+    if (gpu) {
+      // Only the phase-1 coarse scan can run on OpenCL. When the user asked for
+      // the GPU but the engine fell back to CPU, say why instead of hiding.
+      const active = status.scanBackend === 'gpu';
+      const waitingCpu = this.allowGpu && status.running && !!status.gpuReason;
+      const device = status.gpuDevice || gpuRendererName() || t('dripstonecave.gpuUnknown');
+      const reason = status.gpuReason === 'no-opencl'
+        ? t('dripstonecave.gpuNoOpencl')
+        : status.gpuReason === 'no-device' ? t('dripstonecave.gpuNoDevice') : t('dripstonecave.gpuFallback');
+      gpu.hidden = !(active || waitingCpu);
+      gpu.textContent = active ? t('dripstonecave.gpuLine', { device }) : waitingCpu ? reason : '';
+    }
     if (eta) eta.textContent = this.etaText(status);
     if (elapsed) {
       const ms = status.done && this.restoredElapsed != null

@@ -224,6 +224,7 @@ set(HOT_CXX
   "${SLIMEOPT}/src/java_random.cpp"
   "${LOWY}/BiomeSampler.cpp"
   "${LOWY}/OctaveFieldCache.cpp"
+  "${LOWY}/GpuCoarse.cpp"
 )
 if (AIO_DOUBLE_MONUMENT_REFACTORED)
   list(APPEND HOT_CXX "${DOUBLE}/monument_search.cpp")
@@ -311,6 +312,10 @@ set_source_files_properties("${SLIMERADAR}/cpu_simd_avx2.c"
 # -funroll-loops 与 SlimeRadar 官方基准一致。
 set_source_files_properties("${SLIMERADAR}/cpu_search.c"
   PROPERTIES COMPILE_OPTIONS "-march=x86-64-v3;-funroll-loops"
+)
+# OpenCL 粗筛主机侧的噪声参数必须与 cubiomes / CPU 路径保持同一浮点口径。
+set_source_files_properties("${LOWY}/GpuCoarse.cpp"
+  PROPERTIES COMPILE_OPTIONS "-ffp-contract=off"
 )
 target_link_libraries(allinone PRIVATE
   cubiomes_objs lysh_core

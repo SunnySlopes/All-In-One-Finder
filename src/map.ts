@@ -336,6 +336,8 @@ export class MapView {
   private dragging = false;
   private lastX = 0;
   private lastZ = 0;
+  /** setSeedDraft() 已把种子写入输入框但还没重绘；下次提交时必须强制换图。 */
+  private draftDirty = false;
   private tiles = new Map<string, CachedTile>();
   private inflight = new Set<string>();
   private pending = new Map<string, TileJob>();
@@ -392,7 +394,7 @@ export class MapView {
         <label data-i18n="common.search.seed"></label><input id="map-seed" value="${randomMcSeed()}" />
         <label data-i18n="common.map.dimension"></label><select id="map-dim"></select>
         <label data-i18n="common.map.y"></label><input id="map-y" type="number" value="256" />
-        <label data-i18n="common.map.largeBiomes"></label><input id="map-large" type="checkbox" />
+        <label class="feature span-full"><input id="map-large" type="checkbox" /><span data-i18n="common.map.largeBiomes"></span></label>
       </div>
       <div class="row">
         <label class="feature"><input id="map-grid" type="checkbox" checked /><span data-i18n="common.map.grid"></span></label>
@@ -531,26 +533,36 @@ export class MapView {
   }
 
   setSeed(seed: string, announce = true): void {
-    if (!seed.trim()) return;
-    if (this.seed.value.trim() === seed.trim()) {
-      if (announce) this.onSeedChange(seed.trim());
+    const value = seed.trim();
+    if (!value) return;
+    /* 搜索页输入时 setSeedDraft() 已经把输入框同步成新种子；此时即使值相同，
+     * 也必须清空瓦片并重绘，否则地图仍停在上一个种子。 */
+    if (this.seed.value.trim() === value && !this.draftDirty) {
+      if (announce) this.onSeedChange(value);
       return;
     }
-    this.seed.value = seed.trim();
+    this.draftDirty = false;
+    this.seed.value = value;
     this.persistSession();
     this.clearSpawnCircles();
     this.clearAreaOverlay();
     this.schedule(true);
     this.queueFeatures();
-    if (announce) this.onSeedChange(seed.trim());
+    if (announce) this.onSeedChange(value);
   }
 
   /** 搜索页输入种子时先同步“待保存”的值，不触发地图重绘；失焦/回车仍走 setSeed。 */
   setSeedDraft(seed: string): void {
     const value = seed.trim();
     if (!value) return;
+    this.draftDirty = true;
     this.seed.value = value;
     this.persistSession();
+  }
+
+  /** 切回地图页时，把搜索页留下但还没提交的草稿种子真正画出来。 */
+  commitDraft(): void {
+    if (this.draftDirty) this.setSeed(this.getSeed(), false);
   }
 
   setY(y: number): void {
@@ -580,6 +592,7 @@ export class MapView {
     let nextY = options.y != null ? String(options.y) : this.y.value;
     if (options.seed != null && nextSeed) {
       this.seed.value = nextSeed;
+      this.draftDirty = false;
       this.onSeedChange(nextSeed);
     }
     if (options.mcVersion) {
@@ -661,6 +674,7 @@ export class MapView {
 
   applySnapshot(data: MapSessionData): void {
     this.seed.value = data.seed;
+    this.draftDirty = false;
     const match = this.versions.find((item) => item.name === data.mcVersion);
     if (match) this.version.value = String(match.id);
     this.dimension.value = String(data.dim);
@@ -756,6 +770,7 @@ export class MapView {
       this.queueDraw();
     });
     this.seed.addEventListener('change', () => {
+      this.draftDirty = false;
       this.clearSpawnCircles();
       this.persistSession();
       this.schedule(true);

@@ -320,6 +320,7 @@ Napi::Value SearchStart(const Napi::CallbackInfo &info)
     request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
     request.maxZ = args.Get("maxZ").As<Napi::Number>().Int32Value();
     request.fastMode = args.Has("fastMode") ? args.Get("fastMode").As<Napi::Boolean>().Value() : true;
+    request.allowGpu = args.Has("allowGpu") ? args.Get("allowGpu").As<Napi::Boolean>().Value() : false;
     request.ratioPercent = args.Get("ratio").As<Napi::Number>().FloatValue();
     request.riverWeight = args.Has("riverWeight") ? args.Get("riverWeight").As<Napi::Number>().FloatValue() : 0.75f;
     if (page == "lowy-list") request.seeds = readSeeds(info.Env(), args.Get("seeds"));
@@ -341,6 +342,9 @@ Napi::Object statusToObject(Napi::Env env, const LowyStatus &status)
     out.Set("seedIndex", status.seedIndex);
     out.Set("seedCount", status.seedCount);
     out.Set("error", status.error);
+    out.Set("scanBackend", status.scanBackend);
+    out.Set("gpuReason", status.gpuReason);
+    out.Set("gpuDevice", status.gpuDevice);
     constexpr double area = 49640.0; /* 24 < r <= 128 刷怪环的格点总面积 */
     Napi::Array hits = Napi::Array::New(env, status.hits.size());
     for (size_t i = 0; i < status.hits.size(); i++) {

@@ -54,6 +54,12 @@ export interface SearchStatus {
   total: number;
   seedIndex: number;
   seedCount: number;
+  /** "gpu" while the OpenCL coarse backend evaluated the phase-1 noise. */
+  scanBackend: string;
+  /** Why the GPU path was skipped ("no-opencl", "no-device", ...); empty otherwise. */
+  gpuReason: string;
+  /** OpenCL device name when the GPU scan ran. */
+  gpuDevice: string;
   error: string;
   hits: SearchHit[];
 }

@@ -24,6 +24,12 @@ struct LowyStatus {
     int seedIndex = 0;
     int seedCount = 0;
     std::string error;
+    /** "gpu" while the OpenCL coarse backend did the phase-1 noise, "cpu" otherwise. */
+    std::string scanBackend = "cpu";
+    /** Why the GPU path was skipped ("no-opencl", "no-device", "build-failed:..."). */
+    std::string gpuReason;
+    /** CL_DEVICE_NAME of the device that ran the coarse scan. */
+    std::string gpuDevice;
     std::vector<LowyHit> hits;
 };
 
@@ -36,6 +42,8 @@ struct LowyRequest {
     int minZ = 0;
     int maxZ = 0;
     bool fastMode = true;
+    /** Opt-in GPU coarse scan; the engine still gates it by window size / threads. */
+    bool allowGpu = false;
     float ratioPercent = 60.f;
     float riverWeight = 0.75f;
     std::vector<int64_t> seeds;

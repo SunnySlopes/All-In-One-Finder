@@ -35,7 +35,6 @@ const MAX_SIDE = 60000001;
 const WORLD_MIN = -30000000;
 const WORLD_MAX = 30000000;
 const MIN_GEODES = 1;
-const MAX_TICK_RADIUS = 256;
 const MIN_SIMULATION_DISTANCE = 2;
 const MAX_SIMULATION_DISTANCE = 16;
 const LARGE_RANGE_HALF = 32768;
@@ -97,7 +96,6 @@ export class GeodePanel {
   private version!: HTMLSelectElement;
   private threads!: HTMLInputElement;
   private activity!: HTMLElement;
-  private tickRadius!: HTMLInputElement;
   private simulationDistance!: HTMLInputElement;
   private minXInput!: HTMLInputElement;
   private maxXInput!: HTMLInputElement;
@@ -173,8 +171,6 @@ export class GeodePanel {
         <div class="hint" id="g-range-hint"></div>
         <div class="grid">
           <div class="span-full hint" id="g-activity"></div>
-          <label data-i18n="geode.tickRadius"></label>
-          <input id="g-tick" type="number" min="1" max="${MAX_TICK_RADIUS}" value="${DEFAULT_TICK_RADIUS}" />
           <label data-i18n="geode.simulationDistance"></label>
           <input id="g-sim" type="number" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
         </div>
@@ -196,7 +192,6 @@ export class GeodePanel {
     this.version = this.root.querySelector('#g-version')!;
     this.threads = this.root.querySelector('#g-threads')!;
     this.activity = this.root.querySelector('#g-activity')!;
-    this.tickRadius = this.root.querySelector('#g-tick')!;
     this.simulationDistance = this.root.querySelector('#g-sim')!;
     this.minXInput = this.root.querySelector('#g-min-x')!;
     this.maxXInput = this.root.querySelector('#g-max-x')!;
@@ -297,7 +292,6 @@ export class GeodePanel {
 
   private applyActivity(): void {
     const modern = isModernVersion(this.selectedVersion());
-    this.tickRadius.disabled = modern;
     this.simulationDistance.disabled = !modern;
     this.activity.textContent = modern
       ? t('geode.activityModern')
@@ -471,7 +465,8 @@ export class GeodePanel {
       model: 'terrain',
       ...range,
       fullWorld: isWorldBounds(range.minX, range.maxX, range.minZ, range.maxZ),
-      tickRadius: clampInt(Number(this.tickRadius.value), 1, MAX_TICK_RADIUS),
+      /* 1.21.4- 的随机刻半径固定为 128，页面不再提供输入框。 */
+      tickRadius: DEFAULT_TICK_RADIUS,
       simulationDistance: clampInt(
         Number(this.simulationDistance.value),
         MIN_SIMULATION_DISTANCE,
@@ -529,8 +524,7 @@ export class GeodePanel {
         return null;
       }
     }
-    if (request.tickRadius < 1 || request.tickRadius > MAX_TICK_RADIUS
-      || request.simulationDistance < MIN_SIMULATION_DISTANCE
+    if (request.simulationDistance < MIN_SIMULATION_DISTANCE
       || request.simulationDistance > MAX_SIMULATION_DISTANCE) {
       await showNotice(t('common.error.bad-bounds'));
       return null;

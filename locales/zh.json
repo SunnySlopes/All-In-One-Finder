@@ -260,8 +260,15 @@
     }
   },
   "dripstonecave": {
-    "helpCave": "在指定范围内搜索低Y溶洞与河流组合区域。",
+    "helpCave": "在指定范围内搜索低Y溶洞与河流组合区域。勾选「允许调用显卡」后，大范围搜索会尝试用 GPU 粗筛，显卡不可用时自动回退 CPU。",
     "helpPit": "大坑低Y溶洞快速搜索，仅支持单个种子。",
+    "allowGpu": "允许调用显卡",
+    "gpuHint": "实验性功能：需要可用的 OpenCL 设备；无设备或范围过小时自动回退 CPU。",
+    "gpuLine": "正在调用 GPU（{device}）",
+    "gpuUnknown": "未知",
+    "gpuFallback": "本次未使用 GPU 粗筛（范围较小、线程较多或显卡不可用），已使用 CPU",
+    "gpuNoOpencl": "未检测到可用的 OpenCL 驱动，本次使用 CPU",
+    "gpuNoDevice": "显卡不满足 OpenCL 粗筛要求（workgroup/本地内存），本次使用 CPU",
     "riverWeight": "河流折算系数",
     "ratio": "最低面积占比 %",
     "area": "最低面积",
@@ -481,9 +488,8 @@
     "structures": "结构数 {count}"
   },
   "geode": {
-    "tickRadius": "随机刻半径（1.21.4-）",
     "simulationDistance": "模距（1.21.5+）",
-    "activityLegacy": "1.21.4-：随机刻半径圆形，区块中心严格圆形",
+    "activityLegacy": "1.21.4-：随机刻半径固定 128，区块中心严格圆形",
     "activityModern": "1.21.5+：玩家区块 + 模拟距离方形",
     "rangeLargeHint": "范围较大，耗时明显增加；建议保持自动预算。",
     "minGeodes": "最低晶洞",

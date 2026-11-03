@@ -24,7 +24,7 @@ A **set-seed** desktop tool for Minecraft Java Edition 1.18+: browse seed maps a
 |----------|---------|
 | **Low-Y Swamp Hut** | Finds low-Y swamp huts within the given bounds; supports single seed / seed list |
 | **River** | Finds the point with the largest river area inside the spawn ring (24 < distance <= 128); optionally counts dripstone cave area |
-| **Low-Y Dripstone Cave** | Finds areas with low-Y dripstone caves inside the spawn ring (24 < distance <= 128) |
+| **Low-Y Dripstone Cave** | Finds areas with low-Y dripstone caves inside the spawn ring (24 < distance <= 128); an experimental GPU coarse scan can be enabled manually |
 | **Large-Pit Low-Y Dripstone Cave** | Finds "large-pit" low-Y dripstone caves for some seeds much faster than the normal search |
 | **Slime Chunks** | Finds the AFK point with the largest slime spawning area inside the spawn ring (24 < distance <= 128); optionally converts biomes at y=-63 |
 | **Double Ocean Monument** | Finds double ocean monuments (requires 100% of both monuments' area inside the spawn ring) |
@@ -75,6 +75,7 @@ Notes:
 
 - The portable build is extracted to `%TEMP%` before running; sessions are saved to `%LOCALAPPDATA%\All-In-One Finder\session` first. If that location is not writable, it falls back to `%APPDATA%\All-In-One Finder`, `Documents\All-In-One Finder`, or `%TEMP%\All-In-One Finder`; the WebView2 profile and the trial/geode checkpoints live under the same writable base directory. Set the `AIO_SESSION_BASE` environment variable to force a base directory. A legacy `session/map.json` next to the exe is migrated automatically on first launch.
 - `npm run engine` requires the submodules and only supports MSYS2 UCRT64 (the engine relies on GCC's floating-point behavior and AVX2 optimization).
+- The GPU coarse scan is an optional runtime feature: OpenCL is loaded dynamically from `OpenCL.dll`, so building and packaging need neither an NVIDIA GPU, CUDA, nor an OpenCL SDK. With no usable device the engine falls back to CPU automatically. The cave page's switch is off for a new session and is saved in the session once enabled; the engine's stderr (including the OpenCL device line) goes to `engine.log` in the session directory instead of sharing the JSON pipe.
 - Do not use `--recursive` for the search submodules: their nested `cubiomes/` checkouts must stay uninitialized so the engine compiles only the shared `tools/cubiomes`; otherwise a duplicate or mismatched cubiomes header set is used.
 - WebView2 requires an Evergreen Runtime from 2021 or later (`ICoreWebView2_3`); if it is missing, a dialog prompts you to install it.
 

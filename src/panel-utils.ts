@@ -28,6 +28,8 @@ export function captureForm(root: HTMLElement): FormState {
   root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
     'input[id], select[id], textarea[id]',
   ).forEach((control) => {
+    // Experimental / one-session-only controls opt out of the saved session.
+    if (control.hasAttribute('data-no-persist')) return;
     if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
       state[control.id] = control.checked;
     } else {
@@ -45,6 +47,7 @@ export function applyForm(root: HTMLElement, state: unknown): void {
   root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
     'input[id], select[id], textarea[id]',
   ).forEach((control) => {
+    if (control.hasAttribute('data-no-persist')) return;
     if (!(control.id in form)) return;
     const value = form[control.id];
     if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {

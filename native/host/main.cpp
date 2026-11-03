@@ -415,13 +415,30 @@ bool startEngine()
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdInput = childInRead;
     startup.hStdOutput = childOutWrite;
-    startup.hStdError = childOutWrite;
+    // Never merge the engine's stderr into the framed JSON pipe: the OpenCL
+    // backend logs "[gpu] device: ..." on stderr, which would be parsed as a
+    // length prefix and desync the whole RPC channel (UI polls stop, the host
+    // blocks on writes and the window appears frozen).
+    HANDLE engineErr = INVALID_HANDLE_VALUE;
+    if (!g_sessionDir.empty())
+    {
+        const std::wstring logPath = joinPath(g_sessionDir, L"engine.log");
+        engineErr = CreateFileW(logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &attributes,
+                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    }
+    if (engineErr == INVALID_HANDLE_VALUE)
+    {
+        engineErr = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &attributes,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    }
+    startup.hStdError = engineErr != INVALID_HANDLE_VALUE ? engineErr : GetStdHandle(STD_ERROR_HANDLE);
     PROCESS_INFORMATION process = {};
     std::wstring command = L"\"" + g_config.hostExe + L"\" --engine";
     const BOOL ok = CreateProcessW(g_config.hostExe.c_str(), command.data(), nullptr, nullptr, TRUE,
                                    CREATE_NO_WINDOW, nullptr, g_config.exeDir.c_str(), &startup, &process);
     CloseHandle(childInRead);
     CloseHandle(childOutWrite);
+    if (engineErr != INVALID_HANDLE_VALUE) CloseHandle(engineErr);
     if (!ok)
     {
         CloseHandle(childInWrite);
