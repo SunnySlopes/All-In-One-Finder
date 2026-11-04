@@ -498,6 +498,7 @@
   },
   "geode": {
     "simulationDistance": "模距（1.21.5+）",
+    "chunkCount": "区块数：{n}×{n}",
     "activityLegacy": "1.21.4-：随机刻半径固定 128，区块中心严格圆形",
     "activityModern": "1.21.5+：玩家区块 + 模拟距离方形",
     "rangeLargeHint": "范围较大，耗时明显增加；建议保持自动预算。",

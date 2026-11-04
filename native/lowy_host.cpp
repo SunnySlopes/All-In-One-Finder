@@ -30,7 +30,6 @@ using lowyd::samplePerlinTable;
 
 namespace {
 
-constexpr double kRiverArea = 49659.0; /* 24 < r <= 128 球壳的格点总数 */
 constexpr int kRing = 128;
 constexpr float kPreserve = 0.9f;
 
@@ -178,9 +177,10 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
 {
     if (gProgress.try_stop.load()) return {};
     const int layers = request.yMax - request.yMin + 1;
+    const int afkY = lowyd::resolveAfkY(request.yMin, request.afkY);
     if (layers < 1 || layers > lowyd::Y_MAX_SPAN
         || request.yMin < lowyd::Y_LIMIT_MIN || request.yMax > lowyd::Y_LIMIT_MAX
-        || request.afkY < lowyd::AFK_Y_LIMIT_MIN || request.afkY > lowyd::AFK_Y_LIMIT_MAX) {
+        || afkY < lowyd::AFK_Y_LIMIT_MIN || afkY > lowyd::AFK_Y_LIMIT_MAX) {
         return {};
     }
     const lowyd::PreciseYRange yRange{request.yMin, request.yMax};
@@ -191,7 +191,9 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
     float riverWeight = request.riverWeight;
     if (riverWeight < 0.f) riverWeight = 0.f;
     if (riverWeight > 1.f) riverWeight = 1.f;
-    const int minArea = std::max(1, (int)std::lround(request.ratioPercent / 100.0 * kRiverArea));
+    /* 展示分母随采样窗口（和 AFK Y）变化，minArea 必须用同一个口径。 */
+    const int fullArea = lowyd::fullShellArea(request.yMin, request.yMax, afkY);
+    const int minArea = std::max(1, (int)std::lround(request.ratioPercent / 100.0 * fullArea));
     const int startX = request.minX - kRing;
     const int startZ = request.minZ - kRing;
     const int width = (request.maxX - request.minX + 1) + 2 * kRing;
@@ -217,7 +219,7 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
         const int boxMaxZ = startZ + height - 1 - kRing;
         std::vector<Res> found = runLargePitSearch(&generator, minArea, 0.f, threads, &gProgress,
                                                     boxMinX, boxMaxX, boxMinZ, boxMaxZ, yRange,
-                                                    request.afkY);
+                                                    afkY);
         if (gProgress.try_stop.load()) return {};
         std::sort(found.begin(), found.end(), [](const Res &a, const Res &b) { return a.area > b.area; });
         gProgress.phase1.store(-1);
@@ -337,7 +339,7 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
                     SearchConfig::REFINE_WINDOW_BLOCKS,
                     SearchConfig::REFINE_WINDOW_BLOCKS,
                     minArea, 1.0, FilterMode::PreciseBiome, riverWeight,
-                    nullptr, 0, nullptr, yRange, request.afkY);
+                    nullptr, 0, nullptr, yRange, afkY);
                 if (!refined.empty() && refined[0].area >= minArea) gResults.addResult(refined[0]);
                 gProgress.chunkInRunning.fetch_sub(1);
                 gProgress.current.fetch_add(1);
@@ -445,8 +447,10 @@ std::string lowyStart(const LowyRequest &request)
     if (request.seeds.empty()) return "no-seeds";
     if (request.maxX < request.minX || request.maxZ < request.minZ) return "bad-bounds";
     /* B1: the precise layer window and AFK Y are validated here so a malformed
-     * request can never reach the engine (the engine also rejects it). */
-    if (request.afkY < lowyd::AFK_Y_LIMIT_MIN || request.afkY > lowyd::AFK_Y_LIMIT_MAX)
+     * request can never reach the engine (the engine also rejects it).
+     * AFK_Y_AUTO resolves to "lowest layer + 23" like the engine's default. */
+    const int afkY = lowyd::resolveAfkY(request.yMin, request.afkY);
+    if (afkY < lowyd::AFK_Y_LIMIT_MIN || afkY > lowyd::AFK_Y_LIMIT_MAX)
         return "bad-afk-y";
     {
         lowyd::SearchParams layersCheck;
@@ -455,6 +459,8 @@ std::string lowyStart(const LowyRequest &request)
         layersCheck.afkY = request.afkY;
         if (!lowyd::validate(layersCheck, nullptr)) return "bad-y-range";
     }
+    /* 展示分母随采样窗口与 AFK Y 变化；结果百分比与状态里都用它。 */
+    const int fullArea = lowyd::fullShellArea(request.yMin, request.yMax, afkY);
     const long long width = (long long)request.maxX - request.minX + 1;
     const long long height = (long long)request.maxZ - request.minZ + 1;
     if (width <= 0 || height <= 0) return "bad-bounds";
@@ -477,6 +483,8 @@ std::string lowyStart(const LowyRequest &request)
         gStatus = {};
         gStatus.running = true;
         gStatus.seedCount = (int)request.seeds.size();
+        gStatus.afkY = afkY;
+        gStatus.fullArea = fullArea;
         gBackend.store(0);
         gGpuDevice.clear();
         gGpuReason.clear();

@@ -122,6 +122,8 @@ export class ResultsColumn {
   private lowyStates: Partial<Record<SearcherId, LowyState>> = {};
   /** B1 model tag per low-Y tab, prepended to exported result files. */
   private lowyModels: Partial<Record<SearcherId, string>> = {};
+  /** Shell geometry of the last search per tab: AFK Y for /tp and the display denominator. */
+  private lowyGeom: Partial<Record<SearcherId, { afkY: number; fullArea: number }>> = {};
   private monumentStates: Partial<Record<SearcherId, MonumentState>> = {};
   private fortressStates: Partial<Record<SearcherId, FortressState>> = {};
   private listModeByTab: Partial<Record<SearcherId, boolean>> = {};
@@ -242,6 +244,16 @@ export class ResultsColumn {
   /** B1：低Y搜索的计分模型（层数变化后结果不可比），导出时写入文件头。 */
   setLowyModel(tab: SearcherId, model: string): void {
     this.lowyModels[tab] = model;
+  }
+
+  /** 低Y搜索的球心 Y 与满球壳面积；/tp 的 Y 和百分比分母都跟着窗口走。 */
+  setLowyGeometry(tab: SearcherId, afkY: number, fullArea: number): void {
+    this.lowyGeom[tab] = { afkY, fullArea };
+  }
+
+  private lowyGeometry(tab: SearcherId | null): { afkY: number; fullArea: number } {
+    const saved = tab ? this.lowyGeom[tab] : undefined;
+    return saved ?? { afkY: -40, fullArea: FULL_RING_AREA };
   }
 
   setHits(hits: SearchHit[], sourceTab: SearcherId, listMode: boolean): void {
@@ -1203,8 +1215,8 @@ export class ResultsColumn {
       return;
     }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
+    const full = this.lowyGeometry(this.sourceTab).fullArea;
     this.list.innerHTML = this.hits.map((hit, index) => {
-      const full = FULL_RING_AREA;
       const stats = showDetail
         ? `<div class="result-stats">
             <span>${hit.total}/${full} (${hit.ratio.toFixed(2)}%)</span>
@@ -1237,7 +1249,8 @@ export class ResultsColumn {
         event.stopPropagation();
         const hit = this.hits[Number(button.dataset.index)];
         if (!hit) return;
-        void navigator.clipboard.writeText(`/tp ${hit.x} -40 ${hit.z}`);
+        const tpY = this.lowyGeometry(this.sourceTab).afkY;
+        void navigator.clipboard.writeText(`/tp ${hit.x} ${tpY} ${hit.z}`);
       });
     });
     applyI18n(this.list);
@@ -1455,11 +1468,12 @@ export class ResultsColumn {
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     const model = (this.sourceTab && this.lowyModels[this.sourceTab])
       || 'drowned-weighted-shell-b/13/afk-40';
+    const tpY = this.lowyGeometry(this.sourceTab).afkY;
     this.saveGrouped(this.hits, 'results.txt', (hit) => {
       const detail = showDetail
         ? ` area=${hit.total} cave=${hit.cave} river=${hit.river}`
         : ` area=${hit.total}`;
-      return `/tp ${hit.x} -40 ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
+      return `/tp ${hit.x} ${tpY} ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
     }, `# model=${model}`);
   }
 

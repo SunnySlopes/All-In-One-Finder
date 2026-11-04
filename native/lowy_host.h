@@ -23,6 +23,10 @@ struct LowyStatus {
     int total = 0;
     int seedIndex = 0;
     int seedCount = 0;
+    /** AFK Y resolved for this run (shell centre height, also used by /tp). */
+    int afkY = -40;
+    /** Display denominator: full shell cell count for the sampled window. */
+    int fullArea = 49659;
     std::string error;
     /** "gpu" while the OpenCL coarse backend did the phase-1 noise, "cpu" otherwise. */
     std::string scanBackend = "cpu";
@@ -51,7 +55,9 @@ struct LowyRequest {
     int yMax = -51;
     /**
      * AFK / player Y of the shell model: the scored region is the 3D shell
-     * 24 < distance <= 128 around (result x, afkY, result z).
+     * 24 < distance <= 128 around (result x, afkY, result z).  The AIO panel
+     * sends "lowest sampled layer + 23" explicitly; the engine would derive the
+     * same value for its AFK_Y_AUTO sentinel.
      */
     int afkY = -40;
     std::vector<int64_t> seeds;

@@ -121,6 +121,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 .y-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .y-row select { width: 96px; flex: none; }
 .y-row input { flex: 1; min-width: 0; }
+/* 紫水晶模距：输入框后面跟“区块数 N×N”。 */
+.sim-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.sim-row input { width: 72px; flex: none; }
+.sim-row .hint { white-space: nowrap; }
 .progress-track {
   height: 10px;
   background: #12161d;

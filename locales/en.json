@@ -498,6 +498,7 @@
   },
   "geode": {
     "simulationDistance": "Simulation distance (1.21.5+)",
+    "chunkCount": "Chunks: {n}×{n}",
     "activityLegacy": "1.21.4-: fixed 128-block tick radius, strict chunk-centre circle",
     "activityModern": "1.21.5+: player chunk + square simulation distance",
     "rangeLargeHint": "Large range: runtime increases noticeably; keep the automatic budget.",

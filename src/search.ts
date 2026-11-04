@@ -1,4 +1,5 @@
 import { ask } from './dialog';
+import { caveDefaultAfkY, caveFullShellArea } from './cave-geometry';
 import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SearchStatus } from './native';
@@ -24,8 +25,6 @@ const Y_LIMIT_MAX = 319;
 const Y_MAX_SPAN = 48;
 const Y_SOFT_SPAN = 24;
 const Y_SOFT_MIN = -58;
-/** AFK / player Y of the shell model: 24..128 sphere around (result x, afkY, result z). */
-const AFK_Y = -40;
 /** 单次 searchPoll 的最长等待；超过即视为引擎无响应，解除界面锁定。 */
 const POLL_TIMEOUT_MS = 30000;
 
@@ -42,9 +41,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /** 溶洞范围小于这个等效面积时，提示改去河流页搜索。 */
 const RIVER_HINT_AREA = 100000 * 100000;
-
-/** 溶洞搜索的面积口径：24 < r <= 128 刷怪环格点总面积。 */
-const FULL_RING_AREA = 49659;
 
 type SeedMode = 'single' | 'list';
 type LowyUiVersion = 'pre' | 'sulfur';
@@ -375,18 +371,42 @@ export class SearchPanel {
     return this.fastMode ? [60, 95] : [40, 95];
   }
 
+  /** 当前输入对应的有效采样层窗口；非法输入退回默认窗口。 */
+  private caveYWindow(): { yMin: number; yMax: number } {
+    const rawMin = Math.trunc(Number(this.yMin));
+    const rawMax = Math.trunc(Number(this.yMax));
+    const yMin = Number.isFinite(rawMin)
+      ? Math.min(Y_LIMIT_MAX, Math.max(Y_LIMIT_MIN, rawMin))
+      : Number(DEFAULT_Y_MIN);
+    const yMax = Number.isFinite(rawMax)
+      ? Math.min(Y_LIMIT_MAX, Math.max(yMin, rawMax))
+      : yMin + 12;
+    return { yMin, yMax: Math.min(yMax, yMin + Y_MAX_SPAN - 1) };
+  }
+
+  /** shell 模型球心 Y：最低采样层 + 23（与引擎的 AFK 缺省一致）。 */
+  private caveAfkY(): number {
+    return caveDefaultAfkY(this.caveYWindow().yMin);
+  }
+
+  /** 当前窗口的展示分母（满球壳格数），面积与占比互算都用它。 */
+  private caveFullArea(): number {
+    const { yMin, yMax } = this.caveYWindow();
+    return caveFullShellArea(yMin, yMax, caveDefaultAfkY(yMin));
+  }
+
   /** 由占比算出的面积；占比不在当前模式允许区间时留空。 */
   private caveAreaValue(pit: boolean): string {
     const ratio = Number(pit ? this.fastRatio : this.ratio);
     const [min, max] = this.caveRatioLimits(pit);
     if (!Number.isFinite(ratio) || ratio < min || ratio > max) return '';
-    return String(Math.round(ratio / 100 * FULL_RING_AREA));
+    return String(Math.round(ratio / 100 * this.caveFullArea()));
   }
 
   private caveRatioFromArea(value: string, pit: boolean): number | null {
     const area = Number(value);
     if (!Number.isFinite(area) || area < 0) return null;
-    const ratio = Math.round(area / FULL_RING_AREA * 100);
+    const ratio = Math.round(area / this.caveFullArea() * 100);
     const [min, max] = this.caveRatioLimits(pit);
     if (ratio < min || ratio > max) return null;
     return ratio;
@@ -484,11 +504,18 @@ export class SearchPanel {
     });
     const yMinInput = params.querySelector<HTMLInputElement>('#p-ymin');
     const yMaxInput = params.querySelector<HTMLInputElement>('#p-ymax');
+    /* 采样窗口决定满球壳面积（含 AFK Y），面积框要跟着窗口一起刷新。 */
+    const refreshArea = () => {
+      const area = this.caveAreaValue(pit);
+      if (areaInput) areaInput.value = area;
+    };
     yMinInput?.addEventListener('input', () => {
       this.yMin = yMinInput.value;
+      refreshArea();
     });
     yMaxInput?.addEventListener('input', () => {
       this.yMax = yMaxInput.value;
+      refreshArea();
     });
     params.querySelector<HTMLInputElement>('#p-gpu')?.addEventListener('change', () => {
       const gpu = params.querySelector<HTMLInputElement>('#p-gpu');
@@ -590,8 +617,12 @@ export class SearchPanel {
     if (yMin > Y_SOFT_MIN) {
       await ask(t('dripstonecave.yLowMin', { min: yMin }), [{ id: 'dismiss', key: 'common.dialog.close' }]);
     }
+    /* shell 模型的 AFK Y 与展示分母都跟随采样窗口：AFK = 最低层 + 23，
+     * 分母 = 窗口内满球壳格数的平均值（与引擎 fullShellArea() 一致）。 */
+    const afkY = caveDefaultAfkY(yMin);
+    const fullArea = caveFullShellArea(yMin, yMax, afkY);
     const areaInput = this.root.querySelector<HTMLInputElement>('#p-area');
-    if (areaInput) areaInput.value = String(Math.round(ratio / 100 * FULL_RING_AREA));
+    if (areaInput) areaInput.value = String(Math.round(ratio / 100 * fullArea));
     // 范围较小时先问要不要改去河流页；选“是”直接切 Tab，不启动本次搜索。
     if (!fastPage) {
       const width = box.maxX - box.minX + 1;
@@ -660,14 +691,15 @@ export class SearchPanel {
         riverWeight: Number(this.river) || Number(DEFAULT_RIVER_WEIGHT),
         yMin,
         yMax,
-        afkY: AFK_Y,
+        afkY,
         seed: this.seed,
         seeds: listMode ? this.seedText : undefined,
       });
       this.results?.clear(this.searchTab, listMode);
       this.results?.setLowyMapVersion(this.searchTab, this.searchMapVersion);
+      this.results?.setLowyGeometry(this.searchTab, afkY, fullArea);
       this.results?.setLowyModel(this.searchTab,
-        `drowned-weighted-shell-b/${yLayers}/afk${AFK_Y}`);
+        `drowned-weighted-shell-b/${yLayers}/afk${afkY}`);
       this.running = true;
       this.paused = false;
       this.stopping = false;
@@ -730,6 +762,10 @@ export class SearchPanel {
         }
         this.paintStatus(status);
         this.results?.setHits(status.hits, this.searchTab, this.searchListMode);
+        /* 引擎算出的 AFK/分母是权威值；同步给结果栏的 /tp 与百分比。 */
+        if (status.fullArea > 0) {
+          this.results?.setLowyGeometry(this.searchTab, status.afkY, status.fullArea);
+        }
         // done，或“引擎已结束但没报告 done”（停止/出错后的收尾）都要立刻解锁界面；
         // 只认 done 的话，引擎提前收尾时页面会一直停在“停止中”且所有按钮禁用。
         if (status.done || (!status.running && !status.paused)) {

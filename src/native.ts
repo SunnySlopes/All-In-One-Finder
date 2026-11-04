@@ -57,6 +57,10 @@ export interface SearchStatus {
   total: number;
   seedIndex: number;
   seedCount: number;
+  /** AFK / shell-centre Y resolved for this run (also the /tp height). */
+  afkY: number;
+  /** Display denominator: full shell cell count of the sampled window. */
+  fullArea: number;
   /** "gpu" while the OpenCL coarse backend evaluated the phase-1 noise. */
   scanBackend: string;
   /** Why the GPU path was skipped ("no-opencl", "no-device", ...); empty otherwise. */

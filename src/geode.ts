@@ -98,6 +98,8 @@ export class GeodePanel {
   private threads!: HTMLInputElement;
   private activity!: HTMLElement;
   private simulationDistance!: HTMLInputElement;
+  /** “区块数：N×N”提示，N = 2×模拟距离+1，随模距输入更新。 */
+  private chunkCount!: HTMLElement;
   private minXInput!: HTMLInputElement;
   private maxXInput!: HTMLInputElement;
   private minZInput!: HTMLInputElement;
@@ -173,7 +175,10 @@ export class GeodePanel {
         <div class="grid">
           <div class="span-full hint" id="g-activity"></div>
           <label data-i18n="geode.simulationDistance"></label>
-          <input id="g-sim" type="number" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
+          <div class="sim-row">
+            <input id="g-sim" type="number" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
+            <span class="hint" id="g-chunks"></span>
+          </div>
         </div>
         <div class="grid">
           <label data-i18n="geode.minGeodes"></label>
@@ -195,6 +200,7 @@ export class GeodePanel {
     this.threads = this.root.querySelector('#g-threads')!;
     this.activity = this.root.querySelector('#g-activity')!;
     this.simulationDistance = this.root.querySelector('#g-sim')!;
+    this.chunkCount = this.root.querySelector('#g-chunks')!;
     this.minXInput = this.root.querySelector('#g-min-x')!;
     this.maxXInput = this.root.querySelector('#g-max-x')!;
     this.minZInput = this.root.querySelector('#g-min-z')!;
@@ -211,6 +217,17 @@ export class GeodePanel {
     this.square.addEventListener('change', () => this.applyRange());
     this.side.addEventListener('input', () => this.applyRange());
     this.version.addEventListener('change', () => this.applyActivity());
+    this.simulationDistance.addEventListener('input', () => this.syncChunkCount());
+    /* 失焦时把越界的模距收回合法区间，区块数与实际搜索口径保持一致。 */
+    this.simulationDistance.addEventListener('change', () => {
+      const sim = clampInt(
+        Number(this.simulationDistance.value),
+        MIN_SIMULATION_DISTANCE,
+        MAX_SIMULATION_DISTANCE,
+      );
+      this.simulationDistance.value = String(sim);
+      this.syncChunkCount();
+    });
     for (const input of [this.minXInput, this.maxXInput, this.minZInput, this.maxZInput]) {
       input.addEventListener('input', () => this.updateDerived());
     }
@@ -301,6 +318,17 @@ export class GeodePanel {
     this.updateDerived();
   }
 
+  /** 方形活动范围覆盖的区块数 = 2 × 模拟距离 + 1（1.21.5+）。 */
+  private syncChunkCount(): void {
+    const sim = clampInt(
+      Number(this.simulationDistance.value),
+      MIN_SIMULATION_DISTANCE,
+      MAX_SIMULATION_DISTANCE,
+    );
+    const chunks = 2 * sim + 1;
+    this.chunkCount.textContent = t('geode.chunkCount', { n: chunks });
+  }
+
   /** 正方形勾选时由边长填充四至；取消后四至保留最后值并可手改。 */
   private applyRange(): void {
     const square = this.square.checked;
@@ -337,6 +365,7 @@ export class GeodePanel {
   }
 
   private updateDerived(): void {
+    this.syncChunkCount();
     const range = this.currentRange();
     const fullMap = isWorldBounds(range.minX, range.maxX, range.minZ, range.maxZ);
     this.syncThresholdDefaults(fullMap);

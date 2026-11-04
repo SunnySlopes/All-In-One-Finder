@@ -352,11 +352,14 @@ Napi::Object statusToObject(Napi::Env env, const LowyStatus &status)
     out.Set("total", status.total);
     out.Set("seedIndex", status.seedIndex);
     out.Set("seedCount", status.seedCount);
+    out.Set("afkY", status.afkY);
+    out.Set("fullArea", status.fullArea);
     out.Set("error", status.error);
     out.Set("scanBackend", status.scanBackend);
     out.Set("gpuReason", status.gpuReason);
     out.Set("gpuDevice", status.gpuDevice);
-    constexpr double area = 49659.0; /* 24 < r <= 128 球壳的格点总数 */
+    /* 展示分母随采样窗口变化；默认窗口仍是 49659。 */
+    const double area = status.fullArea > 0 ? status.fullArea : 49659.0;
     Napi::Array hits = Napi::Array::New(env, status.hits.size());
     for (size_t i = 0; i < status.hits.size(); i++) {
         const auto &hit = status.hits[i];
