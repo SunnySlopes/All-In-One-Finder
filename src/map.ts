@@ -1,5 +1,5 @@
 import { escapeText, showNotice } from './dialog';
-import { biomeLabel, onLocale, structureLabel, t } from './i18n';
+import { biomeLabel, applyI18n, onLocale, structureLabel, t } from './i18n';
 import {
   call,
   type Bounds3,
@@ -95,10 +95,10 @@ const CAVE_CELLS = TILE_CELLS / CAVE_CELL_SIZE;
 /** Cave opening classes shared with the native mask byte. */
 const CAVE_WATER = 2;
 const CAVE_LAVA = 3;
-// Class 0 (no opening) and class 1 (dry opening) are part of the wire format but
-// are not painted: only water/lava get a fill, so the terrain stays untouched.
-/** Only the two fluid classes are painted; dry openings leave the terrain untouched. */
-const CAVE_FILL_WATER = 'rgba(80, 160, 255, 0.55)';
+// Class 0 (no opening), 1 (dry opening) and 2 (water-filled opening) are part
+// of the wire format but are never painted: the light-blue water fill read as
+// noise on the relief, so only lava openings keep a fill. Water still feeds the
+// hover readout.
 const CAVE_FILL_LAVA = 'rgba(255, 140, 40, 0.65)';
 /** Vanilla floods everything below this level with lava; the map paints it flat. */
 const LAVA_LEVEL = -54;
@@ -258,6 +258,9 @@ function defaultYForDim(dim: number): number {
   return 256; // overworld surface-ish
 }
 
+/** 地图页采样 Y 下拉预设（仅主世界）：常用地表与洞穴高度，输入框仍可手填任意值。 */
+const Y_PRESETS = [256, 128, 64, 48, 32, 16, 0, -16, -32, -40, -48, -52, -56, -60, -64];
+
 function parseSession(raw: string | null): MapSession | null {
   if (!raw) return null;
   try {
@@ -333,6 +336,7 @@ export class MapView {
   private seed: HTMLInputElement;
   private dimension: HTMLSelectElement;
   private y: HTMLInputElement;
+  private yPreset: HTMLSelectElement;
   private large: HTMLInputElement;
   private versions: McVersion[] = [];
   private features: FeatureInfo[] = [];
@@ -404,7 +408,11 @@ export class MapView {
         <label data-i18n="common.search.version"></label><select id="map-version"></select>
         <label data-i18n="common.search.seed"></label><input id="map-seed" value="${randomMcSeed()}" />
         <label data-i18n="common.map.dimension"></label><select id="map-dim"></select>
-        <label data-i18n="common.map.y"></label><input id="map-y" type="number" value="256" />
+        <label data-i18n="common.map.y"></label>
+        <div class="y-row">
+          <select id="map-y-preset"></select>
+          <input id="map-y" type="number" value="256" />
+        </div>
         <label class="feature span-full"><input id="map-large" type="checkbox" /><span data-i18n="common.map.largeBiomes"></span></label>
       </div>
       <div class="row">
@@ -420,6 +428,7 @@ export class MapView {
     this.seed = this.root.querySelector('#map-seed')!;
     this.dimension = this.root.querySelector('#map-dim')!;
     this.y = this.root.querySelector('#map-y')!;
+    this.yPreset = this.root.querySelector('#map-y-preset')!;
     this.large = this.root.querySelector('#map-large')!;
     this.featureBox = this.root.querySelector('#map-features')!;
     this.grid = this.root.querySelector('#map-grid')!;
@@ -621,6 +630,7 @@ export class MapView {
     } else if (options.y != null) {
       this.y.value = nextY;
     }
+    this.syncYPreset();
     if (options.slimeChunks) {
       const feature = this.features.find((item) => item.id === -2);
       if (feature) {
@@ -731,12 +741,26 @@ export class MapView {
   }
 
   /**
+   * 采样 Y 预设同步：下拉只在主世界显示；手填值不在预设里时显示“自定义”，
+   * 手填本身不被改写（仍然可以直接输入任意高度）。
+   */
+  private syncYPreset(): void {
+    const overworld = Number(this.dimension.value) === 0;
+    this.yPreset.hidden = !overworld;
+    const raw = this.y.value.trim();
+    const value = raw === '' ? '' : String(Number(raw));
+    const match = Y_PRESETS.find((preset) => String(preset) === value);
+    this.yPreset.value = match === undefined ? '' : String(match);
+  }
+
+  /**
    * Keep the terrain toggle, its availability and the cache invalidation in
    * sync. Called from every place that can change the effective layer.
    */
   private syncLayerControls(): void {
     const overworld = Number(this.dimension.value) === 0;
     this.terrainRow.hidden = !overworld;
+    this.syncYPreset();
     this.terrain.title = t('common.map.terrainHint');
 
     const scale = this.activeScale();
@@ -759,6 +783,10 @@ export class MapView {
       const dim = index === 0 ? 0 : index === 1 ? -1 : 1;
       return `<option value="${dim}" data-key="${key}"></option>`;
     }).join('');
+    // 采样 Y 预设：主世界常用高度 + “自定义”；下拉只改输入框，手填不做限制。
+    this.yPreset.innerHTML = '<option value="" data-i18n="common.map.yCustom"></option>'
+      + Y_PRESETS.map((value) => `<option value="${value}">${value}</option>`).join('');
+    applyI18n(this.yPreset);
     const worldChanged = () => {
       this.clearSpawnCircles();
       this.persistSession();
@@ -773,6 +801,13 @@ export class MapView {
       this.syncLayerControls();
     });
     this.y.addEventListener('change', worldChanged);
+    this.y.addEventListener('input', () => this.syncYPreset());
+    this.yPreset.addEventListener('change', () => {
+      if (!this.yPreset.value) return; // “自定义”只用于显示，不覆盖手填值
+      this.y.value = this.yPreset.value;
+      this.y.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    this.syncYPreset();
     this.large.addEventListener('change', worldChanged);
     this.terrain.addEventListener('change', () => {
       // The layer is part of the tile key, so toggling drops the whole cache.
@@ -1557,7 +1592,12 @@ export class MapView {
       parts.push(y <= -64 ? `${text}${theoretical}` : text);
       // Vanilla floods everything under the lava level; the terrain layer
       // paints those columns flat lava, so name the level in the readout too.
-      if (y <= LAVA_TOP_BLOCK) parts.push(t('common.map.lavaY', { y: LAVA_LEVEL }));
+      // With the sample-Y clamp active below the lava level every column is
+      // synthetic, so the lava note would be wrong for all of them.
+      const sampleY = Number(this.y.value);
+      if (y <= LAVA_TOP_BLOCK && sampleY > LAVA_TOP_BLOCK) {
+        parts.push(t('common.map.lavaY', { y: LAVA_LEVEL }));
+      }
     }
     if (tile.mask && tile.floodY) {
       const cell = (iz >> 2) * CAVE_CELLS + (ix >> 2);
@@ -1572,9 +1612,9 @@ export class MapView {
   }
 
   /**
-   * Draw the fluid-filled cheese cave openings into a tile-sized canvas.
-   * Only the filled classes are drawn: dry openings leave the terrain as-is
-   * (no outline), so the relief is never decorated by cave edges.
+   * Draw the lava-filled cheese cave openings into a tile-sized canvas.
+   * Water and dry openings are left alone: the old light-blue fill looked like
+   * stray dots on the relief, so only lava keeps a marker.
    */
   private buildCaveCanvas(mask: Uint8Array): HTMLCanvasElement | undefined {
     const canvas = document.createElement('canvas');
@@ -1586,9 +1626,8 @@ export class MapView {
     for (let cz = 0; cz < CAVE_CELLS; cz++) {
       for (let cx = 0; cx < CAVE_CELLS; cx++) {
         const value = mask[cz * CAVE_CELLS + cx];
-        if (value === CAVE_WATER) ctx.fillStyle = CAVE_FILL_WATER;
-        else if (value === CAVE_LAVA) ctx.fillStyle = CAVE_FILL_LAVA;
-        else continue;
+        if (value !== CAVE_LAVA) continue;
+        ctx.fillStyle = CAVE_FILL_LAVA;
         ctx.fillRect(cx * CAVE_CELL_SIZE, cz * CAVE_CELL_SIZE, CAVE_CELL_SIZE, CAVE_CELL_SIZE);
         painted = true;
       }

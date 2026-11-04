@@ -322,7 +322,18 @@ Napi::Value SearchStart(const Napi::CallbackInfo &info)
     request.fastMode = args.Has("fastMode") ? args.Get("fastMode").As<Napi::Boolean>().Value() : true;
     request.allowGpu = args.Has("allowGpu") ? args.Get("allowGpu").As<Napi::Boolean>().Value() : false;
     request.ratioPercent = args.Get("ratio").As<Napi::Number>().FloatValue();
-    request.riverWeight = args.Has("riverWeight") ? args.Get("riverWeight").As<Napi::Number>().FloatValue() : 0.75f;
+    request.riverWeight = args.Has("riverWeight") ? args.Get("riverWeight").As<Napi::Number>().FloatValue() : 0.70f;
+    /* B1: optional precise layer window.  Type-guarded so a malformed page
+     * cannot crash the native host; an invalid window is rejected by
+     * lowyStart() with the "bad-y-range" code. */
+    auto intArg = [&args](const char *key, int fallback) {
+        if (!args.Has(key)) return fallback;
+        Napi::Value value = args.Get(key);
+        return value.IsNumber() ? value.As<Napi::Number>().Int32Value() : fallback;
+    };
+    request.yMin = intArg("yMin", -63);
+    request.yMax = intArg("yMax", -51);
+    request.afkY = intArg("afkY", -40);
     if (page == "lowy-list") request.seeds = readSeeds(info.Env(), args.Get("seeds"));
     else request.seeds.push_back(readSeed(args.Get("seed"), false));
     std::string error = lowyStart(request);
@@ -345,7 +356,7 @@ Napi::Object statusToObject(Napi::Env env, const LowyStatus &status)
     out.Set("scanBackend", status.scanBackend);
     out.Set("gpuReason", status.gpuReason);
     out.Set("gpuDevice", status.gpuDevice);
-    constexpr double area = 49640.0; /* 24 < r <= 128 刷怪环的格点总面积 */
+    constexpr double area = 49659.0; /* 24 < r <= 128 球壳的格点总数 */
     Napi::Array hits = Napi::Array::New(env, status.hits.size());
     for (size_t i = 0; i < status.hits.size(); i++) {
         const auto &hit = status.hits[i];

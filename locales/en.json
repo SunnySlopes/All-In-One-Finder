@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "About",
-      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHutFinderBase, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinderGUI,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/doubleMonumentFinderBase, author: SunnySlopes\nMulti Ocean Monument: https://github.com/Whisperlyric/MultiMonumentFinder, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderGUI, author: SunnySlopes\nTrial Spawner: https://github.com/qk-yiyihehe/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/qk-yiyihehe/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderBase, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
+      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHutFinderBase, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinder,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/doubleMonumentFinderBase, author: SunnySlopes\nMulti Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderBase, author: SunnySlopes\nTrial Spawner: https://github.com/SunnySlopes/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/SunnySlopes/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderBase, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
     },
     "searcher": {
       "map": "Map",
@@ -46,6 +46,8 @@
       "resume": "Resume",
       "stop": "Stop",
       "stopping": "Stopping…",
+      "stoppingEta": "Stopping: waiting for the current work unit",
+      "stopped": "Stopped",
       "working": "Working",
       "completed": "Completed",
       "unsupported": "This search does not support the selected version.",
@@ -76,6 +78,7 @@
       "dimension": "Dimension",
       "largeBiomes": "Large biomes",
       "y": "Sample Y",
+      "yCustom": "Custom",
       "coordX": "X",
       "coordZ": "Z",
       "goto": "Go",
@@ -92,8 +95,8 @@
       "end": "The End",
       "grid": "Coordinate grid",
       "terrain": "Show terrain",
-      "terrainHint": "Real relief at 1:1 only (incl. cave openings and the lava sea)",
-      "terrainLegend": "blue=water in caves, orange=lava in caves",
+      "terrainHint": "Real relief at 1:1 only (incl. lava openings and the lava sea)",
+      "terrainLegend": "orange=lava openings",
       "heightY": "Y={y}",
       "floodY": "floodY={y}",
       "lavaY": "lava={y}",
@@ -118,6 +121,9 @@
       "busy": "A search is already running.",
       "out-of-memory": "The search ran out of memory.",
       "bad-ratio": "The area ratio is outside the allowed range.",
+      "bad-y-range": "The sample Y range is invalid: need -63 <= min <= max <= 319 and a span of at most 48 layers.",
+      "bad-afk-y": "The AFK Y is invalid: need -64 <= afkY <= 320.",
+      "engine-timeout": "The engine did not answer; the panel was unlocked. The search may still be winding down.",
       "slime-start-failed": "The slime search could not start.",
       "witch-start-failed": "The low-Y swamp hut search could not start.",
       "flower-start-failed": "The flower farm search could not start.",
@@ -261,10 +267,9 @@
     }
   },
   "dripstonecave": {
-    "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds.",
+    "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds. With \"Allow GPU\" checked, large searches try the OpenCL coarse scan and fall back to CPU automatically.",
     "helpPit": "Large-pit low-Y dripstone fast search. Single seed only.",
     "allowGpu": "Allow GPU",
-    "gpuHint": "The GPU coarse scan is only tried for large searches when \"Allow GPU\" is checked; it falls back to CPU when no usable device is found or the range is small.",
     "gpuLine": "Using GPU ({device})",
     "gpuUnknown": "Unknown",
     "gpuFallback": "GPU coarse scan not used (small window, many threads, or no usable device); using CPU",
@@ -273,6 +278,11 @@
     "riverWeight": "River weight",
     "ratio": "Minimum area ratio %",
     "area": "Minimum area",
+    "yMin": "Sample Y min",
+    "yMax": "Sample Y max",
+    "yHint": "Every layer from min to max is sampled; each layer counts the cave/river cells inside the 24..128 shell around the AFK point (Y=-40) then the layers are averaged. Every cell in the shell counts. Span <= 48 layers (default -63..-51); over 24 layers gets noticeably slower.",
+    "yWide": "The layer span exceeds 24 layers (currently {layers}). The search may get noticeably slower. Continue?",
+    "yLowMin": "The lowest layer {min} is above -58, so the low-Y farm premise may not hold. Continue?",
     "fastMode": "Fast mode",
     "fastRatio": "Area ratio %",
     "tryLuck": "Hey! The seed you typed in could be a lucky one, would you like to try newly released fast search instead to get results with only 1% to 5% of the original time?",
@@ -340,7 +350,6 @@
       "scan": "Coarse scan",
       "refine": "Refine"
     },
-    "pausing": "Pausing",
     "toCave": "The river search area is very large and will lead to slow search and too many results. Do you want to switch to cave search to get higher efficiency?",
     "goCave": "Go to cave",
     "stayRiver": "Keep searching river",

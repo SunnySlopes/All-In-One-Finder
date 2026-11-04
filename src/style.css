@@ -117,6 +117,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 .square-row input[type="number"] {
   width: 110px;
 }
+/* 地图采样 Y：预设下拉 + 手填输入框并排；下拉只在主世界显示。 */
+.y-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.y-row select { width: 96px; flex: none; }
+.y-row input { flex: 1; min-width: 0; }
 .progress-track {
   height: 10px;
   background: #12161d;

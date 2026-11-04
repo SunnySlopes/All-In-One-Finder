@@ -22,8 +22,8 @@ import { trialMapVersion, type TrialVersionTier } from './trial';
 import { witchMapVersion, type WitchVersionGroup } from './witch';
 
 /** 24 < r <= 128 刷怪环的格点总面积；溶洞与史莱姆共用同一口径，河流展示也沿用该分母。 */
-const FULL_RING_AREA = 49640;
-const RIVER_FULL_RING = 49640;
+const FULL_RING_AREA = 49659;
+const RIVER_FULL_RING = 49659;
 
 /** The trial statistics window, used for map overlays. */
 export interface TrialWindowView {
@@ -120,6 +120,8 @@ export class ResultsColumn {
   private fortressTab: SearcherId | null = null;
   private monumentBiomeCheck = true;
   private lowyStates: Partial<Record<SearcherId, LowyState>> = {};
+  /** B1 model tag per low-Y tab, prepended to exported result files. */
+  private lowyModels: Partial<Record<SearcherId, string>> = {};
   private monumentStates: Partial<Record<SearcherId, MonumentState>> = {};
   private fortressStates: Partial<Record<SearcherId, FortressState>> = {};
   private listModeByTab: Partial<Record<SearcherId, boolean>> = {};
@@ -235,6 +237,11 @@ export class ResultsColumn {
     const state = this.lowyStates[tab] ?? { hits: [], listMode: false, mapVersion: '' };
     state.mapVersion = version;
     this.lowyStates[tab] = state;
+  }
+
+  /** B1：低Y搜索的计分模型（层数变化后结果不可比），导出时写入文件头。 */
+  setLowyModel(tab: SearcherId, model: string): void {
+    this.lowyModels[tab] = model;
   }
 
   setHits(hits: SearchHit[], sourceTab: SearcherId, listMode: boolean): void {
@@ -567,6 +574,9 @@ export class ResultsColumn {
     const lowyVersion = dripstoneResult && this.sourceTab
       ? this.lowyStates[this.sourceTab]?.mapVersion
       : undefined;
+    // 溶洞结果跳图固定打开刷怪环（24/128），与河流/史莱姆等搜索器一致；
+    // 手动坐标跳转仍尊重用户的勾选状态。
+    if (dripstoneResult && fromResult) this.spawnCheck.checked = true;
     const draw = this.spawnCheck.checked;
     const jump = () => {
       this.map.clearSpawnCircles();
@@ -1227,7 +1237,7 @@ export class ResultsColumn {
         event.stopPropagation();
         const hit = this.hits[Number(button.dataset.index)];
         if (!hit) return;
-        void navigator.clipboard.writeText(`/tp ${hit.x} 64 ${hit.z}`);
+        void navigator.clipboard.writeText(`/tp ${hit.x} -40 ${hit.z}`);
       });
     });
     applyI18n(this.list);
@@ -1443,12 +1453,14 @@ export class ResultsColumn {
       return;
     }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
+    const model = (this.sourceTab && this.lowyModels[this.sourceTab])
+      || 'drowned-weighted-shell-b/13/afk-40';
     this.saveGrouped(this.hits, 'results.txt', (hit) => {
       const detail = showDetail
         ? ` area=${hit.total} cave=${hit.cave} river=${hit.river}`
         : ` area=${hit.total}`;
-      return `/tp ${hit.x} 64 ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
-    });
+      return `/tp ${hit.x} -40 ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
+    }, `# model=${model}`);
   }
 
   private saveText(fileName: string, text: string): void {
@@ -1461,16 +1473,18 @@ export class ResultsColumn {
     hits: T[],
     fileName: string,
     line: (hit: T) => string,
+    header?: string,
   ): void {
+    const prefix = header ? `${header}\n` : '';
     if (this.listMode) {
       const groups = groupBySeed(hits);
       const text = groups
         .map((group) => `${group.seed}\n${group.hits.map(line).join('\n')}`)
         .join('\n\n');
-      this.saveText(fileName, text);
+      this.saveText(fileName, prefix + text);
       return;
     }
-    this.saveText(fileName, hits.map(line).join('\n'));
+    this.saveText(fileName, prefix + hits.map(line).join('\n'));
   }
 
   private geodeFileName(hits: GeodeHit[]): string {

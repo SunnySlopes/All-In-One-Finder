@@ -45,7 +45,15 @@ struct LowyRequest {
     /** Opt-in GPU coarse scan; the engine still gates it by window size / threads. */
     bool allowGpu = false;
     float ratioPercent = 60.f;
-    float riverWeight = 0.75f;
+    float riverWeight = 0.70f;
+    /** Precise layer window (B1): every layer in [yMin, yMax] is sampled. */
+    int yMin = -63;
+    int yMax = -51;
+    /**
+     * AFK / player Y of the shell model: the scored region is the 3D shell
+     * 24 < distance <= 128 around (result x, afkY, result z).
+     */
+    int afkY = -40;
     std::vector<int64_t> seeds;
 };
 

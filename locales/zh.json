@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "关于",
-      "body": "定种多功能搜索器 {version}\n许可\n本软件以 GNU 通用公共许可证第 3 版（GPL-3.0-only）分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinderGUI、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/doubleMonumentFinderBase，作者：SunnySlopes\n多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI，作者：SunnySlopes\n试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native，作者：打野别说话\n紫水晶母岩：https://github.com/qk-yiyihehe/geode-native，作者：打野别说话\n全花农场：https://github.com/SunnySlopes/FlowerFinderBase，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
+      "body": "定种多功能搜索器 {version}\n许可\n本软件以 GNU 通用公共许可证第 3 版（GPL-3.0-only）分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinder、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/doubleMonumentFinderBase，作者：SunnySlopes\n多联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderBase，作者：SunnySlopes\n试炼刷怪笼：https://github.com/SunnySlopes/trial-spawner-native，作者：打野别说话\n紫水晶母岩：https://github.com/SunnySlopes/geode-native，作者：打野别说话\n全花农场：https://github.com/SunnySlopes/FlowerFinderBase，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
     },
     "searcher": {
       "map": "地图",
@@ -46,6 +46,8 @@
       "resume": "继续",
       "stop": "停止",
       "stopping": "停止中…",
+      "stoppingEta": "停止中：等待当前工作单元结束",
+      "stopped": "已停止",
       "working": "计算中",
       "completed": "已完成",
       "unsupported": "当前版本不能运行这个搜索。",
@@ -76,6 +78,7 @@
       "dimension": "维度",
       "largeBiomes": "大型生物群系",
       "y": "采样 Y",
+      "yCustom": "自定义",
       "coordX": "坐标 X",
       "coordZ": "坐标 Z",
       "goto": "前往",
@@ -92,8 +95,8 @@
       "end": "末地",
       "grid": "坐标网格",
       "terrain": "展示地形",
-      "terrainHint": "只在 1:1 绘制真实地表高度（含洞穴开口与岩浆海）",
-      "terrainLegend": "蓝=含水层，橙=岩浆层",
+      "terrainHint": "只在 1:1 绘制真实地表高度（含岩浆开口与岩浆海）",
+      "terrainLegend": "橙=岩浆开口",
       "heightY": "Y={y}",
       "floodY": "floodY={y}",
       "lavaY": "岩浆={y}",
@@ -118,6 +121,9 @@
       "busy": "已有搜索正在运行。",
       "out-of-memory": "搜索内存不足。",
       "bad-ratio": "面积占比超出允许范围。",
+      "bad-y-range": "采样Y范围无效：需满足 -63 ≤ 最低 ≤ 最高 ≤ 319，且跨度不超过 48 层。",
+      "bad-afk-y": "挂机 Y 无效：需满足 -64 ≤ 挂机Y ≤ 320。",
+      "engine-timeout": "引擎无响应，已解除界面锁定；搜索可能仍在后台收尾。",
       "slime-start-failed": "史莱姆搜索启动失败。",
       "witch-start-failed": "低 Y 女巫小屋搜索启动失败。",
       "flower-start-failed": "全花种搜索启动失败。",
@@ -261,10 +267,9 @@
     }
   },
   "dripstonecave": {
-    "helpCave": "在指定范围内搜索低Y溶洞与河流组合区域。",
+    "helpCave": "勾选「允许调用显卡」后，大范围搜索会尝试用 GPU 粗筛，显卡不可用时自动回退 CPU。",
     "helpPit": "大坑低Y溶洞快速搜索，仅支持单个种子。",
     "allowGpu": "允许调用显卡",
-    "gpuHint": "大范围搜索时勾选「允许调用显卡」才会尝试使用 GPU 粗筛；显卡不可用或范围过小时自动回退 CPU。",
     "gpuLine": "正在调用 GPU（{device}）",
     "gpuUnknown": "未知",
     "gpuFallback": "本次未使用 GPU 粗筛（范围较小、线程较多或显卡不可用），已使用 CPU",
@@ -273,6 +278,11 @@
     "riverWeight": "河流折算系数",
     "ratio": "最低面积占比 %",
     "area": "最低面积",
+    "yMin": "采样最低 Y",
+    "yMax": "采样最高 Y",
+    "yHint": "在指定范围内搜索低Y溶洞与河流组合区域。逐层采样下限~上限, 每层统计以挂机点 Y=-40 为球心的 24~128 球壳内洞穴/河流格（球壳内全部计入，不再按区块裁剪）, 再按层数取平均; 跨度上限48层(默认-63~-51), 超过24层会明显变慢",
+    "yWide": "高度范围超过24格(当前{layers}层), 可能导致搜索变慢, 是否继续?",
+    "yLowMin": "最低高度{min}高于-58, 可能不满足低Y农场前提, 是否继续?",
     "fastMode": "快速模式",
     "fastRatio": "面积占比 %",
     "tryLuck": "歪!你输入的种子经初步检测运气不错，要不要试试最新推出的快速搜索?1%~5%的时间就能出结果!",
@@ -340,7 +350,6 @@
       "scan": "粗筛",
       "refine": "精确计算"
     },
-    "pausing": "正在暂停",
     "toCave": "当前河流搜索范围过大，搜索较慢，建议前往溶洞页搜索，是否前往？",
     "goCave": "去溶洞页",
     "stayRiver": "继续搜索河流",

@@ -12,7 +12,8 @@
 - 支持大型生物群系、采样 Y、坐标网格、缩放与平移
 - 叠加常见结构与地物图标（可按类型勾选）
 - 可选「展示地形」：**只在 1:1**（1 格 = 1 像素）绘制真实地表高度，叠加高程阴影，底图仍是群系颜色；1:4 及更远只显示群系地图。地形、洞穴开口与岩浆海是同一个开关，不再有独立的洞穴选项，也没有等高线/边界线叠加
-- 地形按完整密度场绘制，通到地表的**奶酪洞穴开口**一并标出：水（蓝）/ 岩浆（橙）为半透明填充，干开口不额外标注
+- 地形按完整密度场绘制；通到地表的岩浆开口以橙色半透明填充，水开口与干开口不再标注
+- 采样 Y 低于 256 时（含负值），高过采样高度的地形按采样高度削平（地图高度与悬停 `Y=` 都显示采样高度）；削平列保留原群系颜色，采样高度在岩浆面以下时悬停不再标注岩浆
 - 地表低于岩浆面（y ≤ -55）的格子统一按岩浆绘制（原版世界底部岩浆海），因此底层洞穴与空洞会显示为橙色；悬停 `Y=` 为 cubiomes 返回的最顶层固体方块（找不到固体时为 -64，标“理论值”），`lava=-54` 表示该列是岩浆海
 - 坐标跳转、 `/tp` 或 `(x, z)` 文本解析坐标
 - 可选绘制刷怪环（24 / 128）辅助规划挂机点
@@ -24,8 +25,8 @@
 |-------------|-------------------------------------------------------------|
 | **低 Y 女巫小屋** | 在给定范围内搜索低Y女巫小屋，支持单种子 / 种子列表                                 |
 | **河流**      | 搜索刷怪环（24 < 距离 <= 128）内河流面积最大的点，可选计入溶洞面积                     |
-| **低 Y 溶洞**  | 搜索刷怪环（24 < 距离 <= 128）内低Y存在溶洞的区域，可手动启用实验性 GPU 粗筛                     |
-| **大坑低 Y 溶洞** | 在部分种子中以远快于正常搜索的速度寻找「大坑」类低Y溶洞                                |
+| **低 Y 溶洞**  | 搜索刷怪环（24 < 距离 <= 128）内低Y存在溶洞的区域，可设置采样Y范围，可手动启用实验性 GPU 粗筛                     |
+| **大坑低 Y 溶洞** | 在部分种子中以远快于正常搜索的速度寻找「大坑」类低Y溶洞，可设置采样Y范围                                |
 | **史莱姆搜索器**  | 搜索刷怪环（24 < 距离 <= 128）内史莱姆生成面积最大的挂机点，可选按 y=-63 群系折算          |
 | **二联海底神殿**  | 搜索二联海底神殿（要求二联神殿100%面积在刷怪环内）                                 |
 | **多联海底神殿**  | 搜索三/四连海底神殿，可选单假人 / 双假人 / 单门三种面积口径，展示对应有效面积                  |
@@ -36,6 +37,8 @@
 | **全花种**     | 搜索主世界全花种农场选址，要求窗口范围内包含繁花森林 / 苍白花园 / 沼泽，可选包含桦木、樱花树林，支持查看地狱群系 |
 
 支持单种子或种子列表、线程数、搜索范围（默认正方形或世界边界）、进度与暂停/停止；结果统一按各搜索器规则排序并截断前 1000 条后导出。
+
+低 Y 溶洞页可设置采样 Y 范围（默认 -63..-51，跨度上限 48 层）；计分以挂机点 Y=-40 为球心，逐层统计 24~128 球壳内的洞穴/河流格（球壳内全部计入，不再按区块裁剪），再按层数取平均。该页默认河流折算系数 0.70、面积占比 70%。大坑低 Y 溶洞页也有同一组 Y 范围填框，并按相同的球壳规则计算（不计河流面积）。
 
 地图与结构定位底层依赖 [cubiomes](https://github.com/xpple/cubiomes)（`tools/cubiomes`）。
 
@@ -95,15 +98,15 @@ Copyright (C) 2026 SunnySlopes
 - 界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City
 - 地图展示：https://github.com/xpple/cubiomes ，作者：Cubitect、xpple
 - 低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase ，作者：M33三角座星系、SunnySlopes
-- 河流：https://github.com/SunnySlopes/RiverFinderGUI 、
+- 河流：https://github.com/SunnySlopes/RiverFinder 、
 https://github.com/Melationin/RiverFinder ，作者：若莫、SunnySlopes
 - 低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase ，作者：SunnySlopes
 - 史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar 、
 https://github.com/CITYWIDESIGN/SlimeOptimizer ，作者：Bot_City
 - 二联海底神殿：https://github.com/SunnySlopes/doubleMonumentFinderBase ，作者：SunnySlopes
-- 多联海底神殿：https://github.com/Whisperlyric/MultiMonumentFinder ，作者：浅唱清辞、SunnySlopes
-- 地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderGUI ，作者：SunnySlopes
-- 试炼刷怪笼：https://github.com/qk-yiyihehe/trial-spawner-native ，作者：打野别说话
-- 紫水晶母岩：https://github.com/qk-yiyihehe/geode-native ，作者：打野别说话
+- 多联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed ，作者：浅唱清辞、SunnySlopes
+- 地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderBase ，作者：SunnySlopes
+- 试炼刷怪笼：https://github.com/SunnySlopes/trial-spawner-native ，作者：打野别说话
+- 紫水晶母岩：https://github.com/SunnySlopes/geode-native ，作者：打野别说话
 - 全花农场：https://github.com/SunnySlopes/FlowerFinderBase ，作者：SunnySlopes
 - 其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导

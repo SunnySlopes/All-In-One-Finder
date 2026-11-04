@@ -3,7 +3,6 @@ import { applyI18n, t } from './i18n';
 import { call, type McVersion, type RiverStatus } from './native';
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
 import type { ResultsColumn } from './results';
-import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
 
 export const RIVER_MAP_VERSION = '26.3';
@@ -262,7 +261,7 @@ export class RiverPanel {
     this.renderSeedBlock();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="rv-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('River') ? 'disabled' : ''}></button>
+        <button id="rv-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
         <button id="rv-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
         <button id="rv-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
@@ -461,9 +460,9 @@ export class RiverPanel {
       : status.stage === 2 ? t('river.stage.refine')
         : t('common.search.working');
     const pct = status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
-    const pausing = status.paused ? ` ${t('river.pausing')}` : '';
+    // 暂停状态已由下方 ETA 显示“已暂停”，进度行不再追加“正在暂停”。
     const error = status.error ? ` ${messageOf(status.error)}` : '';
-    return `${seeds}${stage} ${status.current}/${status.total} (${pct}%)${pausing}${error}`;
+    return `${seeds}${stage} ${status.current}/${status.total} (${pct}%)${error}`;
   }
 
   private etaText(status: RiverStatus): string {

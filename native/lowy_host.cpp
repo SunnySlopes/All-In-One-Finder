@@ -30,7 +30,7 @@ using lowyd::samplePerlinTable;
 
 namespace {
 
-constexpr double kRiverArea = 49640.0; /* 24 < r <= 128 刷怪环的格点总面积 */
+constexpr double kRiverArea = 49659.0; /* 24 < r <= 128 球壳的格点总数 */
 constexpr int kRing = 128;
 constexpr float kPreserve = 0.9f;
 
@@ -53,6 +53,11 @@ std::string gGpuReason;
 constexpr long long kGpuMinUserSide = 2000001LL;
 constexpr long long kGpuThreadedUserSide = 524288LL;
 constexpr int kGpuMaxThreads = 12;
+
+/* B6: reuse one Generator across the batch seeds; it only depends on mc.
+ * runOnce() is serialized on the job thread (searchGate + status), so no lock. */
+Generator gGeneratorCache;
+int gGeneratorCacheMc = -1;
 
 /** Ends the GPU section of a search on every return path. */
 struct GpuSession
@@ -172,6 +177,17 @@ std::vector<LowyHit> filterHits(const std::vector<Res> &raw, int64_t seed)
 std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
 {
     if (gProgress.try_stop.load()) return {};
+    const int layers = request.yMax - request.yMin + 1;
+    if (layers < 1 || layers > lowyd::Y_MAX_SPAN
+        || request.yMin < lowyd::Y_LIMIT_MIN || request.yMax > lowyd::Y_LIMIT_MAX
+        || request.afkY < lowyd::AFK_Y_LIMIT_MIN || request.afkY > lowyd::AFK_Y_LIMIT_MAX) {
+        return {};
+    }
+    const lowyd::PreciseYRange yRange{request.yMin, request.yMax};
+    /* B2: keeps the per-worker precise buffers alive for this seed and frees
+     * them on every return path. */
+    PreciseScratchSession scratchSession;
+
     float riverWeight = request.riverWeight;
     if (riverWeight < 0.f) riverWeight = 0.f;
     if (riverWeight > 1.f) riverWeight = 1.f;
@@ -183,8 +199,11 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
     int threads = request.threads > 0 ? request.threads : (int)std::thread::hardware_concurrency();
     if (threads < 1) threads = 1;
 
-    Generator generator;
-    setupGenerator(&generator, request.mc, FORCE_OCEAN_VARIANTS);
+    if (gGeneratorCacheMc != request.mc) {
+        setupGenerator(&gGeneratorCache, request.mc, FORCE_OCEAN_VARIANTS);
+        gGeneratorCacheMc = request.mc;
+    }
+    Generator &generator = gGeneratorCache;
     applySeed(&generator, DIM_OVERWORLD, static_cast<uint64_t>(seed));
     gResults.clear();
     resetCounters();
@@ -197,7 +216,8 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
         const int boxMinZ = startZ + kRing;
         const int boxMaxZ = startZ + height - 1 - kRing;
         std::vector<Res> found = runLargePitSearch(&generator, minArea, 0.f, threads, &gProgress,
-                                                    boxMinX, boxMaxX, boxMinZ, boxMaxZ);
+                                                    boxMinX, boxMaxX, boxMinZ, boxMaxZ, yRange,
+                                                    request.afkY);
         if (gProgress.try_stop.load()) return {};
         std::sort(found.begin(), found.end(), [](const Res &a, const Res &b) { return a.area > b.area; });
         gProgress.phase1.store(-1);
@@ -272,6 +292,8 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
                                      &gProgress, phase1Threads, cont, 1, weird);
     }
     setActiveOctaveACache(nullptr);
+    /* Phase-1 workers are joined; their (small) scratch buffers are done. */
+    clearPreciseScratchPool();
     auto coarse = gResults.getAllResults();
     if (gProgress.try_stop.load()) return {};
     std::sort(coarse.begin(), coarse.end(), [](const Res &a, const Res &b) { return a.area > b.area; });
@@ -287,7 +309,7 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
         ThreadPool pool((size_t)threads);
         for (const auto &candidate : coarse) {
             if (gProgress.try_stop.load()) break;
-            pool.enqueue([&, cand = candidate, seedVal = static_cast<uint64_t>(seed), minArea, riverWeight, mc = request.mc]() {
+            pool.enqueue([&, cand = candidate, seedVal = static_cast<uint64_t>(seed), minArea, riverWeight, mc = request.mc, yRange]() {
                 if (gProgress.try_stop.load()) return;
                 while (gProgress.try_pause.load()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -314,7 +336,8 @@ std::vector<Res> runOnce(const LowyRequest &request, int64_t seed)
                     cand.point.y - SearchConfig::REFINE_HALF_WINDOW,
                     SearchConfig::REFINE_WINDOW_BLOCKS,
                     SearchConfig::REFINE_WINDOW_BLOCKS,
-                    minArea, 1.0, FilterMode::PreciseBiome, riverWeight);
+                    minArea, 1.0, FilterMode::PreciseBiome, riverWeight,
+                    nullptr, 0, nullptr, yRange, request.afkY);
                 if (!refined.empty() && refined[0].area >= minArea) gResults.addResult(refined[0]);
                 gProgress.chunkInRunning.fetch_sub(1);
                 gProgress.current.fetch_add(1);
@@ -421,6 +444,17 @@ std::string lowyStart(const LowyRequest &request)
     if (!lowySupports(request.mc)) return "unsupported-version";
     if (request.seeds.empty()) return "no-seeds";
     if (request.maxX < request.minX || request.maxZ < request.minZ) return "bad-bounds";
+    /* B1: the precise layer window and AFK Y are validated here so a malformed
+     * request can never reach the engine (the engine also rejects it). */
+    if (request.afkY < lowyd::AFK_Y_LIMIT_MIN || request.afkY > lowyd::AFK_Y_LIMIT_MAX)
+        return "bad-afk-y";
+    {
+        lowyd::SearchParams layersCheck;
+        layersCheck.yMin = request.yMin;
+        layersCheck.yMax = request.yMax;
+        layersCheck.afkY = request.afkY;
+        if (!lowyd::validate(layersCheck, nullptr)) return "bad-y-range";
+    }
     const long long width = (long long)request.maxX - request.minX + 1;
     const long long height = (long long)request.maxZ - request.minZ + 1;
     if (width <= 0 || height <= 0) return "bad-bounds";

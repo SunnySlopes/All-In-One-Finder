@@ -466,6 +466,16 @@ cases.geodeList = await runGeode(
   () => addon.geodePoll(), () => addon.geodeStop(),
 );
 
+// B1: the precise layer window must reach the engine and change the volume
+// score. 131072² at ratio 60 yields a few hits, so they are part of the baseline.
+cases.lowyYRange = await runSearch(
+  () => addon.searchStart({
+    page: 'lowy-single', mc, threads: 4, minX: -65536, maxX: 65535, minZ: -65536, maxZ: 65535,
+    fastMode: true, ratio: 60, riverWeight: 0.7, yMin: -58, yMax: -54, seed: '12345',
+  }),
+  () => addon.searchPoll(), () => addon.searchStop(),
+);
+
 // Slowest case goes last so a timeout cannot leave later cases "busy".
 cases.lowyList = await runSearch(
   () => addon.searchStart({

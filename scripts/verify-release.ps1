@@ -61,6 +61,11 @@ $probe = Join-Path $env:TEMP ('aio-verify-' + [guid]::NewGuid().ToString('N').Su
 Copy-Item $stage $probe -Recurse -Force
 try {
     $out = Join-Path $probe 'smoke.txt'
+    # The host keys its single-instance mutex by user-data base, so a normally
+    # running app would make this smoke copy exit immediately. Give the smoke
+    # run its own base instead of depending on the desktop being idle.
+    $env:AIO_SESSION_BASE = Join-Path $probe 'session-base'
+    New-Item -ItemType Directory -Force -Path $env:AIO_SESSION_BASE | Out-Null
     # The host is a GUI-subsystem exe: `&` would not wait for it, so use
     # Start-Process with redirects and check the real exit code.
     $errFile = Join-Path $probe 'smoke.err.txt'
@@ -72,6 +77,7 @@ try {
     $log = (Get-Content $out -Raw) + (Get-Content $errFile -Raw)
     Check 'smoke' (($code -eq 0) -and ($log -match 'engine round-trip OK')) "exit=$code"
 } finally {
+    Remove-Item Env:AIO_SESSION_BASE -ErrorAction SilentlyContinue
     Remove-Item $probe -Recurse -Force -ErrorAction SilentlyContinue
 }
 

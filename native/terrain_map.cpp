@@ -424,7 +424,7 @@ void paintFlat(TileImage &out, const std::vector<int> &biomes, int sx, int sz)
  * found no solid block at all (height == -64).
  */
 void paintShaded(TileImage &out, const std::vector<int> &biomes, const std::vector<int16_t> &height,
-                 int sx, int sz, float gain)
+                 int sx, int sz, float gain, const std::vector<uint8_t> *lavaSea = nullptr)
 {
     out.rgba.assign(static_cast<size_t>(sx) * sz * 4, 0);
     for (int iz = 0; iz < sz; iz++) {
@@ -436,7 +436,9 @@ void paintShaded(TileImage &out, const std::vector<int> &biomes, const std::vect
             const size_t index = static_cast<size_t>(iz) * sx + ix;
             const int id = biomes[index];
             const int h = height[index];
-            if (h <= kLavaTopBlock) {
+            /* 采样 Y 削平后 height 已不是真实地表；真实岩浆海由调用方预先标记。 */
+            const bool lava = lavaSea ? (*lavaSea)[index] != 0 : h <= kLavaTopBlock;
+            if (lava) {
                 // Below the lava level the visible surface is the lava sea; this
                 // also covers columns where cubiomes returned no solid block.
                 out.rgba[index * 4] = kLavaSeaR;
@@ -488,6 +490,11 @@ void buildTerrainTile(TerrainWorker &worker, const TileSpec &tile, int blockY, b
     const int cellH = sz / kCellSize;
     const int blockX0 = tile.x * tile.scale;
     const int blockZ0 = tile.z * tile.scale;
+
+    /* 采样 Y 作为展示上限：低于 256 时（包括负值），高过采样高度的地形按采样
+     * 高度削平；地图高度与悬停 Y 都显示采样高度。真实岩浆海列在削平前记录，
+     * 削平后仍按岩浆着色（否则负值会把整张图变成岩浆色）。 */
+    const bool clampToSampleY = blockY < 256;
 
     if (!tn || !genTileBiomes(&worker.gen, tile, blockY, worker.biomes)) {
         out.rgba.assign(static_cast<size_t>(sx) * sz * 4, 0);
@@ -756,6 +763,9 @@ void buildTerrainTile(TerrainWorker &worker, const TileSpec &tile, int blockY, b
                     const int wx = blockX0 + ci * kCellSize + kCellSize / 2;
                     const int wz = blockZ0 + cj * kCellSize + kCellSize / 2;
                     const int cellY = yForRow(k) + kCellHeight / 2;
+                    // 开口高于采样高度时不标注，继续往更深处找。
+                    if (clampToSampleY && cellY > blockY)
+                        continue;
 
                     // Classify the fluid *at the opening*: `computeFluid`
                     // already returns "no fluid" (kNoFluidY) for columns the
@@ -786,8 +796,18 @@ void buildTerrainTile(TerrainWorker &worker, const TileSpec &tile, int blockY, b
         break;
     }
 
+    std::vector<uint8_t> lavaSea;
+    if (clampToSampleY) {
+        lavaSea.resize(worker.height.size());
+        for (size_t i = 0; i < worker.height.size(); i++)
+            lavaSea[i] = worker.height[i] <= kLavaTopBlock ? 1 : 0;
+        for (auto &height : worker.height) {
+            if (height > blockY) height = static_cast<int16_t>(blockY);
+        }
+    }
     out.height.assign(worker.height.begin(), worker.height.end());
-    paintShaded(out, worker.biomes, worker.height, sx, sz, kShadeGain);
+    paintShaded(out, worker.biomes, worker.height, sx, sz, kShadeGain,
+                clampToSampleY ? &lavaSea : nullptr);
     if (!withCaves) {
         out.cave.clear();
         out.floodY.clear();

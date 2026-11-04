@@ -12,7 +12,8 @@ A **set-seed** desktop tool for Minecraft Java Edition 1.18+: browse seed maps a
 - Supports Large Biomes, sample Y, coordinate grid, zoom, and pan
 - Overlays common structures and features (toggle by type)
 - Optional "Show terrain": **1:1 only** (one block per pixel) draws the real overworld surface with hill shading over the biome colours; 1:4 and coarser stay on the biome map. Relief, cave openings and the lava sea are one single toggle (there is no separate caves option, and no contour/boundary lines are drawn)
-- The relief comes from the full density field and also marks the **cheese cave openings that reach the surface**: water (blue) and lava (orange) get a translucent fill, dry openings are not annotated
+- The relief comes from the full density field; lava openings that reach the surface get a translucent orange fill, while water and dry openings are not annotated
+- With a sample Y below 256 (negative values included), terrain above that height is flattened to the sample height (both the painted relief and the hovered `Y=` read the sample height); flattened columns keep their biome colour and the lava note is skipped while the sample height is below the lava level
 - Anything whose top solid block is below the lava level (y <= -55) is painted as lava (the vanilla lava sea), so deep voids show up orange; hovering reads `Y=` (cubiomes' topmost solid block, `-64` with a "theoretical" marker when no solid was found) and `lava=-54` for lava-sea columns
 - Jump to coordinates; parse coordinates from `/tp` or `(x, z)` text
 - Optionally draw spawn rings (24 / 128) to help plan AFK spots
@@ -24,8 +25,8 @@ A **set-seed** desktop tool for Minecraft Java Edition 1.18+: browse seed maps a
 |----------|---------|
 | **Low-Y Swamp Hut** | Finds low-Y swamp huts within the given bounds; supports single seed / seed list |
 | **River** | Finds the point with the largest river area inside the spawn ring (24 < distance <= 128); optionally counts dripstone cave area |
-| **Low-Y Dripstone Cave** | Finds areas with low-Y dripstone caves inside the spawn ring (24 < distance <= 128); an experimental GPU coarse scan can be enabled manually |
-| **Large-Pit Low-Y Dripstone Cave** | Finds "large-pit" low-Y dripstone caves for some seeds much faster than the normal search |
+| **Low-Y Dripstone Cave** | Finds areas with low-Y dripstone caves inside the spawn ring (24 < distance <= 128); the sample Y window can be set, and an experimental GPU coarse scan can be enabled manually |
+| **Large-Pit Low-Y Dripstone Cave** | Finds "large-pit" low-Y dripstone caves for some seeds much faster than the normal search; the sample Y window can be set |
 | **Slime Chunks** | Finds the AFK point with the largest slime spawning area inside the spawn ring (24 < distance <= 128); optionally converts biomes at y=-63 |
 | **Double Ocean Monument** | Finds double ocean monuments (requires 100% of both monuments' area inside the spawn ring) |
 | **Multi Ocean Monument** | Finds triple/quadruple ocean monuments; supports single dummy / dual dummy / single gate area bases and shows the matching effective area |
@@ -36,6 +37,8 @@ A **set-seed** desktop tool for Minecraft Java Edition 1.18+: browse seed maps a
 | **All Flower Farm** | Finds a site for an all-flower farm in the Overworld; the window must contain flower forest / pale garden / swamp, may optionally include birch and cherry grove, and can show the Nether biome |
 
 Supports single seeds or seed lists, thread count, search bounds (square by default or world border), progress, and pause/stop; results are sorted by each searcher's own rules, truncated to the top 1000 entries, and can then be exported.
+
+The Low-Y Dripstone Cave page lets you set the precise sample Y window (default -63..-51, hard span cap 48 layers). Scoring uses the AFK point at Y=-40 as the shell centre: each layer counts every cave/river cell inside the 24..128 shell (no chunk-level culling), then the layers are averaged. Its default river weight is 0.70 and default area ratio 70%; the large-pit page has the same Y window fields and follows the same shell rule (river area is not counted).
 
 Map and structure locating rely on [cubiomes](https://github.com/xpple/cubiomes) (`tools/cubiomes`).
 
@@ -97,15 +100,15 @@ Thanks to everyone who contributed; without your contributions this finder would
 - UI author: SunnySlopes, with design inspired by SlimeFinderGUI, author: Bot_City
 - Map display: <https://github.com/xpple/cubiomes>, authors: Cubitect, xpple
 - Low-Y Swamp Hut: <https://github.com/M33Galaxy/LowYSwampHutFinderBase>, authors: M33_Galaxy, SunnySlopes
-- River: <https://github.com/SunnySlopes/RiverFinderGUI>,
+- River: <https://github.com/SunnySlopes/RiverFinder>,
   <https://github.com/Melationin/RiverFinder>, authors: Ruo_Mo, SunnySlopes
 - Low-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: <https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase>, author: SunnySlopes
 - Slime Chunks: <https://github.com/CITYWIDESIGN/SlimeRadar>,
   <https://github.com/CITYWIDESIGN/SlimeOptimizer>, author: Bot_City
 - Double Ocean Monument: <https://github.com/SunnySlopes/doubleMonumentFinderBase>, author: SunnySlopes
-- Multi Ocean Monument: <https://github.com/Whisperlyric/MultiMonumentFinder>, authors: Whisperlyric, SunnySlopes
-- Fortress Crossroads and Fortress Large Range: <https://github.com/SunnySlopes/FortressFinderGUI>, author: SunnySlopes
-- Trial Spawner: <https://github.com/qk-yiyihehe/trial-spawner-native>, author: qk-yiyihehe
-- Budding Amethyst: <https://github.com/qk-yiyihehe/geode-native>, author: qk-yiyihehe
+- Multi Ocean Monument: <https://github.com/SunnySlopes/DoubleMonumentForFixedSeed>, authors: Whisperlyric, SunnySlopes
+- Fortress Crossroads and Fortress Large Range: <https://github.com/SunnySlopes/FortressFinderBase>, author: SunnySlopes
+- Trial Spawner: <https://github.com/SunnySlopes/trial-spawner-native>, author: qk-yiyihehe
+- Budding Amethyst: <https://github.com/SunnySlopes/geode-native>, author: qk-yiyihehe
 - All Flower Farm: <https://github.com/SunnySlopes/FlowerFinderBase>, author: SunnySlopes
 - The Low-Y Dripstone Cave Searcher and the All Flower Farm Searcher also thank M33_Galaxy for guidance
