@@ -47,6 +47,22 @@ interface LowyState {
   mapVersion: string;
 }
 
+/**
+ * Shell geometry of one low-Y search.
+ *
+ * `afkY` is the shell centre used for /tp and `fullArea` the display
+ * denominator.  `yMin`/`yMax` are the sampled layer window: the map jump should
+ * land inside the layers that were actually scored, and the AFK Y is chosen for
+ * score stability on the shell plateau rather than for viewing, so it can sit
+ * outside the window.
+ */
+interface LowyGeometry {
+  afkY: number;
+  fullArea: number;
+  yMin?: number;
+  yMax?: number;
+}
+
 interface MonumentState {
   hits: MonumentHit[];
   listMode: boolean;
@@ -114,6 +130,12 @@ export class ResultsColumn {
     modernActivity: true,
   };
   private riverHits: RiverHit[] = [];
+  /** 当前结果的显示分母（由引擎按挂机Y±24 裁剪后给出，替代硬编码 RIVER_FULL_RING）。 */
+  private riverFullArea = RIVER_FULL_RING;
+  /** 最近一次河流搜索是否为纯河流模式：决定结果卡第一行显示哪个等效面积。 */
+  private riverPureRiver = true;
+  /** 最近一次河流搜索的折算系数，供结果卡统一口径。 */
+  private riverConversion = 4880 / 7011;
   private monumentHits: MonumentHit[] = [];
   private fortressHits: FortressHit[] = [];
   private monumentTab: SearcherId | null = null;
@@ -122,8 +144,13 @@ export class ResultsColumn {
   private lowyStates: Partial<Record<SearcherId, LowyState>> = {};
   /** B1 model tag per low-Y tab, prepended to exported result files. */
   private lowyModels: Partial<Record<SearcherId, string>> = {};
-  /** Shell geometry of the last search per tab: AFK Y for /tp and the display denominator. */
-  private lowyGeom: Partial<Record<SearcherId, { afkY: number; fullArea: number }>> = {};
+  /**
+   * Shell geometry of the last search per tab: AFK Y for /tp, the display
+   * denominator, and the sampled layer window.  The window matters because the
+   * map jump must land inside the layers that were actually scored — the AFK Y
+   * sits on the shell plateau and can be well above or below them.
+   */
+  private lowyGeom: Partial<Record<SearcherId, LowyGeometry>> = {};
   private monumentStates: Partial<Record<SearcherId, MonumentState>> = {};
   private fortressStates: Partial<Record<SearcherId, FortressState>> = {};
   private listModeByTab: Partial<Record<SearcherId, boolean>> = {};
@@ -248,12 +275,32 @@ export class ResultsColumn {
 
   /** 低Y搜索的球心 Y 与满球壳面积；/tp 的 Y 和百分比分母都跟着窗口走。 */
   setLowyGeometry(tab: SearcherId, afkY: number, fullArea: number): void {
-    this.lowyGeom[tab] = { afkY, fullArea };
+    const previous = this.lowyGeom[tab];
+    this.lowyGeom[tab] = { afkY, fullArea, yMin: previous?.yMin, yMax: previous?.yMax };
   }
 
-  private lowyGeometry(tab: SearcherId | null): { afkY: number; fullArea: number } {
+  /** 记录本次搜索实际采样的层窗口；地图跳转落在窗口中点，而不是球心 Y。 */
+  setLowyYWindow(tab: SearcherId, yMin: number, yMax: number): void {
+    const previous = this.lowyGeometry(tab);
+    this.lowyGeom[tab] = { ...previous, yMin, yMax };
+  }
+
+  private lowyGeometry(tab: SearcherId | null): LowyGeometry {
     const saved = tab ? this.lowyGeom[tab] : undefined;
     return saved ?? { afkY: -40, fullArea: FULL_RING_AREA };
+  }
+
+  /**
+   * Y the map should open at for a low-Y cave result: the midpoint of the
+   * sampled layer window.  The AFK Y is only the shell centre and can lie
+   * outside the window (it is chosen for score stability, not for viewing), so
+   * jumping to it showed a column that was never scored.  Falls back to the
+   * AFK Y when no window was recorded.
+   */
+  private lowyJumpY(tab: SearcherId | null): number {
+    const geometry = this.lowyGeometry(tab);
+    if (geometry.yMin == null || geometry.yMax == null) return geometry.afkY;
+    return Math.floor((geometry.yMin + geometry.yMax) / 2);
   }
 
   setHits(hits: SearchHit[], sourceTab: SearcherId, listMode: boolean): void {
@@ -370,12 +417,7 @@ export class ResultsColumn {
     else this.updateExportButtons();
   }
 
-  clearTrial(
-    version: TrialVersionTier,
-    window: TrialWindowView,
-    conversionRatio: number,
-    listMode = false,
-  ): void {
+  clearTrial(version: TrialVersionTier, window: TrialWindowView, conversionRatio: number, listMode = false): void {
     this.trialHits = [];
     this.trialVersion = version;
     this.trialWindow = window;
@@ -389,19 +431,15 @@ export class ResultsColumn {
     this.paint();
   }
 
-  setTrialHits(
-    hits: TrialHit[],
-    version: TrialVersionTier,
-    window: TrialWindowView,
-    conversionRatio: number,
-  ): void {
+  setTrialHits(hits: TrialHit[], version: TrialVersionTier, window: TrialWindowView, conversionRatio: number): void {
     const previous = this.trialHits.length;
-    const changedSetup = version !== this.trialVersion
-      || window.circle !== this.trialWindow.circle
-      || window.radius !== this.trialWindow.radius
-      || window.longSide !== this.trialWindow.longSide
-      || window.shortSide !== this.trialWindow.shortSide
-      || conversionRatio !== this.trialRatio;
+    const changedSetup =
+      version !== this.trialVersion ||
+      window.circle !== this.trialWindow.circle ||
+      window.radius !== this.trialWindow.radius ||
+      window.longSide !== this.trialWindow.longSide ||
+      window.shortSide !== this.trialWindow.shortSide ||
+      conversionRatio !== this.trialRatio;
     this.trialVersion = version;
     this.trialWindow = window;
     this.trialRatio = conversionRatio;
@@ -425,14 +463,15 @@ export class ResultsColumn {
   }
 
   setGeodeHits(hits: GeodeHit[], view: GeodeView): void {
-    const changedSetup = view.version !== this.geodeView.version
-      || view.listMode !== this.geodeView.listMode
-      || view.minX !== this.geodeView.minX
-      || view.maxX !== this.geodeView.maxX
-      || view.minZ !== this.geodeView.minZ
-      || view.maxZ !== this.geodeView.maxZ
-      || view.prefilter !== this.geodeView.prefilter
-      || view.verifyTop !== this.geodeView.verifyTop;
+    const changedSetup =
+      view.version !== this.geodeView.version ||
+      view.listMode !== this.geodeView.listMode ||
+      view.minX !== this.geodeView.minX ||
+      view.maxX !== this.geodeView.maxX ||
+      view.minZ !== this.geodeView.minZ ||
+      view.maxZ !== this.geodeView.maxZ ||
+      view.prefilter !== this.geodeView.prefilter ||
+      view.verifyTop !== this.geodeView.verifyTop;
     const previous = this.geodeHits.length;
     this.geodeView = view;
     this.listMode = view.listMode;
@@ -453,7 +492,12 @@ export class ResultsColumn {
     this.paint();
   }
 
-  setRiverHits(hits: RiverHit[]): void {
+  setRiverHits(hits: RiverHit[], fullArea?: number, pureRiver?: boolean, caveConversion?: number): void {
+    if (typeof fullArea === 'number' && fullArea > 0) this.riverFullArea = fullArea;
+    if (typeof pureRiver === 'boolean') this.riverPureRiver = pureRiver;
+    if (typeof caveConversion === 'number' && caveConversion > 0) {
+      this.riverConversion = caveConversion;
+    }
     if (displayFor(this.viewTab) === 'river' || this.viewTab === 'map') this.display = 'river';
     if (this.display !== 'river') {
       this.riverHits = hits;
@@ -583,20 +627,21 @@ export class ResultsColumn {
 
   private performJump(x: number, z: number, seed?: string, fromResult = false): void {
     const dripstoneResult = isDripstoneTab(this.sourceTab);
-    const lowyVersion = dripstoneResult && this.sourceTab
-      ? this.lowyStates[this.sourceTab]?.mapVersion
-      : undefined;
+    const lowyVersion = dripstoneResult && this.sourceTab ? this.lowyStates[this.sourceTab]?.mapVersion : undefined;
     // 溶洞结果跳图固定打开刷怪环（24/128），与河流/史莱姆等搜索器一致；
     // 手动坐标跳转仍尊重用户的勾选状态。
     if (dripstoneResult && fromResult) this.spawnCheck.checked = true;
     const draw = this.spawnCheck.checked;
+    // 结果跳图落到本次采样窗口的中点：球心 Y 只是球壳平台上的一个解，
+    // 未必在窗口内，原先写死的 -56 更是与用户设置的层范围无关。
+    const jumpY = dripstoneResult && fromResult ? this.lowyJumpY(this.sourceTab) : undefined;
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
         x,
         z,
         seed,
-        y: dripstoneResult && fromResult ? -56 : undefined,
+        y: jumpY,
         dimension: dripstoneResult ? 0 : undefined,
         mcVersion: lowyVersion || undefined,
         spawnCircles: draw,
@@ -757,13 +802,13 @@ export class ResultsColumn {
         areaOverlay: window.circle
           ? { kind: 'circle', x: hit.x, z: hit.z, radius: Math.max(1, window.radius), color: '#d0a24a' }
           : {
-            kind: 'rect',
-            x: hit.x,
-            z: hit.z,
-            width: Math.max(1, window.longSide),
-            height: Math.max(1, window.shortSide),
-            color: '#d0a24a',
-          },
+              kind: 'rect',
+              x: hit.x,
+              z: hit.z,
+              width: Math.max(1, window.longSide),
+              height: Math.max(1, window.shortSide),
+              color: '#d0a24a',
+            },
         spawnCircles: false,
       });
     };
@@ -905,20 +950,23 @@ export class ResultsColumn {
       return;
     }
     const legacy = this.flowerVersion === 'legacy';
-    this.list.innerHTML = this.flowerHits.map((hit, index) => {
-      const stats = [
-        `<span>${escapeText(t('flower.flowerArea', { area: hit.flowerArea }))}</span>`,
-        legacy ? '' : `<span>${escapeText(t('flower.paleArea', { area: hit.paleArea }))}</span>`,
-        `<span>${escapeText(t('flower.swampArea', { area: hit.swampArea }))}</span>`,
-        `<span>${escapeText(t('flower.nether', { biome: biomeLabel(hit.nether) }))}</span>`,
-        flowerBonusText(hit.bonus),
-      ].filter(Boolean).join('');
-      const nether = flowerNetherCoords(hit);
-      return `<article class="result-card result-flower" data-index="${index}">
+    this.list.innerHTML = this.flowerHits
+      .map((hit, index) => {
+        const stats = [
+          `<span>${escapeText(t('flower.flowerArea', { area: hit.flowerArea }))}</span>`,
+          legacy ? '' : `<span>${escapeText(t('flower.paleArea', { area: hit.paleArea }))}</span>`,
+          `<span>${escapeText(t('flower.swampArea', { area: hit.swampArea }))}</span>`,
+          `<span>${escapeText(t('flower.nether', { biome: biomeLabel(hit.nether) }))}</span>`,
+          flowerBonusText(hit.bonus),
+        ]
+          .filter(Boolean)
+          .join('');
+        const nether = flowerNetherCoords(hit);
+        return `<article class="result-card result-flower" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         <div class="row">
           <button type="button" class="result-nether-btn" data-index="${index}">${escapeText(t('flower.gotoNether'))}</button>
@@ -926,7 +974,8 @@ export class ResultsColumn {
         <div class="result-stats">${stats}</div>
         <div class="result-nether">${escapeText(t('flower.netherCoords', { x: nether.x, z: nether.z }))}</div>
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -967,23 +1016,25 @@ export class ResultsColumn {
       applyI18n(this.list);
       return;
     }
-    this.list.innerHTML = this.trialHits.map((hit, index) => {
-      const stats = [
-        `<span>${escapeText(t('trial.converted', { count: trialConverted(hit, this.trialRatio) }))}</span>`,
-        `<span>${escapeText(t('trial.totalSpawners', { count: hit.spawners }))}</span>`,
-        `<span>${escapeText(t('trial.fastSpawners', { count: hit.fastSpawners }))}</span>`,
-        `<span>${escapeText(t('trial.slowSpawners', { count: hit.slowSpawners }))}</span>`,
-        `<span>${escapeText(t('trial.structures', { count: hit.structures }))}</span>`,
-      ].join('');
-      return `<article class="result-card result-trial" data-index="${index}">
+    this.list.innerHTML = this.trialHits
+      .map((hit, index) => {
+        const stats = [
+          `<span>${escapeText(t('trial.converted', { count: trialConverted(hit, this.trialRatio) }))}</span>`,
+          `<span>${escapeText(t('trial.totalSpawners', { count: hit.spawners }))}</span>`,
+          `<span>${escapeText(t('trial.fastSpawners', { count: hit.fastSpawners }))}</span>`,
+          `<span>${escapeText(t('trial.slowSpawners', { count: hit.slowSpawners }))}</span>`,
+          `<span>${escapeText(t('trial.structures', { count: hit.structures }))}</span>`,
+        ].join('');
+        return `<article class="result-card result-trial" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         <div class="result-stats">${stats}</div>
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -1014,21 +1065,17 @@ export class ResultsColumn {
       return;
     }
     const approximate = this.geodeView.prefilter > 0;
-    this.list.innerHTML = this.geodeHits.map((hit, index) => {
-      const verified = hit.verified
-        ? ` <span class="badge">${escapeText(t('geode.card.verified'))}</span>`
-        : '';
-      const listed = hit.listedBudding >= 0
-        ? ` (${escapeText(t('geode.card.listed', { count: hit.listedBudding }))})`
-        : '';
-      const approx = approximate
-        ? `<span>${escapeText(t('geode.card.approximate'))}</span>`
-        : '';
-      return `<article class="result-card result-geode" data-index="${index}">
+    this.list.innerHTML = this.geodeHits
+      .map((hit, index) => {
+        const verified = hit.verified ? ` <span class="badge">${escapeText(t('geode.card.verified'))}</span>` : '';
+        const listed =
+          hit.listedBudding >= 0 ? ` (${escapeText(t('geode.card.listed', { count: hit.listedBudding }))})` : '';
+        const approx = approximate ? `<span>${escapeText(t('geode.card.approximate'))}</span>` : '';
+        return `<article class="result-card result-geode" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         <div class="result-stats">
           <span>${escapeText(t('geode.card.budding', { count: hit.budding }))}${escapeText(listed)}${verified}</span>
@@ -1036,7 +1083,8 @@ export class ResultsColumn {
           ${approx}
         </div>
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -1067,36 +1115,40 @@ export class ResultsColumn {
       return;
     }
     const multi = this.monumentTab === 'MultiMonument';
-    this.list.innerHTML = this.monumentHits.map((hit, index) => {
-      const focus = monumentFocus(hit);
-      const low = hit.lowEfficiency ? `<span>${escapeText(t('monument.lowEfficiency'))}</span>` : '';
-      let detail: string;
-      let dummies = '';
-      let extra = '';
-      if (!multi) {
-        detail = `<span>dx=${hit.dx} dz=${hit.dz}</span>`;
-      } else if (hit.mode === 1) {
-        detail = `<span>${escapeText(crossingLabel(hit.count))}</span>`
-          + `<span>${escapeText(t('monument.totalArea'))}=${hit.area}</span>`;
-        dummies = `<div class="result-dummies">`
-          + `<div>${escapeText(t('monument.dummy1'))} (${hit.x}, ${hit.z})</div>`
-          + `<div>${escapeText(t('monument.dummy2'))} (${hit.x2}, ${hit.z2})</div>`
-          + `</div>`;
-      } else if (hit.mode === 2) {
-        detail = `<span>${escapeText(crossingLabel(hit.count))}</span>`
-          + `<span>${escapeText(t('monument.totalArea'))}=${hit.areaMax}</span>`;
-        // 单门：主世界上限点 / 8（向下取整）就是下界门坐标；只展示，不参与跳转/复制。
-        const gateX = Math.floor(hit.areaMaxX / 8);
-        const gateZ = Math.floor(hit.areaMaxZ / 8);
-        extra = `<div class="result-gate">${escapeText(t('monument.gate'))} (${gateX}, ${gateZ})</div>`;
-      } else {
-        detail = `<span>${escapeText(crossingLabel(hit.count))}</span><span>S=${hit.area}</span>`;
-      }
-      return `<article class="result-card result-monument" data-index="${index}">
+    this.list.innerHTML = this.monumentHits
+      .map((hit, index) => {
+        const focus = monumentFocus(hit);
+        const low = hit.lowEfficiency ? `<span>${escapeText(t('monument.lowEfficiency'))}</span>` : '';
+        let detail: string;
+        let dummies = '';
+        let extra = '';
+        if (!multi) {
+          detail = `<span>dx=${hit.dx} dz=${hit.dz}</span>`;
+        } else if (hit.mode === 1) {
+          detail =
+            `<span>${escapeText(crossingLabel(hit.count))}</span>` +
+            `<span>${escapeText(t('monument.totalArea'))}=${hit.area}</span>`;
+          dummies =
+            `<div class="result-dummies">` +
+            `<div>${escapeText(t('monument.dummy1'))} (${hit.x}, ${hit.z})</div>` +
+            `<div>${escapeText(t('monument.dummy2'))} (${hit.x2}, ${hit.z2})</div>` +
+            `</div>`;
+        } else if (hit.mode === 2) {
+          detail =
+            `<span>${escapeText(crossingLabel(hit.count))}</span>` +
+            `<span>${escapeText(t('monument.totalArea'))}=${hit.areaMax}</span>`;
+          // 单门：主世界上限点 / 8（向下取整）就是下界门坐标；只展示，不参与跳转/复制。
+          const gateX = Math.floor(hit.areaMaxX / 8);
+          const gateZ = Math.floor(hit.areaMaxZ / 8);
+          extra = `<div class="result-gate">${escapeText(t('monument.gate'))} (${gateX}, ${gateZ})</div>`;
+        } else {
+          detail = `<span>${escapeText(crossingLabel(hit.count))}</span><span>S=${hit.area}</span>`;
+        }
+        return `<article class="result-card result-monument" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${focus.x}, ${focus.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         ${dummies}
         <div class="result-stats">
@@ -1106,7 +1158,8 @@ export class ResultsColumn {
         </div>
         ${extra}
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -1139,20 +1192,22 @@ export class ResultsColumn {
       return;
     }
     const span = this.fortressTab === 'NetherFortressOverall';
-    this.list.innerHTML = this.fortressHits.map((hit, index) => {
-      const detail = span
-        ? `<span>${escapeText(t('fortress.spanLabel'))} ${hit.spanX}*${hit.spanY}*${hit.spanZ}</span>`
-          + `<span>${escapeText(t('fortress.areaLabel'))} ${hit.area}</span>`
-        : `<span>${escapeText(crossingLabel(hit.crossings))}</span>`;
-      return `<article class="result-card result-fortress" data-index="${index}">
+    this.list.innerHTML = this.fortressHits
+      .map((hit, index) => {
+        const detail = span
+          ? `<span>${escapeText(t('fortress.spanLabel'))} ${hit.spanX}*${hit.spanY}*${hit.spanZ}</span>` +
+            `<span>${escapeText(t('fortress.areaLabel'))} ${hit.area}</span>`
+          : `<span>${escapeText(crossingLabel(hit.crossings))}</span>`;
+        return `<article class="result-card result-fortress" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.y}, ${hit.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         <div class="result-stats">${detail}</div>
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -1216,23 +1271,25 @@ export class ResultsColumn {
     }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
     const full = this.lowyGeometry(this.sourceTab).fullArea;
-    this.list.innerHTML = this.hits.map((hit, index) => {
-      const stats = showDetail
-        ? `<div class="result-stats">
+    this.list.innerHTML = this.hits
+      .map((hit, index) => {
+        const stats = showDetail
+          ? `<div class="result-stats">
             <span>${hit.total}/${full} (${hit.ratio.toFixed(2)}%)</span>
             <span>${escapeText(t('dripstonecave.caveLabel'))} ${hit.cave}</span>
             <span>${escapeText(t('dripstonecave.riverLabel'))} ${hit.river}</span>
           </div>`
-        : `<div class="result-stats"><span>${hit.total}/${full} (${hit.ratio.toFixed(2)}%)</span></div>`;
-      return `<article class="result-card" data-index="${index}">
+          : `<div class="result-stats"><span>${hit.total}/${full} (${hit.ratio.toFixed(2)}%)</span></div>`;
+        return `<article class="result-card" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         ${stats}
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -1264,15 +1321,16 @@ export class ResultsColumn {
       applyI18n(this.list);
       return;
     }
-    this.list.innerHTML = this.slimeHits.map((hit, index) => {
-      const equivalent = this.slimeConvert
-        ? `<span>${escapeText(t('slime.equivalentArea'))} ${formatArea(hit.areaEquiv)}</span>`
-        : '';
-      return `<article class="result-card result-slime" data-index="${index}">
+    this.list.innerHTML = this.slimeHits
+      .map((hit, index) => {
+        const equivalent = this.slimeConvert
+          ? `<span>${escapeText(t('slime.equivalentArea'))} ${formatArea(hit.areaEquiv)}</span>`
+          : '';
+        return `<article class="result-card result-slime" data-index="${index}">
         <div class="result-seed">${escapeText(hit.seed)}</div>
         <div class="result-coords">
           <span>(${hit.x}, ${hit.z})</span>
-          <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+          <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         <div class="result-stats">
           ${equivalent}
@@ -1280,7 +1338,8 @@ export class ResultsColumn {
           <span>${escapeText(t('slime.chunks'))} ${hit.chunks}</span>
         </div>
       </article>`;
-    }).join('');
+      })
+      .join('');
     this.list.querySelectorAll<HTMLElement>('.result-card').forEach((card) => {
       card.addEventListener('click', (event) => {
         const target = event.target as HTMLElement;
@@ -1318,10 +1377,13 @@ export class ResultsColumn {
       this.list.innerHTML = this.witchHits.map((hit, index) => witchCard(hit, index)).join('');
       this.bindWitchCards(0);
     } else {
-      this.list.insertAdjacentHTML('beforeend', this.witchHits
-        .slice(from)
-        .map((hit, offset) => witchCard(hit, from + offset))
-        .join(''));
+      this.list.insertAdjacentHTML(
+        'beforeend',
+        this.witchHits
+          .slice(from)
+          .map((hit, offset) => witchCard(hit, from + offset))
+          .join(''),
+      );
       this.bindWitchCards(from);
     }
     applyI18n(this.list);
@@ -1358,13 +1420,22 @@ export class ResultsColumn {
       return;
     }
     if (full || from === 0 || !this.list.querySelector('.result-card')) {
-      this.list.innerHTML = this.riverHits.map((hit, index) => riverCard(hit, index)).join('');
+      this.list.innerHTML = this.riverHits
+        .map((hit, index) =>
+          riverCard(hit, index, this.riverFullArea, this.riverPureRiver, this.riverConversion),
+        )
+        .join('');
       this.bindRiverCards(0);
     } else {
-      this.list.insertAdjacentHTML('beforeend', this.riverHits
-        .slice(from)
-        .map((hit, offset) => riverCard(hit, from + offset))
-        .join(''));
+      this.list.insertAdjacentHTML(
+        'beforeend',
+        this.riverHits
+          .slice(from)
+          .map((hit, offset) =>
+            riverCard(hit, from + offset, this.riverFullArea, this.riverPureRiver, this.riverConversion),
+          )
+          .join(''),
+      );
       this.bindRiverCards(from);
     }
     applyI18n(this.list);
@@ -1395,18 +1466,30 @@ export class ResultsColumn {
 
   private exportAll(): void {
     if (this.display === 'witch') {
-      this.saveGrouped(this.witchHits, 'witch-results.txt',
-        (hit) => `/tp ${hit.x} ${hit.y} ${hit.z} dist=${distance(hit.x, hit.z)}`);
+      this.saveGrouped(
+        this.witchHits,
+        'witch-results.txt',
+        (hit) => `/tp ${hit.x} ${hit.y} ${hit.z} dist=${distance(hit.x, hit.z)}`,
+      );
       return;
     }
     if (this.display === 'river') {
-      this.saveGrouped(this.riverHits, 'river-results.txt',
-        (hit) => `/tp ${hit.x} 64 ${hit.z} score=${hit.score} river=${hit.river} cave=${hit.cave} dist=${distance(hit.x, hit.z)}`);
+      this.saveGrouped(
+        this.riverHits,
+        'river-results.txt',
+        // 传送 Y 用实际挂机Y（sampleY），不再是固定 64。
+        (hit) =>
+          `/tp ${hit.x} ${hit.sampleY} ${hit.z} score=${hit.score} river=${hit.river} cave=${hit.cave} dist=${distance(hit.x, hit.z)}`,
+      );
       return;
     }
     if (this.display === 'slime') {
-      this.saveGrouped(this.slimeHits, 'slime-results.txt',
-        (hit) => `/tp ${hit.x} -64 ${hit.z} equiv=${formatArea(hit.areaEquiv)} area=${hit.area} chunks=${hit.chunks} dist=${distance(hit.x, hit.z)}`);
+      this.saveGrouped(
+        this.slimeHits,
+        'slime-results.txt',
+        (hit) =>
+          `/tp ${hit.x} -64 ${hit.z} equiv=${formatArea(hit.areaEquiv)} area=${hit.area} chunks=${hit.chunks} dist=${distance(hit.x, hit.z)}`,
+      );
       return;
     }
     if (this.display === 'monument') {
@@ -1416,8 +1499,10 @@ export class ResultsColumn {
         if (!multi) {
           const low = hit.lowEfficiency ? ' low' : '';
           const ocean = this.monumentBiomeCheck ? ` ${oceanTypesLabel(hit.oceanTypes)}` : '';
-          return `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${distance(focus.x, focus.z)}`
-            + `${ocean}${low}`;
+          return (
+            `/tp ${focus.x} 50 ${focus.z} dx=${hit.dx} dz=${hit.dz} dist=${distance(focus.x, focus.z)}` +
+            `${ocean}${low}`
+          );
         }
         const area = hit.mode === 2 ? hit.areaMax : hit.area;
         const parts = [
@@ -1452,8 +1537,7 @@ export class ResultsColumn {
       return;
     }
     if (this.display === 'flower') {
-      this.saveGrouped(this.flowerHits, 'flower-results.txt',
-        (hit) => flowerLine(hit, this.flowerVersion));
+      this.saveGrouped(this.flowerHits, 'flower-results.txt', (hit) => flowerLine(hit, this.flowerVersion));
       return;
     }
     if (this.display === 'trial') {
@@ -1461,20 +1545,21 @@ export class ResultsColumn {
       return;
     }
     if (this.display === 'geode') {
-      this.saveGrouped(this.geodeHits, this.geodeFileName(this.geodeHits),
-        (hit) => geodeLine(hit, this.geodeView));
+      this.saveGrouped(this.geodeHits, this.geodeFileName(this.geodeHits), (hit) => geodeLine(hit, this.geodeView));
       return;
     }
     const showDetail = this.sourceTab !== 'LowYPitDripstoneCave';
-    const model = (this.sourceTab && this.lowyModels[this.sourceTab])
-      || 'drowned-weighted-shell-b/13/afk-40';
+    const model = (this.sourceTab && this.lowyModels[this.sourceTab]) || 'drowned-weighted-shell-b/13/afk-40';
     const tpY = this.lowyGeometry(this.sourceTab).afkY;
-    this.saveGrouped(this.hits, 'results.txt', (hit) => {
-      const detail = showDetail
-        ? ` area=${hit.total} cave=${hit.cave} river=${hit.river}`
-        : ` area=${hit.total}`;
-      return `/tp ${hit.x} ${tpY} ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
-    }, `# model=${model}`);
+    this.saveGrouped(
+      this.hits,
+      'results.txt',
+      (hit) => {
+        const detail = showDetail ? ` area=${hit.total} cave=${hit.cave} river=${hit.river}` : ` area=${hit.total}`;
+        return `/tp ${hit.x} ${tpY} ${hit.z}${detail} dist=${distance(hit.x, hit.z)}`;
+      },
+      `# model=${model}`,
+    );
   }
 
   private saveText(fileName: string, text: string): void {
@@ -1492,9 +1577,7 @@ export class ResultsColumn {
     const prefix = header ? `${header}\n` : '';
     if (this.listMode) {
       const groups = groupBySeed(hits);
-      const text = groups
-        .map((group) => `${group.seed}\n${group.hits.map(line).join('\n')}`)
-        .join('\n\n');
+      const text = groups.map((group) => `${group.seed}\n${group.hits.map(line).join('\n')}`).join('\n\n');
       this.saveText(fileName, prefix + text);
       return;
     }
@@ -1505,22 +1588,29 @@ export class ResultsColumn {
     const view = this.geodeView;
     const range = `x${view.minX}..${view.maxX}_z${view.minZ}..${view.maxZ}`;
     const approx = view.prefilter > 0 ? '1' : '0';
-    const seed = view.listMode
-      ? `seeds-${new Set(hits.map((hit) => hit.seed)).size}`
-      : `seed-${hits[0]?.seed ?? '0'}`;
+    const seed = view.listMode ? `seeds-${new Set(hits.map((hit) => hit.seed)).size}` : `seed-${hits[0]?.seed ?? '0'}`;
     return `geode_${seed}_ver-${view.version}_${range}_approx-${approx}_${exportStamp()}.txt`;
   }
 
   private exportSeeds(): void {
-    const seedSource = this.display === 'slime' ? this.slimeHits
-      : this.display === 'witch' ? this.witchHits
-        : this.display === 'river' ? this.riverHits
-          : this.display === 'flower' ? this.flowerHits
-            : this.display === 'trial' ? this.trialHits
-              : this.display === 'geode' ? this.geodeHits
-                : this.display === 'monument' ? this.monumentHits
-                  : this.display === 'fortress' ? this.fortressHits
-                    : this.hits;
+    const seedSource =
+      this.display === 'slime'
+        ? this.slimeHits
+        : this.display === 'witch'
+          ? this.witchHits
+          : this.display === 'river'
+            ? this.riverHits
+            : this.display === 'flower'
+              ? this.flowerHits
+              : this.display === 'trial'
+                ? this.trialHits
+                : this.display === 'geode'
+                  ? this.geodeHits
+                  : this.display === 'monument'
+                    ? this.monumentHits
+                    : this.display === 'fortress'
+                      ? this.fortressHits
+                      : this.hits;
     const seeds = [...new Set(seedSource.map((hit) => hit.seed))];
     this.saveText('seeds.txt', seeds.join('\n'));
   }
@@ -1538,9 +1628,7 @@ function oceanTypesLabel(mask: number): string {
     { bit: 0x08, key: 'lukewarm' },
     { bit: 0x10, key: 'warm' },
   ];
-  const names = order
-    .filter((item) => (mask & item.bit) !== 0)
-    .map((item) => t(`monument.ocean.${item.key}`));
+  const names = order.filter((item) => (mask & item.bit) !== 0).map((item) => t(`monument.ocean.${item.key}`));
   const types = names.length ? names.join(t('monument.oceanSeparator')) : t('monument.ocean.others');
   return t('monument.oceanTypes', { types });
 }
@@ -1599,8 +1687,10 @@ function trialConverted(hit: TrialHit, ratio: number): string {
 
 /** Export keeps the engine's display height (-30); the card itself never shows Y. */
 function trialLine(hit: TrialHit, ratio: number): string {
-  return `/tp ${hit.x} -30 ${hit.z} converted=${trialConverted(hit, ratio)}`
-    + ` total=${hit.spawners} fast=${hit.fastSpawners} slow=${hit.slowSpawners} count=${hit.structures}`;
+  return (
+    `/tp ${hit.x} -30 ${hit.z} converted=${trialConverted(hit, ratio)}` +
+    ` total=${hit.spawners} fast=${hit.fastSpawners} slow=${hit.slowSpawners} count=${hit.structures}`
+  );
 }
 
 /** 紫水晶导出：距离以矩形中点为准；不写版本/模型/复核元数据，也不加 verify 标记。 */
@@ -1614,8 +1704,10 @@ function geodeLine(hit: GeodeHit, view: GeodeView): string {
 function exportStamp(): string {
   const date = new Date();
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
-    + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
 }
 
 function witchCard(hit: WitchHit, index: number): string {
@@ -1623,7 +1715,7 @@ function witchCard(hit: WitchHit, index: number): string {
     <div class="result-seed">${escapeText(hit.seed)}</div>
     <div class="result-coords">
       <span>(${hit.x}, ${hit.z})</span>
-      <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+      <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
     </div>
     <div class="result-stats">
       <span>${escapeText(t('lowyswamphut.yLabel'))} ${hit.y}</span>
@@ -1631,18 +1723,72 @@ function witchCard(hit: WitchHit, index: number): string {
   </article>`;
 }
 
-function riverCard(hit: RiverHit, index: number): string {
-  const pct = (hit.score / RIVER_FULL_RING * 100).toFixed(2);
+/**
+ * 河流结果卡。
+ *
+ * fullArea 是引擎下发的当前分母（按挂机Y±24 裁剪后的球壳层均格数），
+ * 不再使用硬编码的 RIVER_FULL_RING —— 不同 Y 窗口的分母并不相同。
+ * 等效总分可能超过分母（>100%），属预期。
+ *
+ * 展示项（顺序即卡片上的顺序）：
+ *   第一行等效面积（见下）/ 另一个等效面积 / 河流面积 / 溶洞面积
+ *
+ * 口径（宿主已按"区域内格数 ÷ 统计层数"换算成层均面积）：
+ *   河流面积     = 河流群系格数 ÷ 层数（不折算）
+ *   溶洞面积     = 溶洞群系格数 ÷ 层数（不折算）
+ *   等效河流面积 = 河流面积 + 溶洞面积 / 折算系数
+ *   等效溶洞面积 = 溶洞面积 + 折算系数 × 河流面积
+ *
+ * 第一行按搜索模式切换（两种模式的"总面积"口径不同）：
+ *   纯河流模式 → 等效河流面积（= 河流 + 溶洞/系数）
+ *   溶洞模式   → 等效溶洞面积（= 溶洞 + 系数×河流），与溶洞搜索的计分同量纲
+ *
+ * 分数行与第一行保持同口径：纯河流模式用引擎 score（等效河流口径），
+ * 溶洞模式用等效溶洞面积（引擎 score 恒为等效河流口径，直接用会偏大）。
+ *
+ * 四项**始终输出**（面积可能是 0）。是否统计溶洞只看搜索条件：采样最低 Y < 60
+ * 且挂机Y < 85；不满足时溶洞面积为 0，照样显示。
+ */
+function riverCard(
+  hit: RiverHit,
+  index: number,
+  fullArea: number,
+  pureRiver: boolean,
+  conversion: number,
+): string {
+  const denom = fullArea > 0 ? fullArea : RIVER_FULL_RING;
+  // 四项都用层均口径重算，避免依赖宿主四舍五入后的中间值。
+  const conv = conversion > 0 ? conversion : 4880 / 7011;
+  const rawRiver = hit.rawRiver ?? hit.river;
+  const rawCave = Math.round(hit.rawCave ?? 0);
+  const eqRiver = Math.round(rawRiver + rawCave / conv);
+  const eqCave = Math.round(rawCave + conv * rawRiver);
+  // 第一行：溶洞模式看等效溶洞，河流模式看等效河流。
+  const firstLabel = pureRiver ? t('river.equivRiverArea') : t('river.equivCaveArea');
+  const firstValue = pureRiver ? eqRiver : eqCave;
+  const secondLabel = pureRiver ? t('river.equivCaveArea') : t('river.equivRiverArea');
+  const secondValue = pureRiver ? eqCave : eqRiver;
+  /* 分数行必须与第一行同口径：
+   * 引擎的 hit.score 恒为"等效河流面积"口径（= 河流 + 溶洞/系数），
+   * 溶洞模式直接显示它会让分数偏高（溶洞被 1/0.696 放大）而与下面的等效溶洞面积对不上。
+   * 因此溶洞模式的分数行改用等效溶洞面积作为分子。
+   * 分母不用换算：fullArea 是"层均球壳格数"，本身不含折算，
+   * 两种口径下"满值"都是这一个数（等效值可能超过它，>100% 属预期）。 */
+  const scoreValue = pureRiver ? hit.score : eqCave;
+  const scoreDenom = denom;
+  const pct = ((scoreValue / (scoreDenom > 0 ? scoreDenom : RIVER_FULL_RING)) * 100).toFixed(2);
   return `<article class="result-card result-river" data-index="${index}">
     <div class="result-seed">${escapeText(hit.seed)}</div>
     <div class="result-coords">
       <span>(${hit.x}, ${hit.z})</span>
-      <button type="button" class="icon-btn result-copy" title="copy" data-index="${index}" aria-label="copy">⧉</button>
+      <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
     </div>
     <div class="result-stats">
-      <span>${hit.score}/${RIVER_FULL_RING} (${pct}%)</span>
-      <span>${escapeText(t('river.areaLabel'))} ${hit.river}</span>
-      <span>${escapeText(t('river.caveLabel'))} ${hit.cave}</span>
+      <span class="result-score">${scoreValue}/${scoreDenom} (${pct}%)</span>
+      <span>${escapeText(firstLabel)} ${firstValue}</span>
+      <span>${escapeText(secondLabel)} ${secondValue}</span>
+      <span>${escapeText(t('river.riverRawArea'))} ${rawRiver}</span>
+      <span>${escapeText(t('river.caveRawArea'))} ${rawCave}</span>
     </div>
   </article>`;
 }
@@ -1651,7 +1797,7 @@ function riverCard(hit: RiverHit, index: number): string {
 function sortWitchHits(hits: WitchHit[], mode: WitchSortMode): WitchHit[] {
   const sorted = [...hits];
   if (mode === 'distance') {
-    sorted.sort((a, b) => (a.x * a.x + a.z * a.z) - (b.x * b.x + b.z * b.z));
+    sorted.sort((a, b) => a.x * a.x + a.z * a.z - (b.x * b.x + b.z * b.z));
   } else {
     sorted.sort((a, b) => a.y - b.y);
   }

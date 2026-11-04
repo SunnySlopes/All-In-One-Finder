@@ -21,20 +21,20 @@ A **set-seed** desktop tool for Minecraft Java Edition 1.18+: browse seed maps a
 
 ### Searchers
 
-| Searcher | Purpose |
-|----------|---------|
-| **Low-Y Swamp Hut** | Finds low-Y swamp huts within the given bounds; supports single seed / seed list |
-| **River** | Finds the point with the largest river area inside the spawn ring (24 < distance <= 128); optionally counts dripstone cave area |
-| **Low-Y Dripstone Cave** | Finds areas with low-Y dripstone caves inside the spawn ring (24 < distance <= 128); the sample Y window can be set, and an experimental GPU coarse scan can be enabled manually |
-| **Large-Pit Low-Y Dripstone Cave** | Finds "large-pit" low-Y dripstone caves for some seeds much faster than the normal search; the sample Y window can be set |
-| **Slime Chunks** | Finds the AFK point with the largest slime spawning area inside the spawn ring (24 < distance <= 128); optionally converts biomes at y=-63 |
-| **Double Ocean Monument** | Finds double ocean monuments (requires 100% of both monuments' area inside the spawn ring) |
-| **Multi Ocean Monument** | Finds triple/quadruple ocean monuments; supports single dummy / dual dummy / single gate area bases and shows the matching effective area |
-| **Fortress Crossroads** | Finds double/triple/quadruple crossroads in **soul sand valleys** (requires no other biome within a 64-block radius) |
-| **Fortress Large Range** | Finds fortresses whose overall span (long/short edge, height) exceeds the requirements; supports four border-corner modes |
-| **Trial Spawner** | Finds the AFK point with the most converted spawners inside the statistics window; the window can be circular or square |
-| **Budding Amethyst** | Finds the AFK point with the most budding amethyst and geodes within the player's random-tick range; can optionally use the GPU for coarse screening |
-| **All Flower Farm** | Finds a site for an all-flower farm in the Overworld; the window must contain flower forest / pale garden / swamp, may optionally include birch and cherry grove, and can show the Nether biome |
+| Searcher                           | Purpose                                                                                                                                                                                         |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Low-Y Swamp Hut**                | Finds low-Y swamp huts within the given bounds; supports single seed / seed list                                                                                                                |
+| **River**                          | Finds the point with the largest river area inside the spawn ring (24 < distance <= 128); optionally counts dripstone cave area                                                                 |
+| **Low-Y Dripstone Cave**           | Finds areas with low-Y dripstone caves inside the spawn ring (24 < distance <= 128); the sample Y window can be set, and an experimental GPU coarse scan can be enabled manually                |
+| **Large-Pit Low-Y Dripstone Cave** | Finds "large-pit" low-Y dripstone caves for some seeds much faster than the normal search; the sample Y window can be set                                                                       |
+| **Slime Chunks**                   | Finds the AFK point with the largest slime spawning area inside the spawn ring (24 < distance <= 128); optionally converts biomes at y=-63                                                      |
+| **Double Ocean Monument**          | Finds double ocean monuments (requires 100% of both monuments' area inside the spawn ring)                                                                                                      |
+| **Multi Ocean Monument**           | Finds triple/quadruple ocean monuments; supports single dummy / dual dummy / single gate area bases and shows the matching effective area                                                       |
+| **Fortress Crossroads**            | Finds double/triple/quadruple crossroads in **soul sand valleys** (requires no other biome within a 64-block radius)                                                                            |
+| **Fortress Large Range**           | Finds fortresses whose overall span (long/short edge, height) exceeds the requirements; supports four border-corner modes                                                                       |
+| **Trial Spawner**                  | Finds the AFK point with the most converted spawners inside the statistics window; the window can be circular or square                                                                         |
+| **Budding Amethyst**               | Finds the AFK point with the most budding amethyst and geodes within the player's random-tick range; can optionally use the GPU for coarse screening                                            |
+| **All Flower Farm**                | Finds a site for an all-flower farm in the Overworld; the window must contain flower forest / pale garden / swamp, may optionally include birch and cherry grove, and can show the Nether biome |
 
 Supports single seeds or seed lists, thread count, search bounds (square by default or world border), progress, and pause/stop; results are sorted by each searcher's own rules, truncated to the top 1000 entries, and can then be exported.
 
@@ -44,17 +44,19 @@ Map and structure locating rely on [cubiomes](https://github.com/xpple/cubiomes)
 
 ## Technical Overview
 
-| Layer | Technology |
-|-------|------------|
-| Desktop shell | Custom Win32 + WebView2 host (system Evergreen runtime) |
-| Frontend | Vite + TypeScript (hand-written DOM, no React/Vue) |
-| Native engine | C/C++ DLL (cubiomes map and all searchers), stable C ABI + JSON |
+| Layer         | Technology                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Desktop shell | Custom Win32 + WebView2 host (system Evergreen runtime)                                         |
+| Frontend      | Vite + TypeScript (hand-written DOM, no React/Vue)                                              |
+| Native engine | C/C++ DLL (cubiomes map and all searchers), stable C ABI + JSON                                 |
 | Process model | Host + `--engine` child process (anonymous pipes, length-prefixed JSON, single-threaded serial) |
-| Packaging | NSIS portable (single-file LZMA) |
+| Packaging     | NSIS portable (single-file LZMA)                                                                |
 
 ## Development and Packaging
 
 Requirements: Node.js (>= 22 recommended), GCC / CMake / Ninja from MSYS2 UCRT64, and the WebView2 Evergreen Runtime (usually bundled with Edge on Windows 10/11).
+
+Besides Vite and TypeScript, `npm install` also installs the frontend checking tools (ESLint 9 + typescript-eslint 8 + Prettier 3). They are only used while developing/checking the frontend and **do not take part** in the `npm run engine` / `npm run host` / `npm run package` native builds, nor do they affect the size of the shipped exe.
 
 ```powershell
 git submodule update --init
@@ -70,9 +72,23 @@ Development and regression:
 
 ```powershell
 npm run dev         # Vite 5173 + host --dev (renderer hot reload)
-npm run regression  # 29 native cases (incl. the terrain/cave layer protocol), via aio-engine --serve
+npm run regression  # about 30 native cases (incl. the terrain/cave layer protocol), via aio-engine --serve
 npm run verify      # release gate: size / version resources / stage manifest / system DLL dependencies / smoke test
 ```
+
+Checks and formatting:
+
+```powershell
+npm run typecheck       # tsc --noEmit (full strict-mode type check)
+npm run lint            # ESLint (type-aware rules: unused code, floating promises, ...)
+npm run lint:fix        # same, with automatic fixes where possible
+npm run check           # typecheck + lint; run this before committing
+npm run format          # Prettier write over src/, scripts/ and the root configs
+npm run format:check    # Prettier check only, no writes (for CI)
+npm run regression:compare  # diff two regression payloads (baseline vs current) for exact equality
+```
+
+Regression artifacts are written to `test-results/` (git-ignored) instead of the repository root. `scripts/scratch/` holds throwaway investigation scripts; it is not version-controlled and is free to reuse.
 
 Notes:
 
@@ -80,6 +96,8 @@ Notes:
 - `npm run engine` requires the submodules and only supports MSYS2 UCRT64 (the engine relies on GCC's floating-point behavior and AVX2 optimization).
 - The GPU coarse scan is an optional runtime feature: OpenCL is loaded dynamically from `OpenCL.dll`, so building and packaging need neither an NVIDIA GPU, CUDA, nor an OpenCL SDK. With no usable device the engine falls back to CPU automatically. The cave page's switch is off for a new session and is saved in the session once enabled; the engine's stderr (including the OpenCL device line) goes to `engine.log` in the session directory instead of sharing the JSON pipe.
 - Do not use `--recursive` for the search submodules: their nested `cubiomes/` checkouts must stay uninitialized so the engine compiles only the shared `tools/cubiomes`; otherwise a duplicate or mismatched cubiomes header set is used.
+- The river kernel (DrownedCombinedFinder) keeps the historical path `tools/river`; its contents are now this engine rather than the old RiverFinder JNI. Upstream names the repository `river-native`, but this repository's directory, `.gitmodules` and `native/CMakeLists.txt` all use `tools/river`.
+- The repository root only holds sources and configuration: native build output lives under `native/build*` (ignored), frontend output in `dist/`, packaged output in `release/`.
 - WebView2 requires an Evergreen Runtime from 2021 or later (`ICoreWebView2_3`); if it is missing, a dialog prompts you to install it.
 
 ## License
@@ -100,8 +118,8 @@ Thanks to everyone who contributed; without your contributions this finder would
 - UI author: SunnySlopes, with design inspired by SlimeFinderGUI, author: Bot_City
 - Map display: <https://github.com/xpple/cubiomes>, authors: Cubitect, xpple
 - Low-Y Swamp Hut: <https://github.com/M33Galaxy/LowYSwampHutFinderBase>, authors: M33_Galaxy, SunnySlopes
-- River: <https://github.com/SunnySlopes/RiverFinder>,
-  <https://github.com/Melationin/RiverFinder>, authors: Ruo_Mo, SunnySlopes
+- River: <https://github.com/SunnySlopes/DrownedCombinedFinder>, author: qk-yiyihehe
+  (river kernel derived from <https://github.com/M33Galaxy/RiverFinder-JNI>, author: Ruo_Mo)
 - Low-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: <https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase>, author: SunnySlopes
 - Slime Chunks: <https://github.com/CITYWIDESIGN/SlimeRadar>,
   <https://github.com/CITYWIDESIGN/SlimeOptimizer>, author: Bot_City

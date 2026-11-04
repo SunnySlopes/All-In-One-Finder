@@ -23,9 +23,15 @@ const DEFAULT_SPAN_HEIGHT = 0;
 
 const BORDER_SEQUENCE: BorderState[] = ['none', 'nw', 'sw', 'se', 'ne'];
 
-const BORDER_AREAS: Record<Exclude<BorderState, 'none'>, {
-  minX: number; maxX: number; minZ: number; maxZ: number;
-}> = {
+const BORDER_AREAS: Record<
+  Exclude<BorderState, 'none'>,
+  {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  }
+> = {
   nw: { minX: -4000000, maxX: -3750001, minZ: -4000000, maxZ: -3750001 },
   sw: { minX: -4000000, maxX: -3750001, minZ: 3750001, maxZ: 4000000 },
   se: { minX: 3750001, maxX: 4000000, minZ: 3750001, maxZ: 4000000 },
@@ -35,8 +41,7 @@ const BORDER_AREAS: Record<Exclude<BorderState, 'none'>, {
 function resolveFortressMc(versions: McVersion[]): number | null {
   const modern = versions.find((item) => item.name === '26.3');
   if (modern) return modern.id;
-  const fallback = versions.find((item) => item.name === '26.2')
-    || versions[versions.length - 1];
+  const fallback = versions.find((item) => item.name === '26.2') || versions[versions.length - 1];
   return fallback ? fallback.id : null;
 }
 
@@ -363,7 +368,7 @@ export class FortressPanel {
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1 || side > 60000001) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return;
       }
       this.applySquare();
@@ -373,29 +378,35 @@ export class FortressPanel {
     const maxX = Number(this.maxX.value);
     const minZ = Number(this.minZ.value);
     const maxZ = Number(this.maxZ.value);
-    if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ
-      || minX < -WORLD_COORD || maxX > WORLD_COORD
-      || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      ![minX, maxX, minZ, maxZ].every(Number.isFinite) ||
+      maxX < minX ||
+      maxZ < minZ ||
+      minX < -WORLD_COORD ||
+      maxX > WORLD_COORD ||
+      minZ < -WORLD_COORD ||
+      maxZ > WORLD_COORD
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return;
     }
 
     const width = maxX - minX + 1;
     const height = maxZ - minZ + 1;
     if (width * height > MAX_EQUIVALENT_AREA) {
-      await showNotice(t('fortress.areaTooLarge'));
+      showNotice(t('fortress.areaTooLarge'));
       return;
     }
 
     const seeds = listMode ? this.seedText : this.seed;
     if (!seeds.trim()) {
-      await showNotice(t('common.error.bad-seed'));
+      showNotice(t('common.error.bad-seed'));
       return;
     }
 
     const mc = resolveFortressMc(this.versions);
     if (mc == null) {
-      await showNotice(t('common.error.unsupported-version'));
+      showNotice(t('common.error.unsupported-version'));
       return;
     }
 
@@ -421,13 +432,19 @@ export class FortressPanel {
         ? minLong
         : Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-short')?.value || 0));
       const minHeight = Math.round(Number(this.root.querySelector<HTMLInputElement>('#f-height')?.value || 0));
-      if (!Number.isFinite(minLong) || minLong < 0 || minLong > 260
-        || !Number.isFinite(minShort) || minShort < 0 || minShort > 260) {
-        await showNotice(t('common.error.bad-span-edge'));
+      if (
+        !Number.isFinite(minLong) ||
+        minLong < 0 ||
+        minLong > 260 ||
+        !Number.isFinite(minShort) ||
+        minShort < 0 ||
+        minShort > 260
+      ) {
+        showNotice(t('common.error.bad-span-edge'));
         return;
       }
       if (!Number.isFinite(minHeight) || minHeight < 0 || minHeight > 40) {
-        await showNotice(t('common.error.bad-span-height'));
+        showNotice(t('common.error.bad-span-height'));
         return;
       }
       payload.minLong = minLong;
@@ -446,7 +463,7 @@ export class FortressPanel {
       this.render();
       this.poll();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
@@ -479,7 +496,7 @@ export class FortressPanel {
           this.paused = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.render();
         }
@@ -502,17 +519,16 @@ export class FortressPanel {
       elapsed.textContent = t('common.searchExtra.elapsed', { time: formatDuration(this.timer.elapsed()) });
     }
     if (bar) {
-      const pct = status.done
-        ? 100
-        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
   }
 
   private progressText(status: FortressStatus): string {
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';

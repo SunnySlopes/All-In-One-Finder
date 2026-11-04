@@ -958,6 +958,20 @@ Napi::Value GeodeChunk(const Napi::CallbackInfo &info)
     return out;
 }
 
+Napi::Value RiverVersions(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    const std::vector<RiverVersionEntry> entries = riverVersions();
+    Napi::Array out = Napi::Array::New(env, entries.size());
+    for (size_t i = 0; i < entries.size(); i++) {
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("label", Napi::String::New(env, entries[i].label ? entries[i].label : ""));
+        item.Set("mc", entries[i].mc);
+        out.Set(i, item);
+    }
+    return out;
+}
+
 Napi::Value RiverSearchStart(const Napi::CallbackInfo &info)
 {
     Napi::Object args = info[0].As<Napi::Object>();
@@ -965,8 +979,24 @@ Napi::Value RiverSearchStart(const Napi::CallbackInfo &info)
     request.mc = args.Get("mc").As<Napi::Number>().Int32Value();
     request.threads = args.Get("threads").As<Napi::Number>().Int32Value();
     request.minScore = args.Get("minScore").As<Napi::Number>().Int32Value();
+    /* 三字段门槛（S1/S3）：缺省 -1 表示未启用。 */
+    if (args.Has("minRiverArea")) {
+        request.minRiverArea = args.Get("minRiverArea").As<Napi::Number>().Int32Value();
+    }
+    if (args.Has("minCaveArea")) {
+        request.minCaveArea = args.Get("minCaveArea").As<Napi::Number>().Int32Value();
+    }
+    /* 折算系数：缺省 0 = 未传，由宿主填默认 4880/7011。 */
+    if (args.Has("caveConversion")) {
+        request.caveConversion = args.Get("caveConversion").As<Napi::Number>().DoubleValue();
+    }
+    /* Y 窗口：前端已按挂机Y±24 裁剪；缺省保持旧行为。 */
+    if (args.Has("yMin")) request.yMin = args.Get("yMin").As<Napi::Number>().Int32Value();
+    if (args.Has("yMax")) request.yMax = args.Get("yMax").As<Napi::Number>().Int32Value();
     request.y = args.Get("y").As<Napi::Number>().Int32Value();
-    request.calcCave = readBool(args, "calcCave");
+    /* 模式：pureRiver 优先；未给时沿用旧的 calcCave。 */
+    request.pureRiver = readBool(args, "pureRiver");
+    request.calcCave = args.Has("calcCave") ? readBool(args, "calcCave") : !request.pureRiver;
     request.minX = args.Get("minX").As<Napi::Number>().Int32Value();
     request.maxX = args.Get("maxX").As<Napi::Number>().Int32Value();
     request.minZ = args.Get("minZ").As<Napi::Number>().Int32Value();
@@ -989,6 +1019,19 @@ Napi::Object riverStatusToObject(Napi::Env env, const RiverStatus &status)
     out.Set("seedIndex", status.seedIndex);
     out.Set("seedCount", status.seedCount);
     out.Set("error", status.error);
+    /* 动态分母：本配置（已按挂机Y±24 裁剪）下的球壳层均格数。 */
+    out.Set("fullArea", status.fullArea);
+    Napi::Array warnings = Napi::Array::New(env, status.warnings.size());
+    for (size_t i = 0; i < status.warnings.size(); i++) {
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("code", status.warnings[i].code);
+        item.Set("text", status.warnings[i].text);
+        warnings.Set(i, item);
+    }
+    out.Set("warnings", warnings);
+    /* 结果卡口径：溶洞模式第一行显示等效溶洞面积，纯河流模式显示等效河流面积。 */
+    out.Set("pureRiver", status.pureRiver);
+    out.Set("caveConversion", Napi::Number::New(env, status.caveConversion));
     Napi::Array hits = Napi::Array::New(env, status.hits.size());
     for (size_t i = 0; i < status.hits.size(); i++) {
         const auto &hit = status.hits[i];
@@ -999,7 +1042,11 @@ Napi::Object riverStatusToObject(Napi::Env env, const RiverStatus &status)
         item.Set("sampleY", hit.sampleY);
         item.Set("river", hit.river);
         item.Set("cave", hit.cave);
+        item.Set("rawRiver", hit.rawRiver);
+        item.Set("rawCave", Napi::Number::New(env, static_cast<double>(hit.rawCave)));
+        item.Set("layers", hit.layers);
         item.Set("score", hit.score);
+        item.Set("hasCave", hit.hasCave);
         hits.Set(i, item);
     }
     out.Set("hits", hits);
@@ -1277,6 +1324,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("riverSearchPause", Napi::Function::New(env, RiverSearchPause));
     exports.Set("riverSearchResume", Napi::Function::New(env, RiverSearchResume));
     exports.Set("riverSearchStop", Napi::Function::New(env, RiverSearchStop));
+    exports.Set("riverVersions", Napi::Function::New(env, RiverVersions));
     exports.Set("fortressSearchStart", Napi::Function::New(env, FortressSearchStart));
     exports.Set("fortressSearchPoll", Napi::Function::New(env, FortressSearchPoll));
     exports.Set("fortressSearchPause", Napi::Function::New(env, FortressSearchPause));

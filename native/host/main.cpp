@@ -1,4 +1,4 @@
-// All-In-One Finder 闂?WebView2 host (M2).
+// All-In-One Finder — WebView2 host (M2).
 //
 // Replaces Electron: window + virtual host + window.aio bridge + file dialogs +
 // session storage + menu + single instance, with the C engine in a child process
@@ -24,6 +24,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -1211,7 +1212,8 @@ std::wstring envPath(const wchar_t *name)
  * AIO_SESSION_BASE can force a base directory for unusual environments.
  */
 std::wstring appDataBaseDir(const std::wstring &portableDir)
-{    const auto hasSession = [](const std::wstring &base) {
+{
+    const auto hasSession = [](const std::wstring &base) {
         return GetFileAttributesW(joinPath(joinPath(base, L"session"), L"map.json").c_str()) !=
                INVALID_FILE_ATTRIBUTES;
     };

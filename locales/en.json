@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "About",
-      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHutFinderBase, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/RiverFinder,\nhttps://github.com/Melationin/RiverFinder, authors: Ruo_Mo, SunnySlopes\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/doubleMonumentFinderBase, author: SunnySlopes\nMulti Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderBase, author: SunnySlopes\nTrial Spawner: https://github.com/SunnySlopes/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/SunnySlopes/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderBase, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
+      "body": "All-In-One Finder {version}\nLicense\nThis software is distributed under the GNU General Public License v3 (GPL-3.0-only).\n\nAcknowledgements\nThanks to all contributors. Without your contributions, this finder would not exist.\nUI Author: SunnySlopes, inspired by SlimeFinderGUI, author: Bot_City\nMap display: https://github.com/xpple/cubiomes, authors: Cubitect, xpple\nLow-Y Swamp Hut: https://github.com/M33Galaxy/LowYSwampHutFinderBase, authors: M33_Galaxy, SunnySlopes\nRiver: https://github.com/SunnySlopes/DrownedCombinedFinder, author: qk-yiyihehe\n(river kernel derived from https://github.com/M33Galaxy/RiverFinder-JNI, author: Ruo_Mo)\nLow-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase, author: SunnySlopes\nSlime Chunks: https://github.com/CITYWIDESIGN/SlimeRadar,\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer, author: Bot_City\nDouble Ocean Monument: https://github.com/SunnySlopes/doubleMonumentFinderBase, author: SunnySlopes\nMulti Ocean Monument: https://github.com/SunnySlopes/DoubleMonumentForFixedSeed, authors: Whisperlyric, SunnySlopes\nNether Fortress Crossroads, Nether Fortress Large Range: https://github.com/SunnySlopes/FortressFinderBase, author: SunnySlopes\nTrial Spawner: https://github.com/SunnySlopes/trial-spawner-native, authors: qk-yiyihehe\nBudding Amethyst: https://github.com/SunnySlopes/geode-native, authors: qk-yiyihehe\nAll Flower Farm Searcher: https://github.com/SunnySlopes/FlowerFinderBase, author: SunnySlopes\nThe Low-Y Dripstone Cave Searcher and All Flower Farm Searcher also guided by M33_Galaxy."
     },
     "searcher": {
       "map": "Map",
@@ -72,11 +72,14 @@
       "empty": "No results",
       "drawSpawn": "Draw spawn area",
       "exportSeeds": "Export seed list",
-      "exportAll": "Export full results"
+      "exportAll": "Export full results",
+      "copy": "Copy /tp command"
     },
     "map": {
       "dimension": "Dimension",
       "largeBiomes": "Large biomes",
+      "resize": "Drag to resize",
+      "searchersLabel": "Searchers",
       "y": "Sample Y",
       "yCustom": "Custom",
       "coordX": "X",
@@ -341,9 +344,9 @@
     "yLabel": "Y"
   },
   "river": {
-    "help": "Searches for the location with the largest river area inside the player's spawn ring. With \"Count cave area\" enabled, cave area counts toward the total area the same way river area does.",
-    "minArea": "Minimum river area",
-    "minRatio": "Minimum river ratio %",
+    "help": "Searches for the largest river area inside the spawn shell. Choose river or cave mode. Only the 24 blocks above and below the AFK Y are counted.",
+    "minArea": "Minimum equivalent river area",
+    "minRatio": "Minimum equivalent river ratio %",
     "sampleY": "Biome sample Y",
     "calcCave": "Count cave area",
     "stage": {
@@ -354,7 +357,35 @@
     "goCave": "Go to cave",
     "stayRiver": "Keep searching river",
     "areaLabel": "River area",
-    "caveLabel": "Cave area"
+    "caveLabel": "Cave area",
+    "mode": "Mode",
+    "modeRiver": "River",
+    "modeCave": "River + caves",
+    "minCaveRatio": "Min equivalent cave ratio %",
+    "minCaveArea": "Min equivalent cave area",
+    "conversion": "River/cave conversion",
+    "yMin": "Sample min Y",
+    "yMax": "Sample max Y",
+    "playerY": "AFK Y",
+    "presetEmpty": "Void farm",
+    "presetSurface": "Surface farm",
+    "equivRiverArea": "Equivalent river area",
+    "equivCaveArea": "Equivalent cave area",
+    "areaRatio": "Area ratio",
+    "largeAreaToCave": "The search area is very large; a cave-only search will return results much faster. Go there?",
+    "caveTooSmall": "The equivalent cave area is small. Switch to river mode?",
+    "riverTooLarge": "The equivalent river area is large. Switch to cave mode?",
+    "badPlayerY": "The AFK Y does not make good use of the spawn shell. Set it to the midpoint of the Y range ({mid})?",
+    "yOutOfShell": "The sampled Y must stay within 128 blocks of the AFK Y (current max difference {dy}). Adjust the sample Y range or the AFK Y.",
+    "badConversion": "River/cave conversion must be a 0~1 decimal or fraction (e.g. 0.7 or 4880/7011).",
+    "warnSpanGt24": "The height range exceeds 24 blocks and may slow the search. Continue?",
+    "warnYMinGtNeg58": "The lowest height is above -58 and may not satisfy the low-Y farm premise. Continue?",
+    "rangeRiverRatio": "Equivalent river ratio must be within {min}~{max}% (currently {value}%). Cannot start the search.",
+    "rangeRiverArea": "Equivalent river area must be within {min}~{max} (currently {value}). Cannot start the search.",
+    "rangeCaveRatio": "Equivalent cave ratio must be within {min}~{max}% (currently {value}%). Cannot start the search.",
+    "rangeCaveArea": "Equivalent cave area must be at least {min} (currently {value}). Cannot start the search.",
+    "riverRawArea": "River area",
+    "caveRawArea": "Cave area"
   },
   "fortress": {
     "crossFilter": "Minimum crossings",

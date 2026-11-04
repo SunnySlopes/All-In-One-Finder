@@ -25,17 +25,17 @@ export type FormState = Record<string, string | boolean>;
 /** Snapshot every id-bearing form control in a panel (values + checkbox state). */
 export function captureForm(root: HTMLElement): FormState {
   const state: FormState = {};
-  root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-    'input[id], select[id], textarea[id]',
-  ).forEach((control) => {
-    // Experimental / one-session-only controls opt out of the saved session.
-    if (control.hasAttribute('data-no-persist')) return;
-    if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
-      state[control.id] = control.checked;
-    } else {
-      state[control.id] = control.value;
-    }
-  });
+  root
+    .querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[id], select[id], textarea[id]')
+    .forEach((control) => {
+      // Experimental / one-session-only controls opt out of the saved session.
+      if (control.hasAttribute('data-no-persist')) return;
+      if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+        state[control.id] = control.checked;
+      } else {
+        state[control.id] = control.value;
+      }
+    });
   return state;
 }
 
@@ -44,18 +44,28 @@ export function applyForm(root: HTMLElement, state: unknown): void {
   if (!state || typeof state !== 'object') return;
   const raw = state as { form?: unknown } & Record<string, unknown>;
   const form = (raw.form && typeof raw.form === 'object' ? raw.form : raw) as Record<string, unknown>;
-  root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-    'input[id], select[id], textarea[id]',
-  ).forEach((control) => {
-    if (control.hasAttribute('data-no-persist')) return;
-    if (!(control.id in form)) return;
-    const value = form[control.id];
-    if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
-      control.checked = !!value;
-    } else {
-      control.value = String(value ?? '');
-    }
-  });
+  root
+    .querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[id], select[id], textarea[id]')
+    .forEach((control) => {
+      if (control.hasAttribute('data-no-persist')) return;
+      if (!(control.id in form)) return;
+      const value = form[control.id];
+      if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+        control.checked = !!value;
+      } else {
+        // Session files are user-editable JSON: never hand an object/array to
+        // `.value`, which would store "[object Object]" and look like real input.
+        control.value = scalarText(value);
+      }
+    });
+}
+
+/** Coerce a persisted form value to the string a control expects. */
+function scalarText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
 }
 
 /**

@@ -26,14 +26,12 @@ export function showNotice(message: string, closeKey = 'common.dialog.close'): v
   };
 }
 
-export function ask(
-  message: string,
-  buttons: { id: string; key: string }[],
-): Promise<string> {
+export function ask(message: string, buttons: { id: string; key: string }[]): Promise<string> {
   const modal = document.querySelector<HTMLElement>('#modal')!;
   const dialog = document.querySelector<HTMLElement>('#dialog')!;
-  dialog.innerHTML = `<div>${escapeText(message)}</div><div class="row">${buttons.map((button) =>
-    `<button type="button" data-choice="${button.id}">${escapeText(t(button.key))}</button>`).join('')}</div>`;
+  dialog.innerHTML = `<div>${escapeText(message)}</div><div class="row">${buttons
+    .map((button) => `<button type="button" data-choice="${button.id}">${escapeText(t(button.key))}</button>`)
+    .join('')}</div>`;
   modal.classList.add('show');
   return new Promise((resolve) => {
     const finish = (choice: string) => {

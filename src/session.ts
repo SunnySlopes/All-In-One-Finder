@@ -73,8 +73,6 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
     features: Array.isArray(data.features)
       ? data.features.filter((item): item is string => typeof item === 'string')
       : [],
-    searchers: data.searchers && typeof data.searchers === 'object'
-      ? data.searchers as Record<string, unknown>
-      : undefined,
+    searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
   };
 }

@@ -220,11 +220,7 @@ export class GeodePanel {
     this.simulationDistance.addEventListener('input', () => this.syncChunkCount());
     /* 失焦时把越界的模距收回合法区间，区块数与实际搜索口径保持一致。 */
     this.simulationDistance.addEventListener('change', () => {
-      const sim = clampInt(
-        Number(this.simulationDistance.value),
-        MIN_SIMULATION_DISTANCE,
-        MAX_SIMULATION_DISTANCE,
-      );
+      const sim = clampInt(Number(this.simulationDistance.value), MIN_SIMULATION_DISTANCE, MAX_SIMULATION_DISTANCE);
       this.simulationDistance.value = String(sim);
       this.syncChunkCount();
     });
@@ -288,9 +284,9 @@ export class GeodePanel {
 
   private populateVersions(): void {
     const previous = this.version.value;
-    this.version.innerHTML = VERSION_GROUPS
-      .map((group) => `<option value="${group.engine}">${group.label}</option>`)
-      .join('');
+    this.version.innerHTML = VERSION_GROUPS.map(
+      (group) => `<option value="${group.engine}">${group.label}</option>`,
+    ).join('');
     if (VERSION_GROUPS.some((group) => group.engine === previous)) this.version.value = previous;
     else this.version.value = '26.3';
   }
@@ -312,19 +308,13 @@ export class GeodePanel {
   private applyActivity(): void {
     const modern = isModernVersion(this.selectedVersion());
     this.simulationDistance.disabled = !modern;
-    this.activity.textContent = modern
-      ? t('geode.activityModern')
-      : t('geode.activityLegacy');
+    this.activity.textContent = modern ? t('geode.activityModern') : t('geode.activityLegacy');
     this.updateDerived();
   }
 
   /** 方形活动范围覆盖的区块数 = 2 × 模拟距离 + 1（1.21.5+）。 */
   private syncChunkCount(): void {
-    const sim = clampInt(
-      Number(this.simulationDistance.value),
-      MIN_SIMULATION_DISTANCE,
-      MAX_SIMULATION_DISTANCE,
-    );
+    const sim = clampInt(Number(this.simulationDistance.value), MIN_SIMULATION_DISTANCE, MAX_SIMULATION_DISTANCE);
     const chunks = 2 * sim + 1;
     this.chunkCount.textContent = t('geode.chunkCount', { n: chunks });
   }
@@ -428,9 +418,10 @@ export class GeodePanel {
 
     const pauseLabel = this.pausing
       ? 'geode.pausingButton'
-      : this.paused ? 'common.search.resume' : 'common.search.pause';
-    const startDisabled = this.running || this.pausing || this.stopping
-      || isOtherSearcherRunning('BuddingAmethyst');
+      : this.paused
+        ? 'common.search.resume'
+        : 'common.search.pause';
+    const startDisabled = this.running || this.pausing || this.stopping || isOtherSearcherRunning('BuddingAmethyst');
     const pauseDisabled = this.stopping || this.pausing || (!this.running && !this.paused);
     const stopDisabled = (!this.running && !this.paused) || this.stopping;
     this.footer.innerHTML = `
@@ -516,57 +507,61 @@ export class GeodePanel {
     };
   }
 
-  private async validatedRequest(): Promise<ReturnType<GeodePanel['collectRequest']> | null> {
+  private validatedRequest(): ReturnType<GeodePanel['collectRequest']> | null {
     this.readSeedField();
     const request = this.collectRequest();
     if (!request.seeds.trim()) {
-      await showNotice(t('common.error.bad-seed'));
+      showNotice(t('common.error.bad-seed'));
       return null;
     }
     if (this.seedMode === 'single') {
       const seed = request.seeds.trim();
       if (!/^[+-]?\d+$/.test(seed)) {
-        await showNotice(t('common.error.bad-seed'));
+        showNotice(t('common.error.bad-seed'));
         return null;
       }
       try {
         BigInt(seed);
       } catch {
-        await showNotice(t('common.error.bad-seed'));
+        showNotice(t('common.error.bad-seed'));
         return null;
       }
     } else {
       const lines = request.seeds.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith('#'));
       if (!lines.length) {
-        await showNotice(t('common.error.no-seeds'));
+        showNotice(t('common.error.no-seeds'));
         return null;
       }
     }
-    if (![request.minX, request.maxX, request.minZ, request.maxZ].every(Number.isFinite)
-      || request.minX > request.maxX || request.minZ > request.maxZ
-      || request.minX < WORLD_MIN || request.maxX > WORLD_MAX
-      || request.minZ < WORLD_MIN || request.maxZ > WORLD_MAX) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      ![request.minX, request.maxX, request.minZ, request.maxZ].every(Number.isFinite) ||
+      request.minX > request.maxX ||
+      request.minZ > request.maxZ ||
+      request.minX < WORLD_MIN ||
+      request.maxX > WORLD_MAX ||
+      request.minZ < WORLD_MIN ||
+      request.maxZ > WORLD_MAX
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return null;
     }
     if (this.square.checked) {
       const side = clampInt(Number(this.side.value), 1, MAX_SIDE);
       if (side < 1 || side > MAX_SIDE) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return null;
       }
     }
-    if (request.simulationDistance < MIN_SIMULATION_DISTANCE
-      || request.simulationDistance > MAX_SIMULATION_DISTANCE) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (request.simulationDistance < MIN_SIMULATION_DISTANCE || request.simulationDistance > MAX_SIMULATION_DISTANCE) {
+      showNotice(t('common.error.bad-bounds'));
       return null;
     }
     if (request.minGeodes < MIN_GEODES || request.minBudding < 0) {
-      await showNotice(t('common.error.bad-level'));
+      showNotice(t('common.error.bad-level'));
       return null;
     }
     if (request.fullWorld && this.seedMode === 'list') {
-      await showNotice(t('geode.fullMapSingleSeed'));
+      showNotice(t('geode.fullMapSingleSeed'));
       return null;
     }
     return request;
@@ -574,7 +569,7 @@ export class GeodePanel {
 
   private async start(): Promise<void> {
     this.readSeedField();
-    const request = await this.validatedRequest();
+    const request = this.validatedRequest();
     if (!request) return;
     const range = this.currentRange();
     this.searchView = {
@@ -593,7 +588,7 @@ export class GeodePanel {
     try {
       await call('geodeStart', request);
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
       return;
     }
     this.results?.clearGeode(this.searchView);
@@ -622,7 +617,7 @@ export class GeodePanel {
         this.timer.pause();
       }
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
       return;
     }
     this.render();
@@ -650,10 +645,11 @@ export class GeodePanel {
       try {
         const status = await call<GeodeStatus>('geodePoll');
         this.lastStatus = status;
-        const changed = status.running !== this.running
-          || status.paused !== this.paused
-          || status.pausing !== this.pausing
-          || status.stopping !== this.stopping;
+        const changed =
+          status.running !== this.running ||
+          status.paused !== this.paused ||
+          status.pausing !== this.pausing ||
+          status.stopping !== this.stopping;
         this.running = status.running;
         this.paused = status.paused;
         this.pausing = status.pausing;
@@ -668,7 +664,7 @@ export class GeodePanel {
           this.stopping = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.results?.setGeodeHits(status.hits, this.searchView);
           this.render();
@@ -692,24 +688,26 @@ export class GeodePanel {
 
   private progressText(status: GeodeStatus): string {
     if (status.stopped) return t('geode.stoppedProgress');
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} · `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} · `
+        : '';
     if (status.done) return `${seeds}${t('geode.phase.done')}`;
     const state = status.stopping
       ? `${t('geode.stopping')} `
       : status.pausing
         ? `${t('geode.pausing')} `
-        : status.paused ? `${t('geode.paused')} ` : '';
+        : status.paused
+          ? `${t('geode.paused')} `
+          : '';
     const phase = Math.max(1, Math.min(status.phaseCount || 3, status.phaseIndex || 1));
     const count = status.phaseCount || 3;
     const phaseLine = t('geode.phaseLine', { index: phase, count, phase: this.phaseLabel(status) });
     // 排名阶段的总量会随候选变化，只显示阶段 3/3 和“排名”，不显示无意义的计数。
     if (status.phase === 'rank') return `${seeds}${state}${phaseLine}`;
     const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
-    const units = status.total > 0
-      ? ` · ${status.current.toLocaleString()} / ${status.total.toLocaleString()} (${pct}%)`
-      : '';
+    const units =
+      status.total > 0 ? ` · ${status.current.toLocaleString()} / ${status.total.toLocaleString()} (${pct}%)` : '';
     return `${seeds}${state}${phaseLine}${units}`;
   }
 
@@ -744,9 +742,12 @@ export class GeodePanel {
       const active = status.scanBackend === 'gpu';
       const waitingCpu = this.allowGpu.checked && status.running && status.phase === 'scan';
       const device = status.gpuDevice || gpuRendererName() || t('geode.gpuUnknown');
-      const reason = status.gpuReason === 'no-opencl'
-        ? t('geode.gpuNoOpencl')
-        : status.gpuReason === 'no-device' ? t('geode.gpuNoDevice') : t('geode.gpuFallback');
+      const reason =
+        status.gpuReason === 'no-opencl'
+          ? t('geode.gpuNoOpencl')
+          : status.gpuReason === 'no-device'
+            ? t('geode.gpuNoDevice')
+            : t('geode.gpuFallback');
       gpu.hidden = !(active || waitingCpu);
       gpu.textContent = active ? t('geode.gpuLine', { device }) : waitingCpu ? reason : '';
     }

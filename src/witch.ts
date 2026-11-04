@@ -313,7 +313,7 @@ export class WitchPanel {
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1 || side > MAX_SIDE) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return;
       }
       this.applySquare();
@@ -323,16 +323,22 @@ export class WitchPanel {
     const maxX = Number(this.maxX.value);
     const minZ = Number(this.minZ.value);
     const maxZ = Number(this.maxZ.value);
-    if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ
-      || minX < -WORLD_COORD || maxX > WORLD_COORD
-      || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      ![minX, maxX, minZ, maxZ].every(Number.isFinite) ||
+      maxX < minX ||
+      maxZ < minZ ||
+      minX < -WORLD_COORD ||
+      maxX > WORLD_COORD ||
+      minZ < -WORLD_COORD ||
+      maxZ > WORLD_COORD
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return;
     }
 
     const seeds = listMode ? this.seedText : this.seed;
     if (!seeds.trim()) {
-      await showNotice(t('common.error.bad-seed'));
+      showNotice(t('common.error.bad-seed'));
       return;
     }
 
@@ -363,7 +369,7 @@ export class WitchPanel {
       this.render();
       this.poll();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
@@ -398,7 +404,7 @@ export class WitchPanel {
           this.updateSortButtons();
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.render();
         } else {
@@ -426,22 +432,23 @@ export class WitchPanel {
       });
     }
     if (bar) {
-      const pct = status.done
-        ? 100
-        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
   }
 
   private progressText(status: WitchStatus): string {
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const complete = status.done && (status.total <= 0 || status.current >= status.total);
     const pct = complete
       ? 100
-      : status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
+      : status.total > 0
+        ? Math.min(100, Math.round((status.current / status.total) * 100))
+        : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${t('lowyswamphut.progress')} ${status.current}/${status.total} (${pct}%)${error}`;
   }

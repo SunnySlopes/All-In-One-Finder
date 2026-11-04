@@ -389,7 +389,7 @@ export class FlowerPanel {
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1 || side > WORLD_SIDE) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return;
       }
       this.applySquare();
@@ -399,18 +399,29 @@ export class FlowerPanel {
     const maxX = Number(this.maxX.value);
     const minZ = Number(this.minZ.value);
     const maxZ = Number(this.maxZ.value);
-    if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ
-      || minX < -WORLD_COORD || maxX > WORLD_COORD
-      || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      ![minX, maxX, minZ, maxZ].every(Number.isFinite) ||
+      maxX < minX ||
+      maxZ < minZ ||
+      minX < -WORLD_COORD ||
+      maxX > WORLD_COORD ||
+      minZ < -WORLD_COORD ||
+      maxZ > WORLD_COORD
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return;
     }
 
     const longSide = Math.floor(Number(this.longSide.value) || 0);
     const shortSide = this.windowSquare.checked ? longSide : Math.floor(Number(this.shortSide.value) || 0);
-    if (longSide < MIN_WINDOW || longSide > MAX_WINDOW
-      || shortSide < MIN_WINDOW || shortSide > MAX_WINDOW || shortSide > longSide) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      longSide < MIN_WINDOW ||
+      longSide > MAX_WINDOW ||
+      shortSide < MIN_WINDOW ||
+      shortSide > MAX_WINDOW ||
+      shortSide > longSide
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return;
     }
 
@@ -420,7 +431,7 @@ export class FlowerPanel {
       const margin = Number(raw);
       const maxMargin = Math.floor((Math.min(longSide, shortSide) - 1) / 2);
       if (!raw || !Number.isInteger(margin) || margin < 0 || margin > maxMargin) {
-        await showNotice(t('flower.badFlowerMargin', { max: maxMargin }));
+        showNotice(t('flower.badFlowerMargin', { max: maxMargin }));
         return;
       }
       flowerCenterMargin = margin;
@@ -428,7 +439,7 @@ export class FlowerPanel {
 
     const seeds = listMode ? this.seedText : this.seed;
     if (!seeds.trim()) {
-      await showNotice(t('common.error.bad-seed'));
+      showNotice(t('common.error.bad-seed'));
       return;
     }
 
@@ -465,7 +476,7 @@ export class FlowerPanel {
       this.render();
       this.poll();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
@@ -502,7 +513,7 @@ export class FlowerPanel {
           this.paused = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.render();
         }
@@ -546,9 +557,10 @@ export class FlowerPanel {
   }
 
   private progressText(status: FlowerStatus): string {
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;

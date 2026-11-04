@@ -37,8 +37,7 @@ function areaLabelKey(mode: number): string {
 function resolveMonumentMc(versions: McVersion[]): number | null {
   const modern = versions.find((item) => item.name === '26.3');
   if (modern) return modern.id;
-  const fallback = versions.find((item) => item.name === '26.2')
-    || versions[versions.length - 1];
+  const fallback = versions.find((item) => item.name === '26.2') || versions[versions.length - 1];
   return fallback ? fallback.id : null;
 }
 
@@ -62,6 +61,8 @@ export class MonumentPanel {
   private seedText = '';
   private running = false;
   private paused = false;
+  /** 已发出停止请求、等待引擎结束当前工作单元；期间禁止再次点击/暂停。 */
+  private stopping = false;
   private pollTimer = 0;
   private readonly timer = new RunTimer();
   private shownError = '';
@@ -300,9 +301,9 @@ export class MonumentPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="m-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
-        <button id="m-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="m-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="m-start" type="button" data-i18n="common.search.start" ${this.running || this.stopping || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
+        <button id="m-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="m-stop" type="button" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="m-bar"></div></div>
       <div id="m-progress" class="hint"></div>
@@ -311,7 +312,7 @@ export class MonumentPanel {
     `;
     this.footer.querySelector('#m-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#m-pause')?.addEventListener('click', () => void this.togglePause());
-    this.footer.querySelector('#m-stop')?.addEventListener('click', () => void call(this.stopOp()));
+    this.footer.querySelector('#m-stop')?.addEventListener('click', () => void this.stop());
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
@@ -354,40 +355,46 @@ export class MonumentPanel {
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1 || side > WORLD_SIDE) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return;
       }
       this.applySquare();
     }
 
-    let minX = Number(this.minX.value);
-    let maxX = Number(this.maxX.value);
-    let minZ = Number(this.minZ.value);
-    let maxZ = Number(this.maxZ.value);
-    if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ
-      || minX < -WORLD_COORD || maxX > WORLD_COORD
-      || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
-      await showNotice(t('common.error.bad-bounds'));
+    const minX = Number(this.minX.value);
+    const maxX = Number(this.maxX.value);
+    const minZ = Number(this.minZ.value);
+    const maxZ = Number(this.maxZ.value);
+    if (
+      ![minX, maxX, minZ, maxZ].every(Number.isFinite) ||
+      maxX < minX ||
+      maxZ < minZ ||
+      minX < -WORLD_COORD ||
+      maxX > WORLD_COORD ||
+      minZ < -WORLD_COORD ||
+      maxZ > WORLD_COORD
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return;
     }
 
     if (this.variant === 'double') {
       const limit = listMode ? DOUBLE_LIST_SIDE : DOUBLE_SINGLE_SIDE;
       if (maxX - minX + 1 > limit || maxZ - minZ + 1 > limit) {
-        await showNotice(t('common.error.range-too-large'));
+        showNotice(t('common.error.range-too-large'));
         return;
       }
     }
 
     const seeds = listMode ? this.seedText : this.seed;
     if (!seeds.trim()) {
-      await showNotice(t('common.error.bad-seed'));
+      showNotice(t('common.error.bad-seed'));
       return;
     }
 
     const mc = resolveMonumentMc(this.versions);
     if (mc == null) {
-      await showNotice(t('common.error.unsupported-version'));
+      showNotice(t('common.error.unsupported-version'));
       return;
     }
 
@@ -413,7 +420,7 @@ export class MonumentPanel {
       const areaInput = this.root.querySelector<HTMLInputElement>('#m-area');
       const minGroupArea = Math.round(Number(areaInput?.value || this.areaValue || DEFAULT_MIN_GROUP_AREA));
       if (!Number.isFinite(minGroupArea) || minGroupArea < MIN_GROUP_AREA || minGroupArea > MAX_GROUP_AREA) {
-        await showNotice(t('common.error.bad-monument-area'));
+        showNotice(t('common.error.bad-monument-area'));
         return;
       }
       this.areaValue = minGroupArea;
@@ -429,26 +436,49 @@ export class MonumentPanel {
       this.lastStatus = null;
       this.running = true;
       this.paused = false;
+      this.stopping = false;
       this.shownError = '';
       this.timer.start();
       this.render();
       this.poll();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
   private async togglePause(): Promise<void> {
-    if (this.paused) {
-      await call(this.resumeOp());
-      this.paused = false;
-      this.timer.resume();
-    } else {
-      await call(this.pauseOp());
-      this.paused = true;
-      this.timer.pause();
+    if (this.stopping) return;
+    try {
+      if (this.paused) {
+        await call(this.resumeOp());
+        this.paused = false;
+        this.timer.resume();
+      } else {
+        await call(this.pauseOp());
+        this.paused = true;
+        this.timer.pause();
+      }
+    } catch (error) {
+      showNotice(messageOf(error));
     }
     this.render();
+  }
+
+  /**
+   * 停止是异步的：引擎要先结束当前工作单元。立刻切换按钮/进度文案，轮询继续，
+   * 避免用户以为点击无效而反复点击。
+   */
+  private async stop(): Promise<void> {
+    if (!this.running || this.stopping) return;
+    this.stopping = true;
+    this.render();
+    try {
+      await call(this.stopOp());
+    } catch (error) {
+      this.stopping = false;
+      this.render();
+      showNotice(messageOf(error));
+    }
   }
 
   private poll(): void {
@@ -461,19 +491,24 @@ export class MonumentPanel {
         this.lastStatus = status;
         this.paintStatus(status);
         this.results?.setMonumentHits(status.hits, this.tab, this.biomeCheck);
-        if (status.done) {
+        // done，或引擎已结束但没报告 done（停止/出错后的收尾）都要立刻解锁界面。
+        if (status.done || (!status.running && !status.paused)) {
           window.clearInterval(this.pollTimer);
           this.running = false;
           this.paused = false;
+          this.stopping = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.render();
         }
       } catch {
         window.clearInterval(this.pollTimer);
         this.running = false;
+        this.paused = false;
+        this.stopping = false;
+        this.render();
       }
     }, 100);
   }
@@ -495,14 +530,17 @@ export class MonumentPanel {
   }
 
   private progressText(status: MonumentStatus): string {
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const complete = status.done && (status.total <= 0 || status.current >= status.total);
     const pct = complete
       ? 100
-      : status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
+      : status.total > 0
+        ? Math.min(100, Math.round((status.current / status.total) * 100))
+        : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${t('common.search.working')} ${status.current}/${status.total} (${pct}%)${error}`;
   }

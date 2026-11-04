@@ -13,7 +13,9 @@ export const APP_VERSION = packageJson.version;
 function systemLocale(): LocaleId {
   const fromMain = window.aio?.initialLocale;
   if (fromMain === 'zh' || fromMain === 'en') return fromMain;
-  const tag = String(navigator.language || '').replaceAll('_', '-').toLowerCase();
+  const tag = String(navigator.language || '')
+    .replaceAll('_', '-')
+    .toLowerCase();
   return tag.startsWith('zh') ? 'zh' : 'en';
 }
 
@@ -87,5 +89,16 @@ export function applyI18n(root: ParentNode = document): void {
   root.querySelectorAll<HTMLElement>('[data-i18n]').forEach((node) => {
     const key = node.dataset.i18n;
     if (key) node.textContent = t(key);
+  });
+  // Attribute-hosted text (tooltips, accessible names) cannot use `data-i18n`,
+  // which only rewrites `textContent`. `data-i18n-title` / `data-i18n-aria-label`
+  // mirror the same keys into those attributes.
+  root.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((node) => {
+    const key = node.dataset.i18nTitle;
+    if (key) node.title = t(key);
+  });
+  root.querySelectorAll<HTMLElement>('[data-i18n-aria-label]').forEach((node) => {
+    const key = node.dataset.i18nAriaLabel;
+    if (key) node.setAttribute('aria-label', t(key));
   });
 }

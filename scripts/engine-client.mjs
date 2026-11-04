@@ -1,20 +1,47 @@
-// Engine client for the regression harness: speaks the length-prefixed JSON
+﻿// Engine client for the regression harness: speaks the length-prefixed JSON
 // protocol to `aio-engine --serve` (the same server the host runs via --engine),
 // and exposes the add-on method names so native-regression.mjs can run unchanged.
 import { spawn } from 'node:child_process';
 
 const OPS = [
-  'versions', 'features', 'weirdness', 'lowySupports', 'biomeAt', 'structures', 'structureBounds',
-  'renderTile', 'renderTiles', 'slimeMask',
-  'searchStart', 'searchPoll', 'searchStop',
-  'slimeFarmStart', 'slimeFarmPoll', 'slimeFarmStop',
-  'witchSearchStart', 'witchSearchPoll', 'witchSearchStop',
-  'riverSearchStart', 'riverSearchPoll', 'riverSearchStop',
-  'fortressSearchStart', 'fortressSearchPoll', 'fortressSearchStop',
-  'multiMonumentSearchStart', 'multiMonumentSearchPoll', 'multiMonumentSearchStop',
-  'doubleMonumentSearchStart', 'doubleMonumentSearchPoll', 'doubleMonumentSearchStop',
-  'trialStart', 'trialPoll', 'trialStop',
-  'geodeStart', 'geodePoll', 'geodeStop',
+  'versions',
+  'features',
+  'weirdness',
+  'lowySupports',
+  'biomeAt',
+  'structures',
+  'structureBounds',
+  'renderTile',
+  'renderTiles',
+  'slimeMask',
+  'searchStart',
+  'searchPoll',
+  'searchStop',
+  'slimeFarmStart',
+  'slimeFarmPoll',
+  'slimeFarmStop',
+  'witchSearchStart',
+  'witchSearchPoll',
+  'witchSearchStop',
+  'riverSearchStart',
+  'riverSearchPoll',
+  'riverSearchStop',
+  'riverVersions',
+  'fortressSearchStart',
+  'fortressSearchPoll',
+  'fortressSearchStop',
+  'multiMonumentSearchStart',
+  'multiMonumentSearchPoll',
+  'multiMonumentSearchStop',
+  'doubleMonumentSearchStart',
+  'doubleMonumentSearchPoll',
+  'doubleMonumentSearchStop',
+  'trialStart',
+  'trialPoll',
+  'trialStop',
+  'geodeStart',
+  'geodePoll',
+  'geodeStop',
 ];
 
 export async function createEngineClient({ exe, dll, timeoutMs = 180000 }) {
@@ -24,12 +51,22 @@ export async function createEngineClient({ exe, dll, timeoutMs = 180000 }) {
   let nextId = 1;
   let readyResolve;
   let readyReject;
-  const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+  const ready = new Promise((resolve, reject) => {
+    readyResolve = resolve;
+    readyReject = reject;
+  });
 
   function dispatch(frame) {
     let message;
-    try { message = JSON.parse(frame); } catch { return; }
-    if (message.ready) { readyResolve(); return; }
+    try {
+      message = JSON.parse(frame);
+    } catch {
+      return;
+    }
+    if (message.ready) {
+      readyResolve();
+      return;
+    }
     const item = pending.get(message.id);
     if (!item) return;
     pending.delete(message.id);

@@ -11,7 +11,7 @@
     },
     "about": {
       "title": "关于",
-      "body": "定种多功能搜索器 {version}\n许可\n本软件以 GNU 通用公共许可证第 3 版（GPL-3.0-only）分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/RiverFinder、\nhttps://github.com/Melationin/RiverFinder，作者：若莫、SunnySlopes\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/doubleMonumentFinderBase，作者：SunnySlopes\n多联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderBase，作者：SunnySlopes\n试炼刷怪笼：https://github.com/SunnySlopes/trial-spawner-native，作者：打野别说话\n紫水晶母岩：https://github.com/SunnySlopes/geode-native，作者：打野别说话\n全花农场：https://github.com/SunnySlopes/FlowerFinderBase，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
+      "body": "定种多功能搜索器 {version}\n许可\n本软件以 GNU 通用公共许可证第 3 版（GPL-3.0-only）分发\n\n致谢\n感谢所有人的贡献，没有你们的贡献，就没有这款搜索器\n界面作者：SunnySlopes，设计参考自SlimeFinderGUI，作者：Bot_City\n地图展示：https://github.com/xpple/cubiomes，作者：Cubitect、xpple\n低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase，作者：M33三角座星系、SunnySlopes\n河流：https://github.com/SunnySlopes/DrownedCombinedFinder，作者：打野别说话\n（河流内核衍生自 https://github.com/M33Galaxy/RiverFinder-JNI，作者：若莫）\n低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase，作者：SunnySlopes\n史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar、\nhttps://github.com/CITYWIDESIGN/SlimeOptimizer，作者：Bot_City\n二联海底神殿：https://github.com/SunnySlopes/doubleMonumentFinderBase，作者：SunnySlopes\n多联海底神殿：https://github.com/SunnySlopes/DoubleMonumentForFixedSeed，作者：浅唱清辞、SunnySlopes\n地狱堡垒十字路口、地狱堡垒大范围：https://github.com/SunnySlopes/FortressFinderBase，作者：SunnySlopes\n试炼刷怪笼：https://github.com/SunnySlopes/trial-spawner-native，作者：打野别说话\n紫水晶母岩：https://github.com/SunnySlopes/geode-native，作者：打野别说话\n全花农场：https://github.com/SunnySlopes/FlowerFinderBase，作者：SunnySlopes\n其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导"
     },
     "searcher": {
       "map": "地图",
@@ -72,11 +72,14 @@
       "empty": "暂无结果",
       "drawSpawn": "绘制刷怪区域",
       "exportSeeds": "导出种子列表",
-      "exportAll": "导出完整结果"
+      "exportAll": "导出完整结果",
+      "copy": "复制 /tp 指令"
     },
     "map": {
       "dimension": "维度",
       "largeBiomes": "大型生物群系",
+      "resize": "拖动调整宽度",
+      "searchersLabel": "搜索器",
       "y": "采样 Y",
       "yCustom": "自定义",
       "coordX": "坐标 X",
@@ -341,9 +344,9 @@
     "yLabel": "Y"
   },
   "river": {
-    "help": "搜索玩家刷怪区域内河流面积最大的位置。勾选“计算溶洞面积”后溶洞按河流面积计入总面积。",
-    "minArea": "最低河流面积",
-    "minRatio": "最低河流占比%",
+    "help": "搜索玩家刷怪球体内河流面积最大的位置，可指定河流或溶洞模式。实际只统计挂机Y上下24格。",
+    "minArea": "最低河流等效面积",
+    "minRatio": "最低河流等效占比%",
     "sampleY": "群系取样Y",
     "calcCave": "计算溶洞面积",
     "stage": {
@@ -354,7 +357,35 @@
     "goCave": "去溶洞页",
     "stayRiver": "继续搜索河流",
     "areaLabel": "河流面积",
-    "caveLabel": "溶洞面积"
+    "caveLabel": "溶洞面积",
+    "mode": "模式",
+    "modeRiver": "河流",
+    "modeCave": "溶洞",
+    "minCaveRatio": "最低等效溶洞占比%",
+    "minCaveArea": "最低等效溶洞面积",
+    "conversion": "河流/溶洞折算系数",
+    "yMin": "采样最低Y",
+    "yMax": "采样最高Y",
+    "playerY": "挂机Y",
+    "presetEmpty": "空置域农场",
+    "presetSurface": "地表农场",
+    "equivRiverArea": "等效河流面积",
+    "equivCaveArea": "等效溶洞面积",
+    "areaRatio": "面积占比",
+    "largeAreaToCave": "检测到你填写了较大的搜索面积，纯溶洞搜索将会更快返回结果，是否前往？",
+    "caveTooSmall": "等效溶洞面积过小，是否切换为河流模式？",
+    "riverTooLarge": "等效河流面积过大，是否切换为溶洞模式？",
+    "badPlayerY": "挂机y填写不合适，无法充分利用刷怪面积，是否调整为（上下限y的中点 {mid}）？",
+    "yOutOfShell": "采样Y与挂机Y的差值不能超过128格（当前最大差值 {dy} 格），超出部分不在刷怪球范围内，请调整采样上下限或挂机Y。",
+    "badConversion": "河流/溶洞折算系数须为 0~1 的小数或分数（如 0.7 或 4880/7011）。",
+    "warnSpanGt24": "高度范围超过24格，可能导致搜索变慢，是否继续？",
+    "warnYMinGtNeg58": "最低高度高于-58，可能不满足低Y农场前提，是否继续？",
+    "rangeRiverRatio": "河流等效占比需在 {min}~{max}% 之间（当前 {value}%），无法开始搜索。",
+    "rangeRiverArea": "河流等效面积需在 {min}~{max} 之间（当前 {value}），无法开始搜索。",
+    "rangeCaveRatio": "溶洞等效占比需在 {min}~{max}% 之间（当前 {value}%），无法开始搜索。",
+    "rangeCaveArea": "溶洞等效面积需不低于 {min}（当前 {value}），无法开始搜索。",
+    "riverRawArea": "河流面积",
+    "caveRawArea": "溶洞面积"
   },
   "fortress": {
     "crossFilter": "十字路口最低要求",

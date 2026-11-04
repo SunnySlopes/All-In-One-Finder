@@ -1,9 +1,9 @@
-// All-In-One Finder 鈥?WebView2 host bridge.
+// All-In-One Finder — WebView2 host bridge.
 //
 // Injected before any page script. Provides:
-//   window.aio            鈥?the same 11 members Electron's preload exposed
-//   window.__AIO_RPC__    鈥?op transport used by src/native.ts
-//   window.__AIO_B64__    鈥?base64 decoder for binary payloads
+//   window.aio            — the same 11 members Electron's preload exposed
+//   window.__AIO_RPC__    — op transport used by src/native.ts
+//   window.__AIO_B64__    — base64 decoder for binary payloads
 //
 // Host protocol (JSON over window.chrome.webview):
 //   page -> host : {channel:"op", id, op, args}        engine call (forwarded to allinone.dll)

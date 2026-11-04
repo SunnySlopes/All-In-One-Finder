@@ -99,7 +99,7 @@ export interface WitchHit {
   seed: string;
   x: number;
   z: number;
-  /** avg_y锛歠ootprint 骞冲潎楂樺害锛屼篃鏄粨鏋滈噷鐨?Y銆?*/
+  /** avg_y：footprint 平均高度，也是结果里的 Y。 */
   y: number;
   dir: number;
   sizeX: number;
@@ -237,13 +237,13 @@ export interface GeodeHit {
   seed: string;
   x: number;
   z: number;
-  /** 棰勮娲昏穬姣嶅博鏁帮紙涓绘帓搴忛敭锛涘鏍稿悗涓哄鏍稿€硷級銆?*/
+  /** 预计活跃母岩数（主排序键；复核后为复核值）。 */
   budding: number;
-  /** 娲昏穬鏅舵礊鏁帮紙浠呭睍绀猴級銆?*/
+  /** 活跃晶洞数（仅展示）。 */
   geodes: number;
-  /** 璇ョ偣宸茬敤 evaluate() 閫愬潡閲嶇畻銆?*/
+  /** 该点已用 evaluate() 逐块重算。 */
   verified: boolean;
-  /** 澶嶆牳鍓嶆鍗曞€硷紱涓庡鏍稿€间竴鑷存椂涓?-1銆?*/
+  /** 复核前的榜单值；与复核值一致时为 -1。 */
   listedBudding: number;
   listedGeodes: number;
 }
@@ -252,16 +252,16 @@ export interface GeodeStatus {
   running: boolean;
   done: boolean;
   paused: boolean;
-  /** 鏆傚仠璇锋眰宸插彂鍑猴紝绛夊緟褰撳墠宸ヤ綔鍗曞厓鍒版鏌ョ偣銆?*/
+  /** 暂停请求已发出，等待当前工作单元到检查点。 */
   pausing: boolean;
   stopping: boolean;
-  /** 鏈杩愯琚敤鎴峰仠姝紱缁撴灉宸叉竻绌猴紝鍏ㄥ浘鏂偣浠嶄繚鐣欍€?*/
+  /** 本次运行被用户停止；结果已清空，全图断点仍保留。 */
   stopped: boolean;
   truncated: boolean;
   /** 'scan' | 'simulate' | 'rank' | 'verify' | 'done' */
   phase: string;
   phaseIndex: number;
-  /** 3 = 鏃犲鏍革紱4 = 鍗曠瀛愯繎浼煎€欓€夊甫澶嶆牳銆?*/
+  /** 3 = 无复核；4 = 单种子近似候选带复核。 */
   phaseCount: number;
   current: number;
   total: number;
@@ -272,11 +272,11 @@ export interface GeodeStatus {
   seedIndex: number;
   seedCount: number;
   autoBudget: boolean;
-  /** 瀹為檯浼犵粰寮曟搸鐨勫€欓€夐绠楋紱0 = 瀹屾暣鍊欓€夈€?*/
+  /** 实际传给引擎的候选预算；0 = 完整候选。 */
   prefilter: number;
-  /** 鏈鏄惁浠庡尯鍩熸柇鐐规仮澶嶏紙鍏ㄥ浘锛夈€?*/
+  /** 本次是否从区域断点恢复（全图）。 */
   resumed: boolean;
-  /** 褰撳墠闃舵棰勮鍓╀綑绉掓暟锛?1 = 璁＄畻涓€?*/
+  /** 当前阶段预计剩余秒数；-1 = 计算中。 */
   etaSeconds: number;
   scanBackend: string;
   /** Why the GPU scan was skipped ("no-opencl" | "no-device"); empty when it ran. */
@@ -294,10 +294,35 @@ export interface RiverHit {
   seed: string;
   x: number;
   z: number;
+  /** 地图跳转高度：采样窗口（yMin..yMax）的中线。 */
   sampleY: number;
+  /** 等效河流面积 = 河流面积 + 溶洞面积 / 折算系数（层均口径）。 */
   river: number;
+  /** 等效溶洞面积 = 溶洞面积 + 折算系数 × 河流面积（层均口径）。 */
   cave: number;
+  /** 河流面积：区域内河流群系格数 ÷ 统计层数（不折算）。 */
+  rawRiver: number;
+  /** 溶洞面积：区域内溶洞群系格数 ÷ 统计层数（不折算）。 */
+  rawCave: number;
+  /** 实际统计层数（挂机Y±24 裁剪后）。 */
+  layers: number;
   score: number;
+  /** 是否统计溶洞：只看搜索条件（采样最低 Y < 60 且挂机Y < 85），与该点实际有无溶洞无关。
+   * 为 true 时 cave/rawCave 是统计值（可能为 0）；为 false 时保持 0。
+   * 前端四个面积项始终输出。 */
+  hasCave: boolean;
+  /** 本次搜索的折算系数（默认 4880/7011），供结果卡统一口径使用。 */
+  caveConversion?: number;
+}
+
+/** 引擎 validate() 的提示码，前端按 code 取文案。 */
+export const RIVER_WARN_SPAN_GT_24 = 1;
+export const RIVER_WARN_YMIN_GT_NEG58 = 2;
+export const RIVER_WARN_AREA_OVER_100 = 3;
+
+export interface RiverWarning {
+  code: number;
+  text: string;
 }
 
 export interface RiverStatus {
@@ -311,6 +336,18 @@ export interface RiverStatus {
   seedCount: number;
   error: string;
   hits: RiverHit[];
+  /** 动态分母：本配置（已按挂机Y±24 裁剪）下的球壳层均格数。 */
+  fullArea: number;
+  warnings: RiverWarning[];
+  /** 本次搜索是否为纯河流模式（决定结果卡第一行显示哪个等效面积）。 */
+  pureRiver?: boolean;
+  /** 本次搜索使用的折算系数（默认 4880/7011）。 */
+  caveConversion?: number;
+}
+
+export interface RiverVersion {
+  label: string;
+  mc: number;
 }
 
 export interface MonumentHit {

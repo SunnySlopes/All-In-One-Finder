@@ -7,7 +7,7 @@
 //   Value/Object/Array/String/Number/Boolean/BigInt/Function/Buffer,
 //   CallbackInfo, Error/TypeError, NODE_API_MODULE.
 // Not supported on purpose: ObjectWrap, AsyncWorker, Promise, TypedArray, Date,
-// ThrowAsJavaScriptException 鈥?addon.cpp uses none of them.
+// ThrowAsJavaScriptException — addon.cpp uses none of them.
 #pragma once
 
 #include <cstddef>

@@ -20,7 +20,7 @@ import { parseSessionFile, type MapSessionData } from './session';
 const app = document.querySelector('#app')!;
 app.innerHTML = `
   <header id="menubar">
-    <nav id="searcher-bar" class="searcher-bar" aria-label="searchers"></nav>
+    <nav id="searcher-bar" class="searcher-bar" data-i18n-aria-label="common.map.searchersLabel"></nav>
     <label class="menu-lang flat-lang">
       <span data-i18n="common.menu.language"></span>
       <select id="language">
@@ -31,9 +31,9 @@ app.innerHTML = `
   </header>
   <div id="workspace">
     <aside id="sidebar"><div id="panel"></div></aside>
-    <div class="col-resizer" data-resize="sidebar" title="resize"></div>
+    <div class="col-resizer" data-resize="sidebar" data-i18n-title="common.map.resize"></div>
     <div id="results-host"></div>
-    <div class="col-resizer" data-resize="results" title="resize"></div>
+    <div class="col-resizer" data-resize="results" data-i18n-title="common.map.resize"></div>
     <div id="stage"></div>
   </div>
   <div id="modal"><div id="dialog"></div></div>
@@ -124,21 +124,29 @@ function applySearcherStates(states: unknown): void {
 
 map.setSearcherStateProvider(collectSearcherStates);
 
+/**
+ * 每个搜索 tab 共用同一套种子同步接口；集中列出一次，
+ * 避免在“地图改种子 / 载入存档 / 启动恢复”三处各抄一份 11 行调用。
+ */
+const SEED_SYNC_PANELS = [
+  search,
+  slime,
+  witch,
+  flower,
+  trial,
+  geode,
+  river,
+  fortressCross,
+  fortressSpan,
+  monumentDouble,
+  monumentMulti,
+] as const;
+
 /** 地图种子变化时，只同步到当前为“单种子”来源的搜索 tab。 */
 function pushSeedToSingleTabs(seed: string): void {
   const value = seed.trim();
   if (!value) return;
-  search.setSeedFromMap(value);
-  slime.setSeedFromMap(value);
-  witch.setSeedFromMap(value);
-  flower.setSeedFromMap(value);
-  trial.setSeedFromMap(value);
-  geode.setSeedFromMap(value);
-  river.setSeedFromMap(value);
-  fortressCross.setSeedFromMap(value);
-  fortressSpan.setSeedFromMap(value);
-  monumentDouble.setSeedFromMap(value);
-  monumentMulti.setSeedFromMap(value);
+  for (const panel of SEED_SYNC_PANELS) panel.setSeedFromMap(value);
 }
 
 map.onSeedChange = (seed) => pushSeedToSingleTabs(seed);
@@ -197,8 +205,9 @@ function searcherIcon(icon: string | undefined): string {
 }
 
 function paintSearcherBar(): void {
-  searcherBar.innerHTML = SEARCHER_ITEMS.map((item) =>
-    `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}">${searcherIcon(item.icon)}<span data-i18n="common.searcher.${item.id}"></span></button>`,
+  searcherBar.innerHTML = SEARCHER_ITEMS.map(
+    (item) =>
+      `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}">${searcherIcon(item.icon)}<span data-i18n="common.searcher.${item.id}"></span></button>`,
   ).join('');
   searcherBar.querySelectorAll<HTMLButtonElement>('[data-searcher]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -397,17 +406,7 @@ window.aio?.onSessionImport?.((text) => {
     return;
   }
   map.applySnapshot(data);
-  search.setSeedFromMap(data.seed);
-  slime.setSeedFromMap(data.seed);
-  witch.setSeedFromMap(data.seed);
-  flower.setSeedFromMap(data.seed);
-  trial.setSeedFromMap(data.seed);
-  geode.setSeedFromMap(data.seed);
-  river.setSeedFromMap(data.seed);
-  fortressCross.setSeedFromMap(data.seed);
-  fortressSpan.setSeedFromMap(data.seed);
-  monumentDouble.setSeedFromMap(data.seed);
-  monumentMulti.setSeedFromMap(data.seed);
+  pushSeedToSingleTabs(data.seed);
   applySearcherStates(data.searchers);
   show('map');
 });
@@ -419,38 +418,27 @@ applyI18n();
 window.addEventListener('load', () => setWindowTitle());
 setWindowTitle();
 
-void Promise.all([
-  call<McVersion[]>('versions'),
-  call<FeatureInfo[]>('features'),
-]).then(([versions, features]) => {
-  void map.load(versions, features).then((session) => {
-    search.setSeedFromMap(map.getSeed());
-    slime.setSeedFromMap(map.getSeed());
-    witch.setSeedFromMap(map.getSeed());
-    flower.setSeedFromMap(map.getSeed());
-    trial.setSeedFromMap(map.getSeed());
-    geode.setSeedFromMap(map.getSeed());
-    river.setSeedFromMap(map.getSeed());
-    fortressCross.setSeedFromMap(map.getSeed());
-    fortressSpan.setSeedFromMap(map.getSeed());
-    monumentDouble.setSeedFromMap(map.getSeed());
-    monumentMulti.setSeedFromMap(map.getSeed());
-    applySearcherStates(session?.searchers);
+void Promise.all([call<McVersion[]>('versions'), call<FeatureInfo[]>('features')])
+  .then(([versions, features]) => {
+    void map.load(versions, features).then((session) => {
+      pushSeedToSingleTabs(map.getSeed());
+      applySearcherStates(session?.searchers);
+    });
+    search.load(versions);
+    slime.load(versions);
+    witch.load();
+    flower.load(versions);
+    trial.load();
+    geode.load(versions);
+    river.load(versions);
+    fortressCross.load(versions);
+    fortressSpan.load(versions);
+    monumentDouble.load(versions);
+    monumentMulti.load(versions);
+    applyI18n();
+    map.refreshText();
+    results.refresh();
+  })
+  .catch((error) => {
+    panel.insertAdjacentHTML('afterbegin', `<div class="hint">${t('common.error.native')} ${String(error)}</div>`);
   });
-  search.load(versions);
-  slime.load(versions);
-  witch.load();
-  flower.load(versions);
-  trial.load();
-  geode.load(versions);
-  river.load(versions);
-  fortressCross.load(versions);
-  fortressSpan.load(versions);
-  monumentDouble.load(versions);
-  monumentMulti.load(versions);
-  applyI18n();
-  map.refreshText();
-  results.refresh();
-}).catch((error) => {
-  panel.insertAdjacentHTML('afterbegin', `<div class="hint">${t('common.error.native')} ${String(error)}</div>`);
-});

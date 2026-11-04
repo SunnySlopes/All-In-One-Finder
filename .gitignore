@@ -12,6 +12,8 @@ sourcemaps/
 native/build/
 native/build-engine/
 native/build-dll/
+# 临时验证用的构建目录（build-chk、build-chk2、build-chk3…）
+native/build-chk*/
 native/host/build/
 native/host/stage/
 cmake-build-*/
@@ -46,8 +48,32 @@ release/
 builder-effective-config.yaml
 builder-debug.yml
 
-# Temporary build/probe scripts and captures
+# Temporary build/probe scripts and captures.
+# Scratch scripts live in scripts/scratch/ so they stay reusable but never ship;
+# test artifacts live in test-results/ so a run never litters the repo root.
 scripts/tmp-*
+scripts/scratch/
+test-results/
+
+# Native regression artifacts (written to test-results/ by `npm run regression`)
+native-regression-result.json
+native-regression-baseline.json
+
+# 河流子模块（DrownedCombinedFinder）：只保留参与编译的部分。
+# 上游自带的开发附件（测试、CLI 工具、示例、本地记录）在 AIO 里不参与构建，
+# 也不应进入主仓提交；构建只用 src/ 与 third_party/ 的头文件。
+tools/river/tests/
+tools/river/tools/
+tools/river/examples/
+tools/river/docs/
+tools/river/build/
+tools/river/build-*/
+tools/river/out/
+tools/river/output/
+tools/river/results/
+tools/river/logs/
+tools/river/.idea/
+tools/river/*.iml
 
 # Runtime data (portable userdata / sessions / checkpoints next to the exe)
 userdata/

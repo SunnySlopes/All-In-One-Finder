@@ -6,7 +6,7 @@ export function gpuRendererName(): string {
   cached = '';
   try {
     const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') as WebGLRenderingContext | null;
+    const gl = canvas.getContext('webgl');
     if (!gl) return cached;
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
     const raw = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER) || '');

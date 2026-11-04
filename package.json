@@ -1,7 +1,7 @@
 {
   "name": "all-in-one-finder",
   "productName": "All-In-One Finder",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "private": true,
   "license": "GPL-3.0-only",
   "description": "A Minecraft set-seed multifunction coordination finder for Java 1.18+",
@@ -9,15 +9,25 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.mjs\" \"*.{json,mjs,md}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.mjs\" \"*.{json,mjs,md}\"",
+    "check": "npm run typecheck && npm run lint",
     "engine": "powershell -ExecutionPolicy Bypass -File scripts/build-engine.ps1",
     "host": "powershell -ExecutionPolicy Bypass -File scripts/build-host.ps1",
     "package": "powershell -ExecutionPolicy Bypass -File scripts/package-host.ps1",
-    "regression": "node scripts/native-regression.mjs --engine native/build-engine/aio-engine.exe --dll native/build-engine/allinone.dll",
+    "regression": "node scripts/native-regression.mjs",
+    "regression:compare": "node scripts/native-regression-compare.mjs test-results/native-regression-baseline.json test-results/native-regression-result.json",
     "verify": "powershell -ExecutionPolicy Bypass -File scripts/verify-release.ps1",
     "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev-host.ps1"
   },
   "devDependencies": {
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
+    "prettier": "^3.9.10",
     "typescript": "^5.6.3",
-    "vite": "^6.0.0"
+    "typescript-eslint": "^8.72.1",
+    "vite": "8.3.3"
   }
 }

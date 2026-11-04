@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 project(allinone C CXX)
 
 if (MSVC)
@@ -19,7 +19,7 @@ set(LOWY "${CMAKE_SOURCE_DIR}/../tools/dripstonecave")
 set(SLIME "${CMAKE_SOURCE_DIR}/../tools/slime")
 set(SLIMERADAR "${SLIME}/slimeradar/src")
 set(SLIMEOPT "${SLIME}/slimeoptimizer")
-set(RIVER "${CMAKE_SOURCE_DIR}/../tools/river")
+set(RN "${CMAKE_SOURCE_DIR}/../tools/river")
 set(LYSH "${CMAKE_SOURCE_DIR}/../tools/lowyswamphut")
 set(FORTRESS "${CMAKE_SOURCE_DIR}/../tools/fortress")
 set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
@@ -210,6 +210,45 @@ target_compile_options(geode_bridge PRIVATE
   -ffunction-sections -fdata-sections
 )
 
+# 河流：river-native 引擎。只编 search.cpp（引擎本体）+ coverage.cpp（计分几何）。
+# 不编 storage.cpp / protocol.cpp：它们只为 CLI/JSON 导出服务，会额外拖入 953 KB 的
+# third_party/json.hpp，且是 CUBIOMES_REVISION / RIVER_ENGINE_VERSION 的唯一使用者。
+# cubiomes 一律用共享的 cubiomes_objs（tools/cubiomes），绝不编 river-native 自带的 .c，
+# 否则 setupGenerator/applySeed/genBiomes 会与 allinone 里那份重复定义。
+add_library(river_native_objs OBJECT
+  "${RN}/src/search.cpp"
+  "${RN}/src/coverage.cpp"
+)
+set_target_properties(river_native_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(river_native_objs PRIVATE
+  "${RN}"
+  "${RN}/src"
+  "${RN}/third_party"
+  "${CUBI}"
+)
+# 逐位一致：必须 -ffp-contract=off，且刻意的 -fno-lto（与 lysh_core 同一理由：
+# 避免链接期代码生成重新引入 FP contraction；链接参数里的 -flto 不作用于这些对象）。
+# 必须带 pre_cubiomes.h：cubiomes rng.h 的 lerp() 与 C++20 <math.h> 的 std::lerp 冲突，
+# 该 prelude 把 lerp 改名后再引入 rng.h，正是 river-native 需要的。
+target_compile_options(river_native_objs PRIVATE
+  -O3 -DNDEBUG -fwrapv -fexceptions -ffp-contract=off -fno-lto
+  -ffunction-sections -fdata-sections
+  -include "${LOWY}/cxx_compat/pre_cubiomes.h"
+)
+target_compile_definitions(river_native_objs PRIVATE _WIN32)
+
+# river-native 维护版 cubiomes 独有的两个函数（climateCaveBiome / mapVoronoiVolume），
+# 共享 tools/cubiomes 里没有。单独编一个 C TU，只有这两个符号，不会重复定义别的。
+add_library(river_cubiomes_shim OBJECT river_cubiomes_shim.c)
+set_target_properties(river_cubiomes_shim PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# 注意：源码用 <cubiomes/xxx.h> 形式，需把 tools/ 作为 include 根。
+target_include_directories(river_cubiomes_shim PRIVATE "${CMAKE_SOURCE_DIR}/../tools" "${CUBI}")
+# 与 cubiomes_objs 同口径：-ffp-contract=off -fno-lto，保证数值与共享实现一致。
+target_compile_options(river_cubiomes_shim PRIVATE
+  -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
+  -ffunction-sections -fdata-sections
+)
+
 set(HOT_CXX
   addon.cpp
   map_service.cpp
@@ -258,8 +297,6 @@ if (NOT AIO_DOUBLE_MONUMENT_REFACTORED)
   set_source_files_properties("${DOUBLE}/monument_search_core.c"
     PROPERTIES COMPILE_DEFINITIONS "${DOUBLE_CORE_DEFS}")
 endif()
-# tools/river 的 river_finder.cpp 由 river_host.cpp include（唯一 TU），不在这里
-# 再列一次：上游 riverFinderLib.cpp / JNI 桥也是直接 include 它，同时编译会重复符号。
 set(SLIME_C
   "${SLIMERADAR}/cpu_search.c"
   "${SLIMERADAR}/cpu_simd_avx2.c"
@@ -278,6 +315,8 @@ add_library(allinone SHARED
   $<TARGET_OBJECTS:trial_bridge>
   $<TARGET_OBJECTS:geode_objs>
   $<TARGET_OBJECTS:geode_bridge>
+  $<TARGET_OBJECTS:river_native_objs>
+  $<TARGET_OBJECTS:river_cubiomes_shim>
   ${ALLINONE_BINDING_SOURCES}
 )
 set_target_properties(allinone PROPERTIES
@@ -297,7 +336,9 @@ target_include_directories(allinone PRIVATE
   "${LOWY}"
   "${SLIMERADAR}"
   "${SLIMEOPT}/include"
-  "${RIVER}"
+  "${RN}"
+  "${RN}/src"
+  "${RN}/third_party"
 )
 target_compile_definitions(allinone PRIVATE
   _WIN32

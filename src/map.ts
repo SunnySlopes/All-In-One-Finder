@@ -87,9 +87,7 @@ const MAX_TILE_CACHE = 256;
 const MAX_TILE_CACHE_TERRAIN = 192;
 /** Only 1:1 renders terrain; every coarser zoom level stays on the biome map. */
 const TERRAIN_SCALE = 1;
-/** Cave openings are only sampled at 1:1 and only exist for the overworld. */
-const CAVE_MAX_SCALE = 1;
-/** One cave cell covers 4x4 blocks, so a 128 px tile holds 32x32 cells. */
+/** One cave cell covers 4x4 blocks, so a 128 px tile holds 32x32 cells (1:1 only). */
 const CAVE_CELL_SIZE = 4;
 const CAVE_CELLS = TILE_CELLS / CAVE_CELL_SIZE;
 /** Cave opening classes shared with the native mask byte. */
@@ -160,13 +158,15 @@ const DEFAULT_FEATURES = [
  * 原生 `versions()` 仍返回完整列表供其他面板解析版本档位，这里只裁剪地图选择器。
  */
 function mapVersions(versions: McVersion[]): McVersion[] {
-  return versions.filter((item) => {
-    const match = /^(\d+)\.(\d+)/.exec(item.name);
-    if (!match) return false;
-    const major = Number(match[1]);
-    const minor = Number(match[2]);
-    return major > 1 || (major === 1 && minor >= 18);
-  }).reverse();
+  return versions
+    .filter((item) => {
+      const match = /^(\d+)\.(\d+)/.exec(item.name);
+      if (!match) return false;
+      const major = Number(match[1]);
+      const minor = Number(match[2]);
+      return major > 1 || (major === 1 && minor >= 18);
+    })
+    .reverse();
 }
 
 interface MapSession {
@@ -267,9 +267,8 @@ function parseSession(raw: string | null): MapSession | null {
     const data = JSON.parse(raw) as Partial<MapSession> & { mcVersion?: unknown };
     if (typeof data.seed !== 'string' || !data.seed.trim()) return null;
     // 自动保存文件使用 version（字符串），手动导出的 session 使用 mcVersion。
-    const named = typeof data.version === 'string'
-      ? data.version
-      : typeof data.mcVersion === 'string' ? data.mcVersion : '';
+    const named =
+      typeof data.version === 'string' ? data.version : typeof data.mcVersion === 'string' ? data.mcVersion : '';
     return {
       seed: data.seed.trim(),
       version: named,
@@ -283,9 +282,7 @@ function parseSession(raw: string | null): MapSession | null {
       features: Array.isArray(data.features)
         ? data.features.filter((item): item is string => typeof item === 'string')
         : [...DEFAULT_FEATURES],
-      searchers: data.searchers && typeof data.searchers === 'object'
-        ? data.searchers as Record<string, unknown>
-        : undefined,
+      searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
     };
   } catch {
     return null;
@@ -474,9 +471,10 @@ export class MapView {
     this.version.innerHTML = this.versions.map((item) => `<option value="${item.id}">${item.name}</option>`).join('');
     const hadSession = !!window.aio?.hasSession;
     const session = await this.loadSession();
-    const preferred = (session?.version && this.versions.find((item) => item.name === session.version))
-      || this.versions.find((item) => item.name === '26.3')
-      || this.versions[0];
+    const preferred =
+      (session?.version && this.versions.find((item) => item.name === session.version)) ||
+      this.versions.find((item) => item.name === '26.3') ||
+      this.versions[0];
     if (preferred) this.version.value = String(preferred.id);
     if (session) {
       this.seed.value = session.seed;
@@ -606,7 +604,8 @@ export class MapView {
       version: this.version.value,
       dim: this.dimension.value,
       y: this.y.value,
-      large: this.large.value,
+      // `large` is a checkbox: read `.checked`, not `.value` (which is always "on").
+      large: this.large.checked,
     };
     const nextSeed = options.seed != null ? options.seed.trim() : this.seed.value.trim();
     let nextY = options.y != null ? String(options.y) : this.y.value;
@@ -650,18 +649,20 @@ export class MapView {
       }
       if (changed) this.renderFeatures();
     }
-    const worldChanged = nextSeed !== previous.seed
-      || nextY !== previous.y
-      || this.version.value !== previous.version
-      || this.dimension.value !== previous.dim
-      || this.large.value !== previous.large;
+    const worldChanged =
+      nextSeed !== previous.seed ||
+      nextY !== previous.y ||
+      this.version.value !== previous.version ||
+      this.dimension.value !== previous.dim ||
+      this.large.checked !== previous.large;
     this.cx = options.x;
     this.cz = options.z;
     this.persistSession();
     // Panning keeps the current tiles on screen. Only a seed/Y/version/dimension change drops the cache.
     this.schedule(worldChanged);
-    this.spawnOverlays = options.spawnCenters
-      ?? (options.spawnCircles
+    this.spawnOverlays =
+      options.spawnCenters ??
+      (options.spawnCircles
         ? [{ x: options.x, z: options.z, radii: options.spawnRadii, label: options.spawnLabel }]
         : []);
     this.spawnMidpoint = !!options.spawnMidpoint && this.spawnOverlays.length >= 2;
@@ -779,13 +780,16 @@ export class MapView {
   }
 
   private bind(): void {
-    this.dimension.innerHTML = ['overworld', 'nether', 'end'].map((key, index) => {
-      const dim = index === 0 ? 0 : index === 1 ? -1 : 1;
-      return `<option value="${dim}" data-key="${key}"></option>`;
-    }).join('');
+    this.dimension.innerHTML = ['overworld', 'nether', 'end']
+      .map((key, index) => {
+        const dim = index === 0 ? 0 : index === 1 ? -1 : 1;
+        return `<option value="${dim}" data-key="${key}"></option>`;
+      })
+      .join('');
     // 采样 Y 预设：主世界常用高度 + “自定义”；下拉只改输入框，手填不做限制。
-    this.yPreset.innerHTML = '<option value="" data-i18n="common.map.yCustom"></option>'
-      + Y_PRESETS.map((value) => `<option value="${value}">${value}</option>`).join('');
+    this.yPreset.innerHTML =
+      '<option value="" data-i18n="common.map.yCustom"></option>' +
+      Y_PRESETS.map((value) => `<option value="${value}">${value}</option>`).join('');
     applyI18n(this.yPreset);
     const worldChanged = () => {
       this.clearSpawnCircles();
@@ -891,16 +895,20 @@ export class MapView {
       this.syncReadout();
       this.scheduleBiomePoll();
     });
-    this.canvas.addEventListener('wheel', (event) => {
-      event.preventDefault();
-      const before = this.screenToWorld(event.offsetX, event.offsetY);
-      this.pixelsPerBlock *= event.deltaY < 0 ? 1.15 : 1 / 1.15;
-      this.pixelsPerBlock = clampZoom(this.pixelsPerBlock);
-      const after = this.screenToWorld(event.offsetX, event.offsetY);
-      this.cx += before.x - after.x;
-      this.cz += before.z - after.z;
-      this.onZoomChanged();
-    }, { passive: false });
+    this.canvas.addEventListener(
+      'wheel',
+      (event) => {
+        event.preventDefault();
+        const before = this.screenToWorld(event.offsetX, event.offsetY);
+        this.pixelsPerBlock *= event.deltaY < 0 ? 1.15 : 1 / 1.15;
+        this.pixelsPerBlock = clampZoom(this.pixelsPerBlock);
+        const after = this.screenToWorld(event.offsetX, event.offsetY);
+        this.cx += before.x - after.x;
+        this.cz += before.z - after.z;
+        this.onZoomChanged();
+      },
+      { passive: false },
+    );
     onLocale(() => this.refreshText());
   }
 
@@ -949,18 +957,20 @@ export class MapView {
 
   private renderFeatures(): void {
     const items = this.visibleFeatures();
-    this.featureBox.innerHTML = items.map((feature) => {
-      const icon = ICONS[feature.key];
-      const mark = icon
-        ? `<img class="icon" src="/icons/${icon}.png" alt="" />`
-        : `<span class="swatch" style="background:${COLORS[feature.key] || '#ddd'}"></span>`;
-      return `
+    this.featureBox.innerHTML = items
+      .map((feature) => {
+        const icon = ICONS[feature.key];
+        const mark = icon
+          ? `<img class="icon" src="/icons/${icon}.png" alt="" />`
+          : `<span class="swatch" style="background:${COLORS[feature.key] || '#ddd'}"></span>`;
+        return `
       <label class="feature">
         <input type="checkbox" data-id="${feature.id}" ${this.enabled.has(feature.id) ? 'checked' : ''} />
         ${mark}
         <span>${structureLabel(feature.key)}</span>
       </label>`;
-    }).join('');
+      })
+      .join('');
     this.featureBox.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
       input.addEventListener('change', () => {
         const id = Number(input.dataset.id);
@@ -1025,18 +1035,20 @@ export class MapView {
         void call<TrialChamberInfo[]>('trialChambers', {
           ...this.state(),
           chambers: [{ x: item.x, z: item.z }],
-        }).then((list) => {
-          if (token !== this.selectGen || this.selected !== selected) return;
-          for (const info of list) this.trialDetail.set(this.trialKey(info.x, info.z), this.compactTrial(info));
-          selected.details = this.trialDetailAt(item.x, item.z) ? 'ready' : 'failed';
-          this.renderSelectedInfo();
-          this.queueDraw();
-        }).catch(() => {
-          if (token !== this.selectGen || this.selected !== selected) return;
-          selected.details = 'failed';
-          this.renderSelectedInfo();
-          this.queueDraw();
-        });
+        })
+          .then((list) => {
+            if (token !== this.selectGen || this.selected !== selected) return;
+            for (const info of list) this.trialDetail.set(this.trialKey(info.x, info.z), this.compactTrial(info));
+            selected.details = this.trialDetailAt(item.x, item.z) ? 'ready' : 'failed';
+            this.renderSelectedInfo();
+            this.queueDraw();
+          })
+          .catch(() => {
+            if (token !== this.selectGen || this.selected !== selected) return;
+            selected.details = 'failed';
+            this.renderSelectedInfo();
+            this.queueDraw();
+          });
       }
     } else if (feature.key === 'geode') {
       selected.details = 'pending';
@@ -1046,17 +1058,19 @@ export class MapView {
         seed: this.getSeed(),
         x: item.x,
         z: item.z,
-      }).then((info) => {
-        if (token !== this.selectGen || this.selected !== selected) return;
-        selected.geode = { state: 'ready', budding: info.budding };
-        selected.details = 'ready';
-        this.renderSelectedInfo();
-      }).catch(() => {
-        if (token !== this.selectGen || this.selected !== selected) return;
-        selected.geode = { state: 'failed' };
-        selected.details = 'failed';
-        this.renderSelectedInfo();
-      });
+      })
+        .then((info) => {
+          if (token !== this.selectGen || this.selected !== selected) return;
+          selected.geode = { state: 'ready', budding: info.budding };
+          selected.details = 'ready';
+          this.renderSelectedInfo();
+        })
+        .catch(() => {
+          if (token !== this.selectGen || this.selected !== selected) return;
+          selected.geode = { state: 'failed' };
+          selected.details = 'failed';
+          this.renderSelectedInfo();
+        });
     } else if (feature.key === 'fortress') {
       if (item.large) {
         selected.large = item.large;
@@ -1068,22 +1082,24 @@ export class MapView {
           type: item.type,
           x: item.x,
           z: item.z,
-        }).then((bounds) => {
-          if (token !== this.selectGen || this.selected !== selected) return;
-          if (bounds) {
-            selected.large = bounds.large;
-            selected.details = 'ready';
-          } else {
+        })
+          .then((bounds) => {
+            if (token !== this.selectGen || this.selected !== selected) return;
+            if (bounds) {
+              selected.large = bounds.large;
+              selected.details = 'ready';
+            } else {
+              selected.details = 'failed';
+            }
+            this.renderSelectedInfo();
+            this.queueDraw();
+          })
+          .catch(() => {
+            if (token !== this.selectGen || this.selected !== selected) return;
             selected.details = 'failed';
-          }
-          this.renderSelectedInfo();
-          this.queueDraw();
-        }).catch(() => {
-          if (token !== this.selectGen || this.selected !== selected) return;
-          selected.details = 'failed';
-          this.renderSelectedInfo();
-          this.queueDraw();
-        });
+            this.renderSelectedInfo();
+            this.queueDraw();
+          });
       }
     }
 
@@ -1101,7 +1117,7 @@ export class MapView {
     const icon = this.structureIconName(selected.key, selected.variant);
     this.infoIcon.src = icon ? `/icons/${icon}.png` : '';
     this.infoIcon.style.display = icon ? '' : 'none';
-    let name = structureLabel(selected.key);
+    const name = structureLabel(selected.key);
     this.infoName.textContent = name;
     this.infoCoords.textContent = `(${selected.x}, ${selected.z})`;
 
@@ -1277,7 +1293,7 @@ export class MapView {
       this.drawQueued = true;
       return;
     }
-    void this.draw();
+    this.draw();
   }
 
   private queueFeatures(): void {
@@ -1454,7 +1470,11 @@ export class MapView {
   }
 
   /** Nearest cage column under the cursor/click, limited to loaded chambers. */
-  private findTrialCage(screenX: number, screenY: number, radiusPx: number): { item: Placed; cage: TrialCageColumn } | null {
+  private findTrialCage(
+    screenX: number,
+    screenY: number,
+    radiusPx: number,
+  ): { item: Placed; cage: TrialCageColumn } | null {
     if (!this.trialSpawnersVisible()) return null;
     let best: { item: Placed; cage: TrialCageColumn } | null = null;
     let bestDistance = radiusPx * radiusPx;
@@ -1478,13 +1498,14 @@ export class MapView {
   private updateTrialHover(screenX: number, screenY: number): void {
     const hit = this.findTrialCage(screenX, screenY, TRIAL_CAGE_HOVER_PX);
     const next = hit?.cage ?? null;
-    const same = next === null
-      ? this.trialHover === null
-      : this.trialHover !== null
-        && this.trialHover.x === next.x
-        && this.trialHover.z === next.z
-        && this.trialHover.slow === next.slow
-        && this.trialHover.entries.length === next.entries.length;
+    const same =
+      next === null
+        ? this.trialHover === null
+        : this.trialHover !== null &&
+          this.trialHover.x === next.x &&
+          this.trialHover.z === next.z &&
+          this.trialHover.slow === next.slow &&
+          this.trialHover.entries.length === next.entries.length;
     if (same) return;
     this.trialHover = next;
     this.syncReadout();
@@ -1496,9 +1517,14 @@ export class MapView {
     if (!column.entries.length) return [];
     const kindOf = (slow: boolean) => t(slow ? 'common.map.trialCageSlow' : 'common.map.trialCageFast');
     if (column.mixed) {
-      return column.entries.map((entry) => t('common.map.trialCageAt', {
-        kind: kindOf(entry.slow), x: entry.x, y: entry.y, z: entry.z,
-      }));
+      return column.entries.map((entry) =>
+        t('common.map.trialCageAt', {
+          kind: kindOf(entry.slow),
+          x: entry.x,
+          y: entry.y,
+          z: entry.z,
+        }),
+      );
     }
     const kind = kindOf(column.slow);
     if (column.entries.length === 1) {
@@ -1515,7 +1541,7 @@ export class MapView {
     return `${state.mc}|${state.seed}|${state.dim}|${state.largeBiomes ? 1 : 0}|${state.y}|${layer}|${scale}|${x}|${z}`;
   }
 
-  private async draw(): Promise<void> {
+  private draw(): void {
     this.drawing = true;
     this.drawQueued = false;
     try {
@@ -1535,9 +1561,8 @@ export class MapView {
       const state = this.state();
       this.pruneTilePipeline();
       for (const level of [...levels].reverse()) {
-        const request = level === scale
-          || (scale === 1 && level === 4 && underlayOk)
-          || (scale > 1 && level === scale * 4);
+        const request =
+          level === scale || (scale === 1 && level === 4 && underlayOk) || (scale > 1 && level === scale * 4);
         this.paintLevel(ctx, state, level, request);
       }
       this.evictTiles();
@@ -1576,9 +1601,15 @@ export class MapView {
     if (this.activeScale() !== 1 || this.terrainFailed) return [];
     const layer = this.terrainLayerFor(1);
     if (layer === 0) return [];
-    const tile = this.tiles.get(this.tileKey(this.state(), layer, 1,
-      Math.floor(this.pointer.x / TILE_CELLS) * TILE_CELLS,
-      Math.floor(this.pointer.z / TILE_CELLS) * TILE_CELLS));
+    const tile = this.tiles.get(
+      this.tileKey(
+        this.state(),
+        layer,
+        1,
+        Math.floor(this.pointer.x / TILE_CELLS) * TILE_CELLS,
+        Math.floor(this.pointer.z / TILE_CELLS) * TILE_CELLS,
+      ),
+    );
     if (!tile) return [];
     const x0 = Math.floor(this.pointer.x / TILE_CELLS) * TILE_CELLS;
     const z0 = Math.floor(this.pointer.z / TILE_CELLS) * TILE_CELLS;
@@ -1683,10 +1714,7 @@ export class MapView {
     if (this.spawnMidpoint && this.spawnOverlays.length >= 2) {
       const a = this.spawnOverlays[0];
       const b = this.spawnOverlays[1];
-      const mid = this.worldToScreen(
-        Math.trunc((a.x + b.x) / 2),
-        Math.trunc((a.z + b.z) / 2),
-      );
+      const mid = this.worldToScreen(Math.trunc((a.x + b.x) / 2), Math.trunc((a.z + b.z) / 2));
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.strokeStyle = 'rgba(20, 24, 30, 0.9)';
       ctx.lineWidth = 2;
@@ -1722,7 +1750,12 @@ export class MapView {
     this.drawWorldRect(ctx, minX, minZ, minX + width - 1, minZ + height - 1, color);
   }
 
-  private paintLevel(ctx: CanvasRenderingContext2D, state: ReturnType<MapView['state']>, scale: number, request: boolean): void {
+  private paintLevel(
+    ctx: CanvasRenderingContext2D,
+    state: ReturnType<MapView['state']>,
+    scale: number,
+    request: boolean,
+  ): void {
     const tileBlocks = TILE_CELLS * scale;
     const size = tileBlocks * this.pixelsPerBlock;
     // Skip levels that would stretch past the safe canvas destination size.
@@ -1895,7 +1928,8 @@ export class MapView {
             if (heightStride) {
               tile.height = new Int16Array(TILE_CELLS * TILE_CELLS);
               new Uint8Array(tile.height.buffer).set(
-                bytes.subarray(start + rgbaStride, start + rgbaStride + heightStride));
+                bytes.subarray(start + rgbaStride, start + rgbaStride + heightStride),
+              );
             }
             if (maskStride) {
               const maskStart = start + rgbaStride + heightStride;
@@ -1903,7 +1937,8 @@ export class MapView {
               tile.mask.set(bytes.subarray(maskStart, maskStart + maskStride));
               tile.floodY = new Int16Array(CAVE_CELLS * CAVE_CELLS);
               new Uint8Array(tile.floodY.buffer).set(
-                bytes.subarray(maskStart + maskStride, maskStart + maskStride + floodStride));
+                bytes.subarray(maskStart + maskStride, maskStart + maskStride + floodStride),
+              );
               tile.cave = this.buildCaveCanvas(tile.mask);
             }
             this.tiles.set(job.key, tile);
@@ -2057,7 +2092,10 @@ export class MapView {
   }
 
   private slimeEnabled(): boolean {
-    return Number(this.dimension.value) === 0 && this.features.some((feature) => feature.id === -2 && this.enabled.has(feature.id));
+    return (
+      Number(this.dimension.value) === 0 &&
+      this.features.some((feature) => feature.id === -2 && this.enabled.has(feature.id))
+    );
   }
 
   private drawSlime(ctx: CanvasRenderingContext2D, state: ReturnType<MapView['state']>): void {
@@ -2086,7 +2124,10 @@ export class MapView {
     return x0 <= view.x0 && z0 <= view.z0 && x1 >= view.x1 && z1 >= view.z1;
   }
 
-  private ensureSlime(state: ReturnType<MapView['state']>, view: { x0: number; z0: number; x1: number; z1: number }): void {
+  private ensureSlime(
+    state: ReturnType<MapView['state']>,
+    view: { x0: number; z0: number; x1: number; z1: number },
+  ): void {
     if (this.slimeFlight) return;
     if (this.slimeCanvas && this.slimeSeed === state.seed && this.slimeCovers(view)) return;
     const pad = Math.max(8, Math.ceil(20 / this.pixelsPerBlock / 16));
@@ -2097,32 +2138,35 @@ export class MapView {
     if (w > 2048 || h > 2048) return;
     this.slimeFlight = true;
     const generation = this.generation;
-    void call<ArrayBuffer | Uint8Array>('slimeMask', { seed: state.seed, cx, cz, w, h }).then((buffer) => {
-      if (generation !== this.generation) return;
-      const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-      if (bytes.length !== w * h) return;
-      const pixels = new Uint8ClampedArray(w * h * 4);
-      for (let i = 0; i < bytes.length; i++) {
-        const slime = bytes[i] === 1;
-        pixels[i * 4] = 0;
-        pixels[i * 4 + 1] = slime ? 255 : 0;
-        pixels[i * 4 + 2] = 0;
-        pixels[i * 4 + 3] = 64;
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d')!.putImageData(new ImageData(pixels, w, h), 0, 0);
-      this.slimeCanvas = canvas;
-      this.slimeSeed = state.seed;
-      this.slimeOrigin = { cx, cz };
-      this.slimeSpan = { w, h };
-      this.queueDraw();
-    }).catch((error) => {
-      this.readout.textContent = error instanceof Error ? error.message : String(error);
-    }).finally(() => {
-      this.slimeFlight = false;
-    });
+    void call<ArrayBuffer | Uint8Array>('slimeMask', { seed: state.seed, cx, cz, w, h })
+      .then((buffer) => {
+        if (generation !== this.generation) return;
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        if (bytes.length !== w * h) return;
+        const pixels = new Uint8ClampedArray(w * h * 4);
+        for (let i = 0; i < bytes.length; i++) {
+          const slime = bytes[i] === 1;
+          pixels[i * 4] = 0;
+          pixels[i * 4 + 1] = slime ? 255 : 0;
+          pixels[i * 4 + 2] = 0;
+          pixels[i * 4 + 3] = 64;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d')!.putImageData(new ImageData(pixels, w, h), 0, 0);
+        this.slimeCanvas = canvas;
+        this.slimeSeed = state.seed;
+        this.slimeOrigin = { cx, cz };
+        this.slimeSpan = { w, h };
+        this.queueDraw();
+      })
+      .catch((error) => {
+        this.readout.textContent = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        this.slimeFlight = false;
+      });
   }
 
   private loadIcon(name: string): HTMLImageElement {
@@ -2148,9 +2192,7 @@ export class MapView {
     if (!selected) return;
     // The cage ring only makes sense while cage points are actually drawn.
     const cage = selected.cage && this.trialSpawnersVisible() ? selected.cage : null;
-    const point = cage
-      ? this.worldToScreen(cage.x + 0.5, cage.z + 0.5)
-      : this.worldToScreen(selected.x, selected.z);
+    const point = cage ? this.worldToScreen(cage.x + 0.5, cage.z + 0.5) : this.worldToScreen(selected.x, selected.z);
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 2;
@@ -2177,8 +2219,13 @@ export class MapView {
       const height = bottomRight.y - topLeft.y;
       if (!(width > 0) || !(height > 0)) continue;
       if (Math.min(width, height) < TRIAL_FRAME_MIN_PX) continue;
-      if (topLeft.x > this.canvas.width || topLeft.y > this.canvas.height
-        || topLeft.x + width < 0 || topLeft.y + height < 0) continue;
+      if (
+        topLeft.x > this.canvas.width ||
+        topLeft.y > this.canvas.height ||
+        topLeft.x + width < 0 ||
+        topLeft.y + height < 0
+      )
+        continue;
       ctx.beginPath();
       ctx.rect(topLeft.x, topLeft.y, width, height);
       ctx.fill();
@@ -2254,8 +2301,7 @@ export class MapView {
   }
 
   private cageOnScreen(point: { x: number; y: number }): boolean {
-    return point.x >= -12 && point.y >= -12
-      && point.x <= this.canvas.width + 12 && point.y <= this.canvas.height + 12;
+    return point.x >= -12 && point.y >= -12 && point.x <= this.canvas.width + 12 && point.y <= this.canvas.height + 12;
   }
 
   /**
@@ -2271,16 +2317,26 @@ export class MapView {
       if (!feature) continue;
       if (feature.key === 'monument') {
         const half = Math.floor(MONUMENT_SIZE / 2);
-        this.drawWorldRect(ctx, item.x - half, item.z - half,
-          item.x + MONUMENT_SIZE - half - 1, item.z + MONUMENT_SIZE - half - 1,
-          '#4fd1c5');
+        this.drawWorldRect(
+          ctx,
+          item.x - half,
+          item.z - half,
+          item.x + MONUMENT_SIZE - half - 1,
+          item.z + MONUMENT_SIZE - half - 1,
+          '#4fd1c5',
+        );
       } else if (feature.key === 'swamp_hut' && item.large) {
         // Native supplies the orientation-dependent 7x9 / 9x7 footprint.
-        this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ,
-          SWAMP_HUT_FRAME_COLOR);
+        this.drawWorldRect(
+          ctx,
+          item.large.minX,
+          item.large.minZ,
+          item.large.maxX,
+          item.large.maxZ,
+          SWAMP_HUT_FRAME_COLOR,
+        );
       } else if (feature.key === 'fortress' && item.large) {
-        this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ,
-          '#e06a4a');
+        this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ, '#e06a4a');
         const pieces = item.pieces ?? [];
         if (!pieces.length) continue;
         const frameTopLeft = this.worldToScreen(item.large.minX, item.large.minZ);
@@ -2298,8 +2354,13 @@ export class MapView {
           const width = bottomRight.x - topLeft.x;
           const height = bottomRight.y - topLeft.y;
           if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
-          if (topLeft.x > this.canvas.width || topLeft.y > this.canvas.height
-            || topLeft.x + width < 0 || topLeft.y + height < 0) continue;
+          if (
+            topLeft.x > this.canvas.width ||
+            topLeft.y > this.canvas.height ||
+            topLeft.x + width < 0 ||
+            topLeft.y + height < 0
+          )
+            continue;
           ctx.rect(topLeft.x, topLeft.y, width, height);
         }
         ctx.stroke();
@@ -2309,8 +2370,14 @@ export class MapView {
     }
   }
 
-  private drawWorldRect(ctx: CanvasRenderingContext2D, minX: number, minZ: number, maxX: number, maxZ: number,
-                        color: string): void {
+  private drawWorldRect(
+    ctx: CanvasRenderingContext2D,
+    minX: number,
+    minZ: number,
+    maxX: number,
+    maxZ: number,
+    color: string,
+  ): void {
     // Cubiomes bb1 values are inclusive, so the drawn edge is one block past max.
     const topLeft = this.worldToScreen(minX, minZ);
     const bottomRight = this.worldToScreen(maxX + 1, maxZ + 1);
@@ -2318,8 +2385,11 @@ export class MapView {
     const height = bottomRight.y - topLeft.y;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
 
-    const visible = topLeft.x < this.canvas.width && topLeft.y < this.canvas.height
-      && topLeft.x + width > 0 && topLeft.y + height > 0;
+    const visible =
+      topLeft.x < this.canvas.width &&
+      topLeft.y < this.canvas.height &&
+      topLeft.x + width > 0 &&
+      topLeft.y + height > 0;
     if (!visible) return;
 
     ctx.save();

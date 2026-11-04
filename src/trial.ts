@@ -35,7 +35,8 @@ const DEFAULT_MIN_STRUCTURES = 2;
 const DEFAULT_MIN_SPAWNERS = 50;
 const DEFAULT_LIMIT = 1000;
 const DEFAULT_RATIO = 1 / 6;
-const MAX_SIDE = 60000001;const MAX_THREADS = 32;
+const MAX_SIDE = 60000001;
+const MAX_THREADS = 32;
 /** 圆形窗口半径上限 256 格（与“圆半径不得超过 256”一致）。 */
 const MAX_CLUSTER_RADIUS = 256;
 /** 严格模式内缩格数：结构起点需离窗口边界至少这么多格；默认关闭、默认 0。 */
@@ -327,9 +328,7 @@ export class TrialPanel {
     const circle = this.clusterShape.value === 'circle';
     const radius = Math.floor(Number(this.clusterRadius.value) || 0);
     const longSide = Math.floor(Number(this.clusterLong.value) || 0);
-    const shortSide = this.clusterSquare.checked
-      ? longSide
-      : Math.floor(Number(this.clusterShort.value) || 0);
+    const shortSide = this.clusterSquare.checked ? longSide : Math.floor(Number(this.clusterShort.value) || 0);
     const windowArea = circle ? Math.PI * radius * radius : longSide * shortSide;
     if (windowArea > WINDOW_AREA_WARN) {
       this.minStructures.value = String(BORDER_MIN_STRUCTURES);
@@ -358,9 +357,7 @@ export class TrialPanel {
   private normalizeRatioInput(): void {
     const text = this.ratio.value.trim();
     const raw = Number(text);
-    this.ratio.value = text === '' || !Number.isFinite(raw)
-      ? DEFAULT_RATIO.toFixed(3)
-      : String(clampRatio(raw));
+    this.ratio.value = text === '' || !Number.isFinite(raw) ? DEFAULT_RATIO.toFixed(3) : String(clampRatio(raw));
   }
 
   /** 模距 8–16 → 长边 = 32×模距+16（封顶 512）。 */
@@ -409,9 +406,10 @@ export class TrialPanel {
 
     const pauseLabel = this.pausing
       ? 'trial.pausingButton'
-      : this.paused ? 'common.search.resume' : 'common.search.pause';
-    const startDisabled = this.running || this.pausing || this.paused
-      || isOtherSearcherRunning('TrialSpawner');
+      : this.paused
+        ? 'common.search.resume'
+        : 'common.search.pause';
+    const startDisabled = this.running || this.pausing || this.paused || isOtherSearcherRunning('TrialSpawner');
     const pauseDisabled = this.pausing || (!this.running && !this.paused);
     const stopDisabled = !this.running && !this.paused;
     this.footer.innerHTML = `
@@ -484,63 +482,77 @@ export class TrialPanel {
     };
   }
 
-  private async validatedRequest(): Promise<TrialStartArgs | null> {
+  private validatedRequest(): TrialStartArgs | null {
     const request = this.collectRequest();
     if (!request.seeds.trim()) {
-      await showNotice(t('common.error.bad-seed'));
+      showNotice(t('common.error.bad-seed'));
       return null;
     }
-    if (!this.square.checked
-      && [this.minXInput, this.maxXInput, this.minZInput, this.maxZInput]
-        .some((input) => input.value.trim() === '')) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      !this.square.checked &&
+      [this.minXInput, this.maxXInput, this.minZInput, this.maxZInput].some((input) => input.value.trim() === '')
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return null;
     }
-    if (![request.minX, request.maxX, request.minZ, request.maxZ].every(Number.isFinite)
-      || request.minX > request.maxX || request.minZ > request.maxZ
-      || request.minX < WORLD_MIN || request.maxX > WORLD_MAX
-      || request.minZ < WORLD_MIN || request.maxZ > WORLD_MAX) {
-      await showNotice(t('common.error.bad-bounds'));
+    if (
+      ![request.minX, request.maxX, request.minZ, request.maxZ].every(Number.isFinite) ||
+      request.minX > request.maxX ||
+      request.minZ > request.maxZ ||
+      request.minX < WORLD_MIN ||
+      request.maxX > WORLD_MAX ||
+      request.minZ < WORLD_MIN ||
+      request.maxZ > WORLD_MAX
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return null;
     }
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1 || side > MAX_SIDE) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return null;
       }
     }
     if (request.clusterCircle) {
       if (request.clusterRadius < 1 || request.clusterRadius > MAX_CLUSTER_RADIUS) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return null;
       }
-    } else if (request.clusterLongSide < MIN_WINDOW_SIDE || request.clusterLongSide > MAX_WINDOW_SIDE
-      || request.clusterShortSide < MIN_WINDOW_SIDE || request.clusterShortSide > MAX_WINDOW_SIDE
-      || request.clusterShortSide > request.clusterLongSide) {
-      await showNotice(t('common.error.bad-bounds'));
+    } else if (
+      request.clusterLongSide < MIN_WINDOW_SIDE ||
+      request.clusterLongSide > MAX_WINDOW_SIDE ||
+      request.clusterShortSide < MIN_WINDOW_SIDE ||
+      request.clusterShortSide > MAX_WINDOW_SIDE ||
+      request.clusterShortSide > request.clusterLongSide
+    ) {
+      showNotice(t('common.error.bad-bounds'));
       return null;
     }
     // 统计窗口面积上限 512×512：矩形=长×短，圆形=πr²。
     if (this.windowArea(request) > MAX_WINDOW_AREA + 1e-9) {
-      await showNotice(t('trial.windowTooLarge', { area: MAX_WINDOW_AREA }));
+      showNotice(t('trial.windowTooLarge', { area: MAX_WINDOW_AREA }));
       return null;
     }
     if (request.strictMode) {
       const halfX = request.clusterCircle ? request.clusterRadius : Math.floor(request.clusterLongSide / 2);
       const halfZ = request.clusterCircle ? request.clusterRadius : Math.floor(request.clusterShortSide / 2);
-      if (request.strictMargin < 0 || request.strictMargin > MAX_STRICT_MARGIN
-        || halfX <= request.strictMargin || halfZ <= request.strictMargin) {
-        await showNotice(t('trial.badStrictMargin'));
+      if (
+        request.strictMargin < 0 ||
+        request.strictMargin > MAX_STRICT_MARGIN ||
+        halfX <= request.strictMargin ||
+        halfZ <= request.strictMargin
+      ) {
+        showNotice(t('trial.badStrictMargin'));
         return null;
       }
     }
     if (request.minStructures < 1 || request.minStructures > MAX_TRIAL_STRUCTURES) {
-      await showNotice(t('trial.badStructures'));
+      showNotice(t('trial.badStructures'));
       return null;
     }
     if (request.minSpawners < 0) {
-      await showNotice(t('common.error.bad-bounds'));
+      showNotice(t('common.error.bad-bounds'));
       return null;
     }
     return request;
@@ -579,7 +591,7 @@ export class TrialPanel {
 
   private async start(): Promise<void> {
     this.readFields();
-    let request = await this.validatedRequest();
+    let request = this.validatedRequest();
     if (!request) return;
     request = await this.confirmSlowParams(request);
     if (!request) return;
@@ -593,12 +605,7 @@ export class TrialPanel {
     this.savedRequest = request;
     try {
       await call('trialStart', request);
-      this.results?.clearTrial(
-        this.searchTier,
-        this.resultsWindow,
-        request.conversionRatio,
-        this.seedMode === 'list',
-      );
+      this.results?.clearTrial(this.searchTier, this.resultsWindow, request.conversionRatio, this.seedMode === 'list');
       this.running = true;
       this.paused = false;
       this.pausing = false;
@@ -609,7 +616,7 @@ export class TrialPanel {
       this.render();
       this.poll();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
@@ -619,7 +626,7 @@ export class TrialPanel {
       this.readFields();
       const next = this.collectRequest();
       if (!this.savedRequest || JSON.stringify(next) !== JSON.stringify(this.savedRequest)) {
-        await showNotice(t('trial.restartNotice'));
+        showNotice(t('trial.restartNotice'));
         await this.start();
         return;
       }
@@ -633,7 +640,7 @@ export class TrialPanel {
         this.render();
         this.poll();
       } catch (error) {
-        await showNotice(messageOf(error));
+        showNotice(messageOf(error));
       }
       return;
     }
@@ -644,7 +651,7 @@ export class TrialPanel {
       this.timer.pause();
       this.render();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
@@ -672,9 +679,8 @@ export class TrialPanel {
       try {
         const status = await call<TrialStatus>('trialPoll');
         this.lastStatus = status;
-        const changed = status.running !== this.running
-          || status.paused !== this.paused
-          || status.pausing !== this.pausing;
+        const changed =
+          status.running !== this.running || status.paused !== this.paused || status.pausing !== this.pausing;
         this.running = status.running;
         this.paused = status.paused;
         this.pausing = status.pausing;
@@ -691,7 +697,7 @@ export class TrialPanel {
           this.pausing = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.results?.setTrialHits(
             status.hits,
@@ -747,13 +753,12 @@ export class TrialPanel {
   }
 
   private progressText(status: TrialStatus): string {
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (status.done) return `${seeds}${t('common.search.completed')}`;
-    const state = status.pausing
-      ? `${t('trial.pausing')} `
-      : status.paused ? `${t('trial.paused')} ` : '';
+    const state = status.pausing ? `${t('trial.pausing')} ` : status.paused ? `${t('trial.paused')} ` : '';
     const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const shards = status.total > 0 ? ` ${status.current}/${status.total} (${pct}%)` : '';
     return `${seeds}${state}${this.phaseLabel(status.phase)}${shards}`;

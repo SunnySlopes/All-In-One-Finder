@@ -11,12 +11,19 @@ const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const baseline = read(baselinePath);
 const current = read(currentPath);
 
-const summary = (payload) => Object.fromEntries(Object.entries(payload.cases).map(([key, value]) => [key,
-  value && value.hits
-    ? `${value.hits.length} hits${value.done ? '' : ' (incomplete)'}`
-    : value && value.startError
-      ? `startError: ${value.startError}`
-      : value && value.timeout ? 'timeout' : 'basic']));
+const summary = (payload) =>
+  Object.fromEntries(
+    Object.entries(payload.cases).map(([key, value]) => [
+      key,
+      value && value.hits
+        ? `${value.hits.length} hits${value.done ? '' : ' (incomplete)'}`
+        : value && value.startError
+          ? `startError: ${value.startError}`
+          : value && value.timeout
+            ? 'timeout'
+            : 'basic',
+    ]),
+  );
 
 console.log('baseline:', baseline.addon, baseline.addonBytes, 'bytes');
 console.log('current :', current.addon, current.addonBytes, 'bytes');

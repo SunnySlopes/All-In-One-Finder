@@ -33,8 +33,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error('engine-timeout')), ms);
     promise.then(
-      (value) => { window.clearTimeout(timer); resolve(value); },
-      (error) => { window.clearTimeout(timer); reject(error); },
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
     );
   });
 }
@@ -47,15 +53,17 @@ type LowyUiVersion = 'pre' | 'sulfur';
 
 function resolveLowyMc(ui: LowyUiVersion, versions: McVersion[]): number {
   if (ui === 'sulfur') {
-    const hit = versions.find((item) => item.name === '26.3')
-      || versions.find((item) => item.name === '26.2')
-      || versions[versions.length - 1];
+    const hit =
+      versions.find((item) => item.name === '26.3') ||
+      versions.find((item) => item.name === '26.2') ||
+      versions[versions.length - 1];
     return hit?.id ?? 0;
   }
-  const hit = versions.find((item) => item.name === '26.1')
-    || versions.find((item) => item.name === '1.21.11')
-    || versions.find((item) => item.name.startsWith('1.21'))
-    || versions[0];
+  const hit =
+    versions.find((item) => item.name === '26.1') ||
+    versions.find((item) => item.name === '1.21.11') ||
+    versions.find((item) => item.name.startsWith('1.21')) ||
+    versions[0];
   return hit?.id ?? 0;
 }
 
@@ -106,12 +114,17 @@ export class SearchPanel {
   /** 最近一次轮询结果；render() 重建页脚后据此恢复进度，避免完成瞬间被清空。 */
   private lastStatus: SearchStatus | null = null;
   /** 两个低Y tab 共用面板：各自保存完成后的状态/耗时，切回时恢复已完成的 100% 进度。 */
-  private readonly statusByTab: Partial<Record<SearcherId, {
-    status: SearchStatus;
-    elapsed: number;
-    pit: boolean;
-    stopped: boolean;
-  }>> = {};
+  private readonly statusByTab: Partial<
+    Record<
+      SearcherId,
+      {
+        status: SearchStatus;
+        elapsed: number;
+        pit: boolean;
+        stopped: boolean;
+      }
+    >
+  > = {};
   /** Two low-Y tabs share one panel; keep each tab's form/conditions separately. */
   private readonly formStates: Partial<Record<SearcherId, Record<string, unknown>>> = {};
   private readonly pendingState = new Set<SearcherId>();
@@ -195,7 +208,7 @@ export class SearchPanel {
         this.lastStatus = saved?.status ?? null;
         this.restoredElapsed = saved?.elapsed ?? null;
         this.stopped = saved?.stopped ?? false;
-        this.searchPit = saved?.pit ?? (id === 'LowYPitDripstoneCave');
+        this.searchPit = saved?.pit ?? id === 'LowYPitDripstoneCave';
       }
       const savedForm = this.formStates[id];
       if (savedForm) {
@@ -375,18 +388,9 @@ export class SearchPanel {
   private caveYWindow(): { yMin: number; yMax: number } {
     const rawMin = Math.trunc(Number(this.yMin));
     const rawMax = Math.trunc(Number(this.yMax));
-    const yMin = Number.isFinite(rawMin)
-      ? Math.min(Y_LIMIT_MAX, Math.max(Y_LIMIT_MIN, rawMin))
-      : Number(DEFAULT_Y_MIN);
-    const yMax = Number.isFinite(rawMax)
-      ? Math.min(Y_LIMIT_MAX, Math.max(yMin, rawMax))
-      : yMin + 12;
+    const yMin = Number.isFinite(rawMin) ? Math.min(Y_LIMIT_MAX, Math.max(Y_LIMIT_MIN, rawMin)) : Number(DEFAULT_Y_MIN);
+    const yMax = Number.isFinite(rawMax) ? Math.min(Y_LIMIT_MAX, Math.max(yMin, rawMax)) : yMin + 12;
     return { yMin, yMax: Math.min(yMax, yMin + Y_MAX_SPAN - 1) };
-  }
-
-  /** shell 模型球心 Y：最低采样层 + 23（与引擎的 AFK 缺省一致）。 */
-  private caveAfkY(): number {
-    return caveDefaultAfkY(this.caveYWindow().yMin);
   }
 
   /** 当前窗口的展示分母（满球壳格数），面积与占比互算都用它。 */
@@ -400,13 +404,13 @@ export class SearchPanel {
     const ratio = Number(pit ? this.fastRatio : this.ratio);
     const [min, max] = this.caveRatioLimits(pit);
     if (!Number.isFinite(ratio) || ratio < min || ratio > max) return '';
-    return String(Math.round(ratio / 100 * this.caveFullArea()));
+    return String(Math.round((ratio / 100) * this.caveFullArea()));
   }
 
   private caveRatioFromArea(value: string, pit: boolean): number | null {
     const area = Number(value);
     if (!Number.isFinite(area) || area < 0) return null;
-    const ratio = Math.round(area / this.caveFullArea() * 100);
+    const ratio = Math.round((area / this.caveFullArea()) * 100);
     const [min, max] = this.caveRatioLimits(pit);
     if (ratio < min || ratio > max) return null;
     return ratio;
@@ -414,8 +418,11 @@ export class SearchPanel {
 
   /** GPU opt-in row shared by the single/list cave pages (the pit page has no GPU path). */
   private gpuToggleHtml(): string {
-    return '<div class="span-full"><label class="feature"><input id="p-gpu" type="checkbox" '
-      + (this.allowGpu ? 'checked' : '') + ' /><span data-i18n="dripstonecave.allowGpu"></span></label></div>';
+    return (
+      '<div class="span-full"><label class="feature"><input id="p-gpu" type="checkbox" ' +
+      (this.allowGpu ? 'checked' : '') +
+      ' /><span data-i18n="dripstonecave.allowGpu"></span></label></div>'
+    );
   }
 
   private async refreshSupport(): Promise<void> {
@@ -579,8 +586,8 @@ export class SearchPanel {
     this.searchTab = this.searcher;
     const listMode = !fastPage && this.seedMode === 'list';
     this.searchListMode = listMode;
-    this.searchMapVersion = this.versions.find((item) => item.id === box.mc)?.name
-      ?? (this.uiVersion === 'pre' ? '26.1' : '26.3');
+    this.searchMapVersion =
+      this.versions.find((item) => item.id === box.mc)?.name ?? (this.uiVersion === 'pre' ? '26.1' : '26.3');
     const boxArea = Math.max(0, box.maxX - box.minX + 1) * Math.max(0, box.maxZ - box.minZ + 1);
     /* 超大范围（> 20000001²）时，溶洞占比至少 90%；大坑不受此限制。 */
     const hugeArea = !fastPage && boxArea > 20000001 * 20000001;
@@ -604,10 +611,16 @@ export class SearchPanel {
     const yMin = Number(yMinText);
     const yMax = Number(yMaxText);
     const yLayers = yMax - yMin + 1;
-    if (yMinText === '' || yMaxText === ''
-        || !Number.isInteger(yMin) || !Number.isInteger(yMax)
-        || yMin > yMax || yMin < Y_LIMIT_MIN || yMax > Y_LIMIT_MAX
-        || yLayers > Y_MAX_SPAN) {
+    if (
+      yMinText === '' ||
+      yMaxText === '' ||
+      !Number.isInteger(yMin) ||
+      !Number.isInteger(yMax) ||
+      yMin > yMax ||
+      yMin < Y_LIMIT_MIN ||
+      yMax > Y_LIMIT_MAX ||
+      yLayers > Y_MAX_SPAN
+    ) {
       await ask(t('common.error.bad-y-range'), [{ id: 'dismiss', key: 'common.dialog.close' }]);
       return;
     }
@@ -622,7 +635,7 @@ export class SearchPanel {
     const afkY = caveDefaultAfkY(yMin);
     const fullArea = caveFullShellArea(yMin, yMax, afkY);
     const areaInput = this.root.querySelector<HTMLInputElement>('#p-area');
-    if (areaInput) areaInput.value = String(Math.round(ratio / 100 * fullArea));
+    if (areaInput) areaInput.value = String(Math.round((ratio / 100) * fullArea));
     // 范围较小时先问要不要改去河流页；选“是”直接切 Tab，不启动本次搜索。
     if (!fastPage) {
       const width = box.maxX - box.minX + 1;
@@ -698,8 +711,9 @@ export class SearchPanel {
       this.results?.clear(this.searchTab, listMode);
       this.results?.setLowyMapVersion(this.searchTab, this.searchMapVersion);
       this.results?.setLowyGeometry(this.searchTab, afkY, fullArea);
-      this.results?.setLowyModel(this.searchTab,
-        `drowned-weighted-shell-b/${yLayers}/afk${afkY}`);
+      /* 地图跳转要落在真正采样的层上，而不是球心 Y。 */
+      this.results?.setLowyYWindow(this.searchTab, yMin, yMax);
+      this.results?.setLowyModel(this.searchTab, `drowned-weighted-shell-b/${yLayers}/afk${afkY}`);
       this.running = true;
       this.paused = false;
       this.stopping = false;
@@ -831,40 +845,49 @@ export class SearchPanel {
       const active = status.scanBackend === 'gpu';
       const waitingCpu = this.allowGpu && status.running && !!status.gpuReason;
       const device = status.gpuDevice || gpuRendererName() || t('dripstonecave.gpuUnknown');
-      const reason = status.gpuReason === 'no-opencl'
-        ? t('dripstonecave.gpuNoOpencl')
-        : status.gpuReason === 'no-device' ? t('dripstonecave.gpuNoDevice') : t('dripstonecave.gpuFallback');
+      const reason =
+        status.gpuReason === 'no-opencl'
+          ? t('dripstonecave.gpuNoOpencl')
+          : status.gpuReason === 'no-device'
+            ? t('dripstonecave.gpuNoDevice')
+            : t('dripstonecave.gpuFallback');
       gpu.hidden = !(active || waitingCpu);
       gpu.textContent = active ? t('dripstonecave.gpuLine', { device }) : waitingCpu ? reason : '';
     }
     if (eta) eta.textContent = this.etaText(status);
     if (elapsed) {
-      const ms = status.done && this.restoredElapsed != null
-        ? this.restoredElapsed
-        : this.timer.elapsed();
+      const ms = status.done && this.restoredElapsed != null ? this.restoredElapsed : this.timer.elapsed();
       elapsed.textContent = t('common.searchExtra.elapsed', {
         time: formatDuration(ms),
       });
     }
     if (bar) {
       // 主动停止时保留实际进度，避免被当成 100% 完成。
-      const pct = status.done && !this.stopped
-        ? 100
-        : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
+      const pct =
+        status.done && !this.stopped
+          ? 100
+          : status.total > 0
+            ? Math.min(100, (status.current / status.total) * 100)
+            : 0;
       bar.style.width = `${pct}%`;
     }
   }
 
   private progressText(status: SearchStatus): string {
     if (this.stopping) return t('common.search.stopping');
-    const seeds = status.seedCount > 1 ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} ` : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (this.stopped && !status.error) return `${seeds}${t('common.search.stopped')}`;
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
     const phase = this.stageLabel(status.phase);
     const complete = status.done && (status.total <= 0 || status.current >= status.total);
     const pct = complete
       ? 100
-      : status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
+      : status.total > 0
+        ? Math.min(100, Math.round((status.current / status.total) * 100))
+        : 0;
     return `${seeds}${phase} ${status.current}/${status.total} (${pct}%)${status.error ? ` ${t(`common.error.${status.error}`) || status.error}` : ''}`;
   }
 

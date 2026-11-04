@@ -1,0 +1,23 @@
+# Keep encoding and line endings consistent across editors.
+#
+# The repository is UTF-8 without BOM everywhere. A previous round of edits
+# decoded GBK-saved files as UTF-8 and silently produced mojibake, so editors
+# must never guess the encoding for these extensions.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{c,h,cpp,hpp}]
+indent_size = 4
+
+[*.{md,nsi}]
+trim_trailing_whitespace = false
+
+[*.{bat,cmd,ps1,rc}]
+end_of_line = crlf

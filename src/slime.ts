@@ -36,9 +36,7 @@ export function slimeMapVersion(group: SlimeVersionGroup): string {
 }
 
 function resolveMc(group: SlimeVersionGroup, versions: McVersion[]): number | null {
-  const names = group === '1.18' ? ['1.18']
-    : group === 'middle' ? ['26.1', '1.21.11', '1.21.9']
-      : ['26.3', '26.2'];
+  const names = group === '1.18' ? ['1.18'] : group === 'middle' ? ['26.1', '1.21.11', '1.21.9'] : ['26.3', '26.2'];
   for (const name of names) {
     const hit = versions.find((item) => item.name === name);
     if (hit) return hit.id;
@@ -310,22 +308,21 @@ export class SlimePanel {
 
     const rawMinArea = Number(this.minArea.value);
     let minArea = Math.round(Number.isFinite(rawMinArea) ? rawMinArea : MIN_AREA);
-    const adjusted = !Number.isFinite(rawMinArea) || rawMinArea !== minArea
-      || minArea < MIN_AREA || minArea > MAX_AREA;
+    const adjusted = !Number.isFinite(rawMinArea) || rawMinArea !== minArea || minArea < MIN_AREA || minArea > MAX_AREA;
     minArea = Math.min(MAX_AREA, Math.max(MIN_AREA, minArea));
     if (adjusted) {
       this.minArea.value = String(minArea);
-      await showNotice(t('slime.areaClamped', { min: minArea }));
+      showNotice(t('slime.areaClamped', { min: minArea }));
     }
 
     if (this.square.checked) {
       const side = Math.floor(Number(this.side.value) || 0);
       if (side < 1) {
-        await showNotice(t('common.error.bad-bounds'));
+        showNotice(t('common.error.bad-bounds'));
         return;
       }
       if (side > WORLD_SIDE) {
-        await showNotice(t('common.error.area-too-large'));
+        showNotice(t('common.error.area-too-large'));
         return;
       }
       this.applySquare();
@@ -336,15 +333,20 @@ export class SlimePanel {
     const minZ = Number(this.minZ.value);
     const maxZ = Number(this.maxZ.value);
     if (![minX, maxX, minZ, maxZ].every(Number.isFinite) || maxX < minX || maxZ < minZ) {
-      await showNotice(t('common.error.bad-bounds'));
+      showNotice(t('common.error.bad-bounds'));
       return;
     }
     const width = maxX - minX + 1;
     const height = maxZ - minZ + 1;
-    if (width > WORLD_SIDE || height > WORLD_SIDE
-      || minX < -WORLD_COORD || maxX > WORLD_COORD
-      || minZ < -WORLD_COORD || maxZ > WORLD_COORD) {
-      await showNotice(t('common.error.area-too-large'));
+    if (
+      width > WORLD_SIDE ||
+      height > WORLD_SIDE ||
+      minX < -WORLD_COORD ||
+      maxX > WORLD_COORD ||
+      minZ < -WORLD_COORD ||
+      maxZ > WORLD_COORD
+    ) {
+      showNotice(t('common.error.area-too-large'));
       return;
     }
 
@@ -364,7 +366,7 @@ export class SlimePanel {
 
     const mc = resolveMc(this.searchVersion, this.versions);
     if (mc == null) {
-      await showNotice(t('common.error.unsupported-version'));
+      showNotice(t('common.error.unsupported-version'));
       return;
     }
 
@@ -391,7 +393,7 @@ export class SlimePanel {
       this.render();
       this.poll();
     } catch (error) {
-      await showNotice(messageOf(error));
+      showNotice(messageOf(error));
     }
   }
 
@@ -428,7 +430,7 @@ export class SlimePanel {
           this.paused = false;
           if (status.error && status.error !== this.shownError) {
             this.shownError = status.error;
-            await showNotice(messageOf(status.error));
+            showNotice(messageOf(status.error));
           }
           this.render();
         }
@@ -457,7 +459,9 @@ export class SlimePanel {
         const useTiles = status.tilesTotal > 1 && status.stage >= 2;
         const pct = useTiles
           ? Math.min(100, (status.tilesDone / status.tilesTotal) * 100)
-          : (status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0);
+          : status.total > 0
+            ? Math.min(100, (status.current / status.total) * 100)
+            : 0;
         bar.style.width = `${pct}%`;
       }
     }
@@ -466,14 +470,14 @@ export class SlimePanel {
   private progressText(status: SlimeStatus): string {
     // 阶段 4 与“群系折算”复选框共用 slime.convert，不再保留重复 key。
     const stage = t(status.stage === 4 ? 'slime.convert' : `slime.stage.${status.stage}`);
-    const seeds = status.seedCount > 1
-      ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
-      : '';
+    const seeds =
+      status.seedCount > 1
+        ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
+        : '';
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
-    const tiles = status.tilesTotal > 1
-      ? `${t('slime.tileProgress', { done: status.tilesDone, total: status.tilesTotal })} `
-      : '';
-    const pct = status.total > 0 ? Math.min(100, Math.round(status.current / status.total * 100)) : 0;
+    const tiles =
+      status.tilesTotal > 1 ? `${t('slime.tileProgress', { done: status.tilesDone, total: status.tilesTotal })} ` : '';
+    const pct = status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
     const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${tiles}${stage} ${status.current}/${status.total} (${pct}%)${error}`;
   }
