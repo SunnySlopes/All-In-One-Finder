@@ -27,10 +27,17 @@ namespace {
 /* 旧内核向外扩 128 格再搜；保持同样的召回行为。 */
 constexpr int kRingOuter = 128;
 constexpr int kOutputLimit = 1000;
-/* river-native validate() 的 threads 上限。 */
-constexpr int kMaxThreads = 32;
-/* 前端"线程数"允许到 256，这里夹到引擎能接受的范围。 */
+/* 前端"线程数"输入框允许 1..256，宿主沿用同一上限。 */
 constexpr int kRequestThreadsMax = 256;
+/* 下发给引擎的线程上限：取"前端上限"和"上游 kMaxWorkerThreads"的较小值。
+ * 上游在 93e5e6d 把 validate() 的 threads 上限从 32 放开到 1024（默认值也改成
+ * 硬件并发度），因此这里不再写死 32 —— 否则用户在界面上填 64 会被悄悄压成 32。
+ * 峰值内存与线程数近似线性增长（上游实测 32 线程约 0.4 GB），前端默认仍是
+ * min(32, 核心数)，只有用户显式调高才会真的下发给更多线程。 */
+constexpr int kThreadsCeiling =
+    kRequestThreadsMax < riverfinder_native::kMaxWorkerThreads
+        ? kRequestThreadsMax
+        : riverfinder_native::kMaxWorkerThreads;
 /* 面积门槛下限（上游 49640 的 50%）。 */
 constexpr int kMinAreaFloor = 24820;
 /* 纯河流单层满环上限，用于判定 >100%。 */
@@ -153,7 +160,7 @@ void job(RiverRequest request)
             riverfinder_native::Config cfg;
             cfg.version = labelForMc(request.mc);
             cfg.seed = std::to_string(request.seeds[index]);
-            cfg.threads = std::clamp(request.threads, 1, kMaxThreads);
+            cfg.threads = std::clamp(request.threads, 1, kThreadsCeiling);
             cfg.top = kOutputLimit;
             cfg.coverage = "game";
             cfg.minDistance = 64;
