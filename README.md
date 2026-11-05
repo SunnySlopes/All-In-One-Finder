@@ -119,7 +119,7 @@ Copyright (C) 2026 SunnySlopes
 - 地图展示：https://github.com/xpple/cubiomes ，作者：Cubitect、xpple
 - 低Y女巫小屋：https://github.com/M33Galaxy/LowYSwampHutFinderBase ，作者：M33三角座星系、SunnySlopes
 - 河流：https://github.com/SunnySlopes/DrownedCombinedFinder ，作者：打野别说话
-  （河流内核衍生自 https://github.com/M33Galaxy/RiverFinder-JNI ，作者：若莫）
+  （河流内核衍生自 https://github.com/Melationin/RiverFinder ，作者：若莫）
 - 低Y溶洞、大坑低Y溶洞：https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase ，作者：SunnySlopes
 - 史莱姆区块：https://github.com/CITYWIDESIGN/SlimeRadar 、
   https://github.com/CITYWIDESIGN/SlimeOptimizer ，作者：Bot_City

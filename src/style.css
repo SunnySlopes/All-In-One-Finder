@@ -120,10 +120,32 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .square-row input[type="number"] {
   width: 110px;
 }
-/* 地图采样 Y：预设下拉 + 手填输入框并排；下拉只在主世界显示。 */
-.y-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
-.y-row select { width: 96px; flex: none; }
-.y-row input { flex: 1; min-width: 0; }
+/* 地图采样 Y 组合框：可编辑输入框 + 自定义下拉（下拉只在主世界显示）。 */
+.y-combo { position: relative; display: flex; gap: 4px; align-items: center; min-width: 0; }
+.y-combo input { flex: 1; min-width: 0; }
+.y-combo-toggle { flex: none; width: 24px; padding: 2px 0; line-height: 1; }
+.y-combo-toggle[hidden] { display: none; }
+.y-combo-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  background: #222833;
+  border: 1px solid #3c4454;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+/* 作者样式里的 display 会盖掉 UA 的 [hidden]，这里重申一次。 */
+.y-combo-menu[hidden] { display: none; }
+.y-combo-menu li { padding: 3px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.y-combo-menu li:hover { background: #2d3546; }
+.y-combo-menu li.is-active { background: #33507a; }
 /* 紫水晶模距：输入框后面跟“区块数 N×N”。 */
 .sim-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .sim-row input { width: 72px; flex: none; }
@@ -191,6 +213,8 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 /* Author `display: flex` beats the UA `[hidden]` rule, so restate it here. */
 .row[hidden], .hint[hidden] { display: none; }
+/* 河流页两种模式互斥的门槛输入框：隐藏时整对（标签+输入框）从网格里摘掉。 */
+.grid > [hidden] { display: none; }
 .hint { color: #b7c0aa; font-size: 12px; line-height: 1.4; }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 12px; }
 .feature { display: flex; gap: 6px; align-items: center; }

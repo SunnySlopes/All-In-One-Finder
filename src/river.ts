@@ -129,6 +129,11 @@ export class RiverPanel {
   private minArea!: HTMLInputElement;
   private caveRatio!: HTMLInputElement;
   private caveArea!: HTMLInputElement;
+  /* 门槛输入框的标签：模式切换时与输入框一起隐藏，保持网格对齐。 */
+  private minRatioLabel!: HTMLLabelElement;
+  private minAreaLabel!: HTMLLabelElement;
+  private caveRatioLabel!: HTMLLabelElement;
+  private caveAreaLabel!: HTMLLabelElement;
   private conversion!: HTMLInputElement;
   private yMin!: HTMLInputElement;
   private yMax!: HTMLInputElement;
@@ -210,13 +215,13 @@ export class RiverPanel {
             <option value="river" data-i18n="river.modeRiver" selected></option>
             <option value="cave" data-i18n="river.modeCave"></option>
           </select>
-          <label data-i18n="river.minRatio"></label>
+          <label id="rv-ratio-label" data-i18n="river.minRatio"></label>
           <input id="rv-ratio" type="number" min="${MIN_RATIO}" max="${MAX_RATIO}" step="0.01" value="${fixed2(DEFAULT_RATIO)}" />
-          <label data-i18n="river.minArea"></label>
+          <label id="rv-area-label" data-i18n="river.minArea"></label>
           <input id="rv-area" type="number" min="${MIN_AREA}" max="${MAX_AREA}" step="1" value="${DEFAULT_AREA}" />
-          <label data-i18n="river.minCaveRatio"></label>
+          <label id="rv-cave-ratio-label" data-i18n="river.minCaveRatio"></label>
           <input id="rv-cave-ratio" type="number" step="0.01" value="${fixed2(CAVE_DEFAULT_RATIO)}" />
-          <label data-i18n="river.minCaveArea"></label>
+          <label id="rv-cave-area-label" data-i18n="river.minCaveArea"></label>
           <input id="rv-cave-area" type="number" step="1" value="${CAVE_DEFAULT_AREA}" />
           <label data-i18n="river.conversion"></label>
           <input id="rv-conversion" type="text" value="${DEFAULT_CONVERSION}" />
@@ -241,6 +246,10 @@ export class RiverPanel {
     this.minArea = this.root.querySelector('#rv-area')!;
     this.caveRatio = this.root.querySelector('#rv-cave-ratio')!;
     this.caveArea = this.root.querySelector('#rv-cave-area')!;
+    this.minRatioLabel = this.root.querySelector('#rv-ratio-label')!;
+    this.minAreaLabel = this.root.querySelector('#rv-area-label')!;
+    this.caveRatioLabel = this.root.querySelector('#rv-cave-ratio-label')!;
+    this.caveAreaLabel = this.root.querySelector('#rv-cave-area-label')!;
     this.conversion = this.root.querySelector('#rv-conversion')!;
     this.yMin = this.root.querySelector('#rv-ymin')!;
     this.yMax = this.root.querySelector('#rv-ymax')!;
@@ -481,22 +490,41 @@ export class RiverPanel {
   /**
    * 模式切换。
    *
-   * 溶洞两项**始终显示默认值**（不会被清空），但编辑权限跟随模式：
-   *  - 河流模式：溶洞项不参与计分 → 置灰不可编辑；
-   *  - 溶洞模式：河流项与溶洞项都可编辑。
+   * 两种模式各自只显示自己那一组门槛输入框：
+   *  - 河流模式：只显示「最低河流等效占比 / 面积」，溶洞两项**隐藏**；
+   *  - 溶洞模式：只显示「最低等效溶洞占比 / 面积」，河流两项**隐藏**。
+   *
+   * 隐藏而不是置灰：这两组字段互斥，另一组的值保留在 DOM 里
+   * （切换回来时不丢），但不参与当前模式的判分与校验。
    */
   private applyMode(): void {
     // 保留默认值：若两框为空则补上，避免切换后留白。
     if (!this.caveRatio.value.trim()) this.caveRatio.value = fixed2(CAVE_DEFAULT_RATIO);
     if (!this.caveArea.value.trim()) this.caveArea.value = String(CAVE_DEFAULT_AREA);
     const riverMode = this.modeSelect.value === 'river';
-    // 只锁"不参与当前模式"的那两项：
-    //   河流模式 → 溶洞两项不计分 → 锁溶洞两项；
-    //   溶洞模式 → 河流两项不参与三字段判定 → 锁河流两项。
-    this.caveRatio.disabled = riverMode;
-    this.caveArea.disabled = riverMode;
-    this.minRatio.disabled = !riverMode;
-    this.minArea.disabled = !riverMode;
+    // 河流模式隐藏溶洞两项；溶洞模式隐藏河流两项。
+    const showRiverFields = riverMode;
+    this.setPairHidden(this.minRatioLabel, this.minRatio, !showRiverFields);
+    this.setPairHidden(this.minAreaLabel, this.minArea, !showRiverFields);
+    this.setPairHidden(this.caveRatioLabel, this.caveRatio, showRiverFields);
+    this.setPairHidden(this.caveAreaLabel, this.caveArea, showRiverFields);
+    // 隐藏的项同时置灰，避免键盘 Tab 仍能聚焦到不可见输入框。
+    this.minRatio.disabled = !showRiverFields;
+    this.minArea.disabled = !showRiverFields;
+    this.caveRatio.disabled = showRiverFields;
+    this.caveArea.disabled = showRiverFields;
+  }
+
+  /** 同时隐藏/显示一个"标签 + 输入框"对，并把它从 Tab 顺序里摘掉。 */
+  private setPairHidden(
+    label: HTMLLabelElement,
+    input: HTMLInputElement,
+    hidden: boolean,
+  ): void {
+    label.hidden = hidden;
+    input.hidden = hidden;
+    if (hidden) input.tabIndex = -1;
+    else input.removeAttribute('tabindex');
   }
 
   /** 预设按钮：一次性写入 yMin / yMax / 挂机Y。 */

@@ -119,7 +119,7 @@ Thanks to everyone who contributed; without your contributions this finder would
 - Map display: <https://github.com/xpple/cubiomes>, authors: Cubitect, xpple
 - Low-Y Swamp Hut: <https://github.com/M33Galaxy/LowYSwampHutFinderBase>, authors: M33_Galaxy, SunnySlopes
 - River: <https://github.com/SunnySlopes/DrownedCombinedFinder>, author: qk-yiyihehe
-  (river kernel derived from <https://github.com/M33Galaxy/RiverFinder-JNI>, author: Ruo_Mo)
+  (river kernel derived from <https://github.com/Melationin/RiverFinder>, author: Ruo_Mo)
 - Low-Y Dripstone Cave and Large-Pit Low-Y Dripstone Cave: <https://github.com/SunnySlopes/LowYDripstoneCaveFinderBase>, author: SunnySlopes
 - Slime Chunks: <https://github.com/CITYWIDESIGN/SlimeRadar>,
   <https://github.com/CITYWIDESIGN/SlimeOptimizer>, author: Bot_City

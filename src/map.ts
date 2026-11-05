@@ -1,5 +1,5 @@
 import { escapeText, showNotice } from './dialog';
-import { biomeLabel, applyI18n, onLocale, structureLabel, t } from './i18n';
+import { biomeLabel, onLocale, structureLabel, t } from './i18n';
 import {
   call,
   type Bounds3,
@@ -174,6 +174,9 @@ interface MapSession {
   version: string;
   dim: number;
   y: number;
+  /** 地图中心坐标；旧存档没有时回落到 0,0。 */
+  x: number;
+  z: number;
   largeBiomes: boolean;
   grid: boolean;
   terrain: boolean;
@@ -269,11 +272,16 @@ function parseSession(raw: string | null): MapSession | null {
     // 自动保存文件使用 version（字符串），手动导出的 session 使用 mcVersion。
     const named =
       typeof data.version === 'string' ? data.version : typeof data.mcVersion === 'string' ? data.mcVersion : '';
+    const x = Number(data.x);
+    const z = Number(data.z);
     return {
       seed: data.seed.trim(),
       version: named,
       dim: Number.isFinite(Number(data.dim)) ? Number(data.dim) : 0,
       y: Number.isFinite(Number(data.y)) ? Number(data.y) : 256,
+      // 旧存档没有中心坐标：缺省 0,0（与旧版本行为一致）。
+      x: Number.isFinite(x) ? Math.round(x) : 0,
+      z: Number.isFinite(z) ? Math.round(z) : 0,
       largeBiomes: !!data.largeBiomes,
       grid: data.grid !== false,
       // Older sessions have no state and must stay on the biome map; the
@@ -333,7 +341,9 @@ export class MapView {
   private seed: HTMLInputElement;
   private dimension: HTMLSelectElement;
   private y: HTMLInputElement;
-  private yPreset: HTMLSelectElement;
+  /** 采样 Y 下拉的展开按钮与候选列表：主世界可用，其它维度隐藏。 */
+  private yToggle: HTMLButtonElement;
+  private yMenu: HTMLUListElement;
   private large: HTMLInputElement;
   private versions: McVersion[] = [];
   private features: FeatureInfo[] = [];
@@ -406,9 +416,10 @@ export class MapView {
         <label data-i18n="common.search.seed"></label><input id="map-seed" value="${randomMcSeed()}" />
         <label data-i18n="common.map.dimension"></label><select id="map-dim"></select>
         <label data-i18n="common.map.y"></label>
-        <div class="y-row">
-          <select id="map-y-preset"></select>
+        <div class="y-combo">
           <input id="map-y" type="number" value="256" />
+          <button id="map-y-toggle" type="button" class="y-combo-toggle" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria-label="common.map.y">▾</button>
+          <ul id="map-y-menu" class="y-combo-menu" role="listbox" hidden></ul>
         </div>
         <label class="feature span-full"><input id="map-large" type="checkbox" /><span data-i18n="common.map.largeBiomes"></span></label>
       </div>
@@ -425,7 +436,8 @@ export class MapView {
     this.seed = this.root.querySelector('#map-seed')!;
     this.dimension = this.root.querySelector('#map-dim')!;
     this.y = this.root.querySelector('#map-y')!;
-    this.yPreset = this.root.querySelector('#map-y-preset')!;
+    this.yToggle = this.root.querySelector('#map-y-toggle')!;
+    this.yMenu = this.root.querySelector('#map-y-menu')!;
     this.large = this.root.querySelector('#map-large')!;
     this.featureBox = this.root.querySelector('#map-features')!;
     this.grid = this.root.querySelector('#map-grid')!;
@@ -489,6 +501,8 @@ export class MapView {
       this.grid.checked = session.grid;
       this.terrain.checked = session.terrain;
       localStorage.setItem('aio.grid', session.grid ? '1' : '0');
+      // 跨 session 打开：把地图中心恢复到上次的位置（旧存档缺省 0,0）。
+      this.restoreCenter(session.x, session.z);
     }
     const enabledKeys = new Set(session?.features ?? DEFAULT_FEATURES);
     this.enabled.clear();
@@ -546,6 +560,7 @@ export class MapView {
   center(x: number, z: number): void {
     this.cx = x;
     this.cz = z;
+    this.persistSession();
     this.schedule();
     this.queueFeatures();
   }
@@ -675,6 +690,16 @@ export class MapView {
     });
   }
 
+  /**
+   * 把地图中心恢复到存档里的坐标。
+   * 旧存档没有坐标（undefined/NaN）时不动当前中心；越界值夹到世界边界内。
+   */
+  private restoreCenter(x?: number, z?: number): void {
+    const limit = 30000000;
+    if (Number.isFinite(x)) this.cx = Math.max(-limit, Math.min(limit, Math.round(Number(x))));
+    if (Number.isFinite(z)) this.cz = Math.max(-limit, Math.min(limit, Math.round(Number(z))));
+  }
+
   exportSnapshot(): MapSessionData {
     const version = this.versions.find((item) => String(item.id) === this.version.value);
     const dim = Number(this.dimension.value);
@@ -686,6 +711,9 @@ export class MapView {
       mcVersion: version?.name || '',
       dim: dim === -1 || dim === 1 ? dim : 0,
       y: Number.isFinite(y) ? y : 256,
+      // 同时记录地图中心，跨 session 打开时回到同一个位置。
+      x: Math.round(this.cx),
+      z: Math.round(this.cz),
       largeBiomes: this.large.checked,
       grid: this.grid.checked,
       terrain: this.terrain.checked,
@@ -701,6 +729,8 @@ export class MapView {
     if (match) this.version.value = String(match.id);
     this.dimension.value = String(data.dim);
     this.y.value = String(data.dim === 0 ? data.y : defaultYForDim(data.dim));
+    // 恢复到存档里的地图中心（旧存档没有坐标时保持当前中心）。
+    this.restoreCenter(data.x, data.z);
     this.large.checked = data.largeBiomes && data.dim === 0;
     this.grid.checked = data.grid;
     this.terrain.checked = data.terrain === true;
@@ -742,16 +772,50 @@ export class MapView {
   }
 
   /**
-   * 采样 Y 预设同步：下拉只在主世界显示；手填值不在预设里时显示“自定义”，
-   * 手填本身不被改写（仍然可以直接输入任意高度）。
+   * 采样 Y 组合框同步。
+   *
+   * 结构是"可编辑输入框 + 自定义下拉"，**不是**原生 datalist：
+   *  - 输入框始终可手填任意整数（没有任何过滤/限制）；
+   *  - 主世界才显示右侧下拉按钮，点开列出 Y_PRESETS 全部预设；
+   *  - 下界/末地 Y 范围不同，隐藏按钮并关闭列表，只保留手填。
+   *
+   * 用自定义下拉而不是 `<input list>`：Chromium 的 datalist 会按输入框当前值
+   * 做前缀过滤（值=256 时只列出 256），既看不到全部预设，也容易让人以为不可编辑。
    */
   private syncYPreset(): void {
     const overworld = Number(this.dimension.value) === 0;
-    this.yPreset.hidden = !overworld;
-    const raw = this.y.value.trim();
-    const value = raw === '' ? '' : String(Number(raw));
-    const match = Y_PRESETS.find((preset) => String(preset) === value);
-    this.yPreset.value = match === undefined ? '' : String(match);
+    this.yToggle.hidden = !overworld;
+    if (!overworld) {
+      this.closeYMenu();
+      return;
+    }
+    if (!this.yMenu.hidden) this.renderYMenu();
+  }
+
+  /** 重建下拉项；与当前值相同的一项高亮。 */
+  private renderYMenu(): void {
+    const current = Number(this.y.value);
+    this.yMenu.innerHTML = Y_PRESETS.map(
+      (value) =>
+        `<li role="option" data-y="${value}" class="${value === current ? 'is-active' : ''}">${value}</li>`,
+    ).join('');
+  }
+
+  private toggleYMenu(open?: boolean): void {
+    const next = open ?? this.yMenu.hidden;
+    if (!next) {
+      this.closeYMenu();
+      return;
+    }
+    this.renderYMenu();
+    this.yMenu.hidden = false;
+    this.yToggle.setAttribute('aria-expanded', 'true');
+  }
+
+  private closeYMenu(): void {
+    if (this.yMenu.hidden) return;
+    this.yMenu.hidden = true;
+    this.yToggle.setAttribute('aria-expanded', 'false');
   }
 
   /**
@@ -786,11 +850,6 @@ export class MapView {
         return `<option value="${dim}" data-key="${key}"></option>`;
       })
       .join('');
-    // 采样 Y 预设：主世界常用高度 + “自定义”；下拉只改输入框，手填不做限制。
-    this.yPreset.innerHTML =
-      '<option value="" data-i18n="common.map.yCustom"></option>' +
-      Y_PRESETS.map((value) => `<option value="${value}">${value}</option>`).join('');
-    applyI18n(this.yPreset);
     const worldChanged = () => {
       this.clearSpawnCircles();
       this.persistSession();
@@ -805,11 +864,33 @@ export class MapView {
       this.syncLayerControls();
     });
     this.y.addEventListener('change', worldChanged);
-    this.y.addEventListener('input', () => this.syncYPreset());
-    this.yPreset.addEventListener('change', () => {
-      if (!this.yPreset.value) return; // “自定义”只用于显示，不覆盖手填值
-      this.y.value = this.yPreset.value;
+    /* 采样 Y 组合框：输入框始终可手填；下拉按钮只在主世界显示。
+     * 选中预设后写回输入框并派发 change，与手填走同一条刷新路径。 */
+    this.yToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.toggleYMenu();
+    });
+    this.yMenu.addEventListener('click', (event) => {
+      const item = (event.target as HTMLElement).closest<HTMLElement>('[data-y]');
+      if (!item) return;
+      const value = Number(item.dataset.y);
+      if (!Number.isFinite(value)) return;
+      this.y.value = String(value);
+      this.closeYMenu();
       this.y.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    // 点空白处 / 按 Esc 收起；菜单打开时随手填同步高亮。
+    document.addEventListener('click', (event) => {
+      if (this.yMenu.hidden) return;
+      const target = event.target as Node;
+      if (this.yMenu.contains(target) || this.yToggle.contains(target)) return;
+      this.closeYMenu();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') this.closeYMenu();
+    });
+    this.y.addEventListener('input', () => {
+      if (!this.yMenu.hidden) this.renderYMenu();
     });
     this.syncYPreset();
     this.large.addEventListener('change', worldChanged);
@@ -859,6 +940,7 @@ export class MapView {
       this.dragging = false;
       this.canvas.classList.remove('dragging');
       this.pruneTilePipeline();
+      if (press?.moved) this.persistSession(); // 拖动改了地图中心，落盘供下次打开恢复
       if (press && !press.moved) this.selectAt(event.offsetX, event.offsetY);
       this.queueDraw();
       this.kickFlush();
@@ -869,6 +951,7 @@ export class MapView {
       this.dragging = false;
       this.canvas.classList.remove('dragging');
       this.pruneTilePipeline();
+      this.persistSession();
       this.queueDraw();
       this.kickFlush();
       this.queueFeatures();
@@ -905,6 +988,7 @@ export class MapView {
         const after = this.screenToWorld(event.offsetX, event.offsetY);
         this.cx += before.x - after.x;
         this.cz += before.z - after.z;
+        this.persistSession(); // 缩放也会平移中心，落盘供下次打开恢复
         this.onZoomChanged();
       },
       { passive: false },

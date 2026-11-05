@@ -5,6 +5,12 @@ export interface MapSessionData {
   mcVersion: string;
   dim: number;
   y: number;
+  /**
+   * 地图中心坐标（方块）。旧 session 没有这两项，缺省回落到 0,0。
+   * 跨 session 打开时会恢复到这个位置。
+   */
+  x?: number;
+  z?: number;
   largeBiomes: boolean;
   grid: boolean;
   /**
@@ -46,6 +52,8 @@ export function parseSessionFile(text: string): MapSessionData | null {
     mcVersion: map.get('mcVersion') || map.get('versionName') || '',
     dim: Number(map.get('dim') || 0),
     y: Number(map.get('y') || 256),
+    x: map.has('x') ? Number(map.get('x')) : undefined,
+    z: map.has('z') ? Number(map.get('z')) : undefined,
     largeBiomes: map.get('largeBiomes') === 'true' || map.get('largeBiomes') === '1',
     grid: map.get('grid') !== 'false' && map.get('grid') !== '0',
     terrain: map.get('terrain') === 'true' || map.get('terrain') === '1',
@@ -60,6 +68,9 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
   const y = Number(data.y);
   const named = typeof data.version === 'string' && !/^\d+$/.test(data.version) ? data.version : '';
   const terrain = data.terrain === true;
+  /* 地图中心：旧 session 没有这两个字段，缺省 0,0（保持旧行为）。 */
+  const x = Number(data.x);
+  const z = Number(data.z);
   return {
     kind: 'aio-session',
     version: 1,
@@ -67,6 +78,8 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
     mcVersion: typeof data.mcVersion === 'string' && data.mcVersion ? data.mcVersion : named,
     dim: dim === -1 || dim === 1 ? dim : 0,
     y: Number.isFinite(y) ? y : 256,
+    x: Number.isFinite(x) ? Math.round(x) : 0,
+    z: Number.isFinite(z) ? Math.round(z) : 0,
     largeBiomes: !!data.largeBiomes,
     grid: data.grid !== false,
     terrain,
