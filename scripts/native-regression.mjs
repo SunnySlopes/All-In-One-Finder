@@ -1,43 +1,29 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
 const arg = (name, fallback) => {
   const index = args.indexOf(name);
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 };
 
-const addonArg = arg('--addon', '');
-const engineArg = arg('--engine', '');
-// Default backend is the WebView2 engine DLL; --addon still allows comparing
-// against the legacy N-API add-on when one is available.
-const useEngine = !!engineArg || !addonArg;
-const enginePath = useEngine
-  ? path.resolve(engineArg || path.join(root, 'native', 'build-engine', 'aio-engine.exe'))
-  : '';
+// Single backend: the engine driver talking to allinone.dll over the
+// length-prefixed JSON protocol. The old `--addon` escape hatch is gone — it
+// loaded the DLL through require(), but allinone.dll exports the plain C ABI
+// (aio_call/aio_free), not a Node add-on entry point, so it could never load.
+const enginePath = path.resolve(arg('--engine', path.join(root, 'native', 'build-engine', 'aio-engine.exe')));
 const dllPath = path.resolve(arg('--dll', path.join(root, 'native', 'build-engine', 'allinone.dll')));
-const addonPath = addonArg ? path.resolve(addonArg) : path.join(root, 'native', 'build-engine', 'allinone.dll');
 // Artifacts live under test-results/ so a run never drops a stray 1.3 MB JSON in the repo root.
 const outPath = path.resolve(arg('--out', path.join(root, 'test-results', 'native-regression-result.json')));
 const timeoutMs = Number(arg('--timeout', '180000'));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Backend: the WebView2 engine DLL over the length-prefixed JSON protocol (default),
-// or the legacy N-API add-on via --addon. Both expose the same method names.
-let addon;
-let engineClient = null;
-if (enginePath) {
-  const { createEngineClient } = await import('./engine-client.mjs');
-  engineClient = await createEngineClient({ exe: enginePath, dll: dllPath, timeoutMs });
-  addon = engineClient.proxy;
-} else {
-  addon = require(addonPath);
-}
+const { createEngineClient } = await import('./engine-client.mjs');
+const engineClient = await createEngineClient({ exe: enginePath, dll: dllPath, timeoutMs });
+const addon = engineClient.proxy;
 
 function canon(value) {
   if (typeof value === 'bigint') return value.toString();
@@ -859,17 +845,17 @@ cases.lowyList = await runSearch(
   () => addon.searchStop(),
 );
 
+// Key names stay `addon`/`addonBytes`/`addonSha256` for backwards compatibility
+// with existing baselines and scripts/native-regression-compare.mjs; they now
+// always describe the engine driver that produced the run.
 const payload = {
-  backend: enginePath ? 'engine' : 'addon',
-  addon: enginePath ? enginePath : addonPath,
-  addonBytes: fs.statSync(enginePath || addonPath).size,
-  addonSha256: crypto
-    .createHash('sha256')
-    .update(fs.readFileSync(enginePath || addonPath))
-    .digest('hex'),
+  backend: 'engine',
+  addon: enginePath,
+  addonBytes: fs.statSync(enginePath).size,
+  addonSha256: crypto.createHash('sha256').update(fs.readFileSync(enginePath)).digest('hex'),
   cases,
 };
-if (engineClient) await engineClient.close();
+await engineClient.close();
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, JSON.stringify(payload, null, 2));
 console.log(
@@ -904,4 +890,3 @@ const failed = Object.entries(cases).some(
     key !== 'basic' && key !== 'terrain' && (!value || value.timeout || value.startError || value.error || !value.done),
 );
 process.exit(failed ? 1 : 0);
-

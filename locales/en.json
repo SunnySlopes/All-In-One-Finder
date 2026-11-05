@@ -271,7 +271,7 @@
   },
   "dripstonecave": {
     "helpCave": "Search low-Y dripstone cave and river combinations in the given bounds. With \"Allow GPU\" checked, large searches try the OpenCL coarse scan and fall back to CPU automatically.",
-    "helpPit": "Large-pit low-Y dripstone fast search. Single seed only.",
+    "helpPit": "Specified for searching low-y dripstone caves below large-pits low-Y. Single seed only.",
     "allowGpu": "Allow GPU",
     "gpuLine": "Using GPU ({device})",
     "gpuUnknown": "Unknown",
@@ -283,7 +283,7 @@
     "area": "Minimum area",
     "yMin": "Sample Y min",
     "yMax": "Sample Y max",
-    "yHint": "Every layer from min to max is sampled; each layer counts the cave/river cells inside the 24..128 shell around the AFK point (Y=-40) then the layers are averaged. Every cell in the shell counts. Span <= 48 layers (default -63..-51); over 24 layers gets noticeably slower.",
+    "yHint": "Every layer from min to max is sampled.",
     "yWide": "The layer span exceeds 24 layers (currently {layers}). The search may get noticeably slower. Continue?",
     "yLowMin": "The lowest layer {min} is above -58, so the low-Y farm premise may not hold. Continue?",
     "fastMode": "Fast mode",
@@ -344,7 +344,7 @@
     "yLabel": "Y"
   },
   "river": {
-    "help": "Searches for the largest river area inside the spawn shell. Choose river or cave mode. Only the 24 blocks above and below the AFK Y are counted.",
+    "help": "Searches for the largest river area inside the spawn shell. River or cave modes are available.",
     "minArea": "Minimum equivalent river area",
     "minRatio": "Minimum equivalent river ratio %",
     "sampleY": "Biome sample Y",

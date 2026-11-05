@@ -796,8 +796,7 @@ export class MapView {
   private renderYMenu(): void {
     const current = Number(this.y.value);
     this.yMenu.innerHTML = Y_PRESETS.map(
-      (value) =>
-        `<li role="option" data-y="${value}" class="${value === current ? 'is-active' : ''}">${value}</li>`,
+      (value) => `<li role="option" data-y="${value}" class="${value === current ? 'is-active' : ''}">${value}</li>`,
     ).join('');
   }
 

@@ -318,7 +318,6 @@ export interface RiverHit {
 /** 引擎 validate() 的提示码，前端按 code 取文案。 */
 export const RIVER_WARN_SPAN_GT_24 = 1;
 export const RIVER_WARN_YMIN_GT_NEG58 = 2;
-export const RIVER_WARN_AREA_OVER_100 = 3;
 
 export interface RiverWarning {
   code: number;
@@ -510,4 +509,3 @@ export function call<T>(op: string, args?: unknown): Promise<T> {
     },
   );
 }
-

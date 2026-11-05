@@ -1421,9 +1421,7 @@ export class ResultsColumn {
     }
     if (full || from === 0 || !this.list.querySelector('.result-card')) {
       this.list.innerHTML = this.riverHits
-        .map((hit, index) =>
-          riverCard(hit, index, this.riverFullArea, this.riverPureRiver, this.riverConversion),
-        )
+        .map((hit, index) => riverCard(hit, index, this.riverFullArea, this.riverPureRiver, this.riverConversion))
         .join('');
       this.bindRiverCards(0);
     } else {
@@ -1749,13 +1747,7 @@ function witchCard(hit: WitchHit, index: number): string {
  * 四项**始终输出**（面积可能是 0）。是否统计溶洞只看搜索条件：采样最低 Y < 60
  * 且挂机Y < 85；不满足时溶洞面积为 0，照样显示。
  */
-function riverCard(
-  hit: RiverHit,
-  index: number,
-  fullArea: number,
-  pureRiver: boolean,
-  conversion: number,
-): string {
+function riverCard(hit: RiverHit, index: number, fullArea: number, pureRiver: boolean, conversion: number): string {
   const denom = fullArea > 0 ? fullArea : RIVER_FULL_RING;
   // 四项都用层均口径重算，避免依赖宿主四舍五入后的中间值。
   const conv = conversion > 0 ? conversion : 4880 / 7011;

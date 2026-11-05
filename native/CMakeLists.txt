@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20)
 project(allinone C CXX)
 
 if (MSVC)
@@ -21,7 +21,8 @@ set(SLIMERADAR "${SLIME}/slimeradar/src")
 set(SLIMEOPT "${SLIME}/slimeoptimizer")
 set(RN "${CMAKE_SOURCE_DIR}/../tools/river")
 set(LYSH "${CMAKE_SOURCE_DIR}/../tools/lowyswamphut")
-set(FORTRESS "${CMAKE_SOURCE_DIR}/../tools/fortress")
+# tools/fortress needs no path variable: fortress_host.cpp pulls the kernel in with
+# #include "../tools/fortress/fortress_finder.cpp" (a file-relative include).
 set(MULTI "${CMAKE_SOURCE_DIR}/../tools/multimonument")
 set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
 set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower")
@@ -51,9 +52,16 @@ endif()
 
 option(AIO_DOUBLE_MONUMENT_REFACTORED "doublemonument branch already renamed for AIO" ON)
 
+# quadbase.c and xradv.c are intentionally absent:
+#   - quadbase.c: witch-hut quad search (getQuadHutCst/searchAll48/scanForQuads).
+#     Nothing in AIO or in cubiomes' own finders.c calls it.
+#   - xradv.c: a developer-only generator that emits xrms.h (already committed);
+#     every function in it is static and nothing includes or calls the file.
+# Both used to be compiled and then dropped by --gc-sections, so removing them
+# only saves build time.
 set(CUBI_ROOT_SOURCES
   finders.c carver.c generator.c layers.c biomenoise.c biomes.c noise.c
-  terrainnoise.c util.c quadbase.c xradv.c
+  terrainnoise.c util.c
 )
 set(CUBI_SOURCES "")
 foreach(src ${CUBI_ROOT_SOURCES})
@@ -66,6 +74,11 @@ list(APPEND CUBI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cubiomes263_compat.c")
 file(GLOB CUBI_FEATURES "${CUBI}/features/*.c")
 # AIO never calls the loot generation API; keep the headers but do not compile
 # loot/** (it is ~1.5 MB of object code and none of it is reachable).
+# ore.c is excluded too: AIO never renders ore veins, and every non-inline entry
+# point it exports (getOreConfig/generateOres/...) has no caller. The ore.h
+# header is still included by util.c and mineshaft.c for its static inline RNG
+# helpers (absNextInt et al.), so only the translation unit is dropped.
+list(FILTER CUBI_FEATURES EXCLUDE REGEX "/ore\\.c$")
 list(APPEND CUBI_SOURCES ${CUBI_FEATURES})
 
 add_library(cubiomes_objs OBJECT ${CUBI_SOURCES})

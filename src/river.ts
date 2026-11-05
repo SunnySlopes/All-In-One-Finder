@@ -76,11 +76,6 @@ function fixed2(value: number): string {
   return round2(value).toFixed(2);
 }
 
-/** 该输入框是"占比"（两位小数）还是"面积"（整数）。 */
-function isRatioField(id: string): boolean {
-  return id === 'rv-ratio' || id === 'rv-cave-ratio';
-}
-
 /**
  * 解析折算系数："0.7" 或 "4880/7011"。
  * 空串返回 0（表示未传，由宿主取上游默认 4880/7011）。
@@ -160,8 +155,6 @@ export class RiverPanel {
    * 与 search.ts 同名同语义——防止重复点击，并让按钮立刻显示"正在停止"。
    */
   private stopping = false;
-  /** 门槛越界的即时提示文本（空 = 无），由 validateThresholds 维护。 */
-  private rangeHint = '';
   /** 停止请求已发出但引擎迟迟不结束时的兜底计时器。 */
   private stopGuard = 0;
   private pollTimer = 0;
@@ -409,7 +402,7 @@ export class RiverPanel {
    * 触发：change（失焦 / 回车）。`userEdit` 决定是否做越界提示，被动填充静默。
    */
   private syncThresholds(sourceId: string, userEdit = false): void {
-    const conv = parseConversion(this.conversion.value) || (4880 / 7011);
+    const conv = parseConversion(this.conversion.value) || 4880 / 7011;
     if (!(conv > 0)) return;
 
     // 1) 先把"触发源"归一成该组的占比
@@ -443,12 +436,12 @@ export class RiverPanel {
       areaEl.value = String(Math.round((pct / 100) * FULL_RING));
     };
     if (isCave) {
-      writePair(this.minRatio, this.minArea, otherRatio);   // 河流组
+      writePair(this.minRatio, this.minArea, otherRatio); // 河流组
       // 溶洞组：仅补对偶那一项
       if (sourceId === 'rv-cave-ratio') this.caveArea.value = String(Math.round((baseRatio / 100) * FULL_RING));
       else this.caveRatio.value = fixed2(baseRatio);
     } else {
-      writePair(this.caveRatio, this.caveArea, otherRatio);  // 溶洞组
+      writePair(this.caveRatio, this.caveArea, otherRatio); // 溶洞组
       // 河流组：仅补对偶那一项
       if (sourceId === 'rv-ratio') this.minArea.value = String(Math.round((baseRatio / 100) * FULL_RING));
       else this.minRatio.value = fixed2(baseRatio);
@@ -469,22 +462,20 @@ export class RiverPanel {
     }
     if (!activeId) return;
 
-    const rules: Record<string, [number, number, string]> = {
-      'rv-ratio': [MIN_RATIO, MAX_RATIO, 'river.rangeRiverRatio'],
-      'rv-area': [MIN_AREA, MAX_AREA, 'river.rangeRiverArea'],
-      'rv-cave-ratio': [60, 95, 'river.rangeCaveRatio'],
-      'rv-cave-area': [29784, FULL_RING, 'river.rangeCaveArea'],
+    // 只用于红框标记；越界文案已在 start() 里按模式提示，这里不再生成文本。
+    const rules: Record<string, [number, number]> = {
+      'rv-ratio': [MIN_RATIO, MAX_RATIO],
+      'rv-area': [MIN_AREA, MAX_AREA],
+      'rv-cave-ratio': [60, 95],
+      'rv-cave-area': [29784, FULL_RING],
     };
     const rule = rules[activeId];
     if (!rule) return;
-    const [min, max, key] = rule;
+    const [min, max] = rule;
     const el = document.getElementById(activeId) as HTMLInputElement | null;
     const v = Number(el?.value);
     if (Number.isFinite(v) && (v < min || v > max)) {
       el?.classList.add('invalid');
-      this.rangeHint = t(key, { min, max, value: el?.value ?? '' });
-    } else {
-      this.rangeHint = '';
     }
   }
   /**
@@ -516,11 +507,7 @@ export class RiverPanel {
   }
 
   /** 同时隐藏/显示一个"标签 + 输入框"对，并把它从 Tab 顺序里摘掉。 */
-  private setPairHidden(
-    label: HTMLLabelElement,
-    input: HTMLInputElement,
-    hidden: boolean,
-  ): void {
+  private setPairHidden(label: HTMLLabelElement, input: HTMLInputElement, hidden: boolean): void {
     label.hidden = hidden;
     input.hidden = hidden;
     if (hidden) input.tabIndex = -1;
@@ -687,7 +674,7 @@ export class RiverPanel {
     // 河流占比必须能解析成数；区间校验放到下面按模式统一处理（主动超限 → 提示可继续）。
     const ratio = Number(this.minRatio.value);
     if (!Number.isFinite(ratio)) {
-      await showNotice(t('common.error.bad-ratio'));
+      showNotice(t('common.error.bad-ratio'));
       return;
     }
     const minScore = clamp(Math.round((ratio / 100) * FULL_RING), MIN_AREA, MAX_AREA);
@@ -709,25 +696,20 @@ export class RiverPanel {
     const caveArea = Number(this.caveArea.value);
     // 三字段门槛只取决于是否溶洞模式。两框恒有值（默认=河流默认×折算系数），
     // 因此不再用"是否留空"作为开关；越界值也原样下发，由引擎决定处理方式。
-    const useCave =
-      !pureRiver && Number.isFinite(caveRatio) && Number.isFinite(caveArea);
+    const useCave = !pureRiver && Number.isFinite(caveRatio) && Number.isFinite(caveArea);
 
     // 点开始时的门槛校验：**只看当前模式对应的那一个百分比**，另一个不校验。
     // 校验不通过 → 直接拒绝开跑（不再提供"是否继续"）。
     if (pureRiver) {
       // 河流模式：只看河流等效占比（50~95%）。
       if (!inRange(ratio, MIN_RATIO, MAX_RATIO)) {
-        await showNotice(
-          t('river.rangeRiverRatio', { min: MIN_RATIO, max: MAX_RATIO, value: this.minRatio.value }),
-        );
+        showNotice(t('river.rangeRiverRatio', { min: MIN_RATIO, max: MAX_RATIO, value: this.minRatio.value }));
         return;
       }
     } else {
       // 溶洞模式：只看溶洞等效占比（60~95%）。
       if (!inRange(caveRatio, 60, 95)) {
-        await showNotice(
-          t('river.rangeCaveRatio', { min: 60, max: 95, value: this.caveRatio.value }),
-        );
+        showNotice(t('river.rangeCaveRatio', { min: 60, max: 95, value: this.caveRatio.value }));
         return;
       }
     }

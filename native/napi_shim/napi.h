@@ -1,9 +1,10 @@
-﻿// Minimal Napi:: compatibility layer for the All-In-One Finder engine.
+// Minimal Napi:: compatibility layer for the All-In-One Finder engine.
 //
 // Purpose: compile native/addon.cpp UNCHANGED outside Node/Electron, so the same
-// 61 op bindings can be served by allinone.dll (WebView2 host) and by --cli.
-// Only the API actually used by addon.cpp is implemented (see the audit in
-// docs/鏂囨。/electron-removal-assessment.md 搂2.2):
+// 63 op bindings can be served by allinone.dll through the plain C ABI
+// (aio_call/aio_free/aio_abi_version) used by the WebView2 host and by
+// `aio-engine --serve` / `--call` / `--batch`.
+// Only the API actually used by addon.cpp is implemented:
 //   Value/Object/Array/String/Number/Boolean/BigInt/Function/Buffer,
 //   CallbackInfo, Error/TypeError, NODE_API_MODULE.
 // Not supported on purpose: ObjectWrap, AsyncWorker, Promise, TypedArray, Date,
