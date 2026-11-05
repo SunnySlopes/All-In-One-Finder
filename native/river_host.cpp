@@ -184,7 +184,9 @@ void job(RiverRequest request)
             cfg.yMin = lo;
             cfg.yMax = hi;
             cfg.playerY = request.y;
-            /* 精算预算沿用上游默认（0 = 自动：max(768, 8*top, candidateBudget/16)）。 */
+            /* 精算预算沿用上游自动档（0 = 自动）。上游 51afd0f 把自动值下调为
+             * max(kDefaultExactBudget=256, kExactBudgetPerTop=3 * top,
+             *     candidateBudget / kExactBudgetPerCandidate=32) */
             cfg.exactBudget = 0;
 
             /* 门槛 */
