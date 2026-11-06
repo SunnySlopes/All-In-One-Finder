@@ -128,11 +128,13 @@ target_compile_options(lysh_core PRIVATE
 # -ffp-contract=off / -fno-lto。
 set(FLOWER_C
   "${FLOWER}/cts/climate.c"
+  "${FLOWER}/cts/climate_simd.c"
   "${FLOWER}/cts/biome.c"
   "${FLOWER}/cts/engine.c"
 )
 add_library(flower_objs OBJECT
   "${FLOWER}/src/FlowerFarmSearch.cpp"
+  "${FLOWER}/cts/parallel.cpp"
   ${FLOWER_C}
 )
 set_target_properties(flower_objs PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -144,7 +146,7 @@ target_include_directories(flower_objs PRIVATE
 )
 target_compile_definitions(flower_objs PRIVATE _WIN32)
 target_compile_options(flower_objs PRIVATE
-  -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto -fopenmp
+  -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
   -include "${FLOWER}/cxx_compat/pre_cubiomes.h"
 )
 
@@ -381,7 +383,7 @@ set_source_files_properties("${LOWY}/GpuCoarse.cpp"
 )
 target_link_libraries(allinone PRIVATE
   cubiomes_objs lysh_core
-  -lgomp -lwinpthread
+  -lwinpthread
 )
 target_link_options(allinone PRIVATE
   -flto
