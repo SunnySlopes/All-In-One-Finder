@@ -155,6 +155,14 @@ export interface FlowerStatus {
   phaseTotal: number;
   overallCurrent: number;
   overallTotal: number;
+  /** Large range searched in tiles: the bar counts completed tiles. */
+  tiled: boolean;
+  /** Completed tiles of a tiled search (0 when not tiled). */
+  tileIndex: number;
+  /** Total tiles of a tiled search (0 when not tiled). */
+  tileTotal: number;
+  /** Pause requested while the running tile is still finishing. */
+  pausePending: boolean;
   seedIndex: number;
   seedCount: number;
   error: string;

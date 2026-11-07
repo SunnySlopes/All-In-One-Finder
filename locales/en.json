@@ -472,7 +472,8 @@
       "3": "Biome verify"
     },
     "merging": "Merging candidate windows…",
-    "overallProgress": "Overall {current}/{total}",
+    "tiled": "Tile {current}/{total} - {phase}",
+    "pauseAfterTile": "Phase remaining: pausing after the current tile",
     "flowerArea": "Flower forest {area}",
     "paleArea": "Pale garden {area}",
     "swampArea": "Swamp {area}",

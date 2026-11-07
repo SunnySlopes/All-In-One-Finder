@@ -472,7 +472,8 @@
       "3": "群系校验"
     },
     "merging": "正在整理候选窗口…",
-    "overallProgress": "总进度 {current}/{total}",
+    "tiled": "分块 {current}/{total} - {phase}",
+    "pauseAfterTile": "本阶段剩余时间: 当前分块完成后暂停",
     "flowerArea": "繁花森林{area}",
     "paleArea": "苍白花园{area}",
     "swampArea": "沼泽{area}",

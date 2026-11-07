@@ -595,6 +595,10 @@ Napi::Object flowerStatusToObject(Napi::Env env, const FlowerStatus &status)
     out.Set("phaseTotal", Napi::Number::New(env, static_cast<double>(status.phaseTotal)));
     out.Set("overallCurrent", Napi::Number::New(env, static_cast<double>(status.overallCurrent)));
     out.Set("overallTotal", Napi::Number::New(env, static_cast<double>(status.overallTotal)));
+    out.Set("tiled", status.tiled);
+    out.Set("tileIndex", status.tileIndex);
+    out.Set("tileTotal", status.tileTotal);
+    out.Set("pausePending", status.pausePending);
     out.Set("seedIndex", status.seedIndex);
     out.Set("seedCount", status.seedCount);
     out.Set("error", status.error);

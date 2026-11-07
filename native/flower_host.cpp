@@ -38,6 +38,9 @@ std::atomic_int gOverallTotal{0};
 std::atomic_int gStage{0};
 std::atomic_int gAuxCurrent{0};
 std::atomic_int gAuxTotal{0};
+std::atomic_int gTileCurrent{0};
+std::atomic_int gTileTotal{0};
+std::atomic_bool gDeferPause{false};
 
 void resetControl()
 {
@@ -51,6 +54,9 @@ void resetControl()
     gStage.store(0);
     gAuxCurrent.store(0);
     gAuxTotal.store(0);
+    gTileCurrent.store(0);
+    gTileTotal.store(0);
+    gDeferPause.store(false);
 }
 
 void publishHits()
@@ -103,7 +109,8 @@ void job(FlowerRequest request)
     std::string error;
     FlowerSearchControl control{&gCurrent, &gTotal, &gPhase, &gPause, &gStop,
                                 &gPhaseCurrent, &gPhaseTotal, &gOverallCurrent, &gOverallTotal,
-                                &gStage, &gAuxCurrent, &gAuxTotal};
+                                &gStage, &gAuxCurrent, &gAuxTotal,
+                                &gTileCurrent, &gTileTotal, &gDeferPause};
     const int frameStep = request.fastMode ? 16 : 4;
 
     for (size_t index = 0; index < request.seeds.size(); index++) {
@@ -245,8 +252,9 @@ FlowerStatus flowerPoll()
     std::lock_guard<std::mutex> lock(gMu);
     const int rawPhase = gPhase.load();
     const bool merging = rawPhase == 1 && gStage.load() != 0;
-    const int auxCurrent = gAuxCurrent.load();
+    int auxCurrent = gAuxCurrent.load();
     const int auxTotal = gAuxTotal.load();
+    if (auxTotal > 0 && auxCurrent > auxTotal) auxCurrent = auxTotal;
     /* The engine's merge/cluster tail (stage=1) is phase 2 and publishes its own
      * candidate-hit counters; verification is phase 3. Until the merge counters
      * are visible, keep showing the phase-1 frame instead of mixing units. */
@@ -260,11 +268,34 @@ FlowerStatus flowerPoll()
         gStatus.total = gTotal.load();
     }
     /* phaseCurrent/phaseTotal mirror the live phase counters: phase 1 gets its
-     * concrete totals from the engine (not the 1-unit placeholder). */
+     * concrete totals from the engine (not the 1-unit placeholder). The engine
+     * may tick slightly past a preset total; never report past 100%. */
+    if (gStatus.total > 0 && gStatus.current > gStatus.total) gStatus.current = gStatus.total;
     gStatus.phaseCurrent = gStatus.current;
     gStatus.phaseTotal = gStatus.total;
-    gStatus.overallCurrent = gOverallCurrent.load();
-    gStatus.overallTotal = gOverallTotal.load();
-    gStatus.paused = gPause.load();
+
+    int64_t overallCurrent = gOverallCurrent.load();
+    const int64_t overallTotal = gOverallTotal.load();
+    if (overallTotal > 0 && overallCurrent > overallTotal) overallCurrent = overallTotal;
+    gStatus.overallCurrent = overallCurrent;
+    gStatus.overallTotal = overallTotal;
+
+    /* Tile progress of a tiled (large-range) search; tileTotal == 0 means the
+     * search ran as a single block and the phase counters are the whole story. */
+    const int tileTotal = gTileTotal.load();
+    int tileCurrent = gTileCurrent.load();
+    if (tileTotal > 0) {
+        if (tileCurrent > tileTotal) tileCurrent = tileTotal;
+    } else {
+        tileCurrent = 0;
+    }
+    const bool paused = gPause.load();
+    gStatus.tiled = tileTotal > 0;
+    gStatus.tileIndex = tileCurrent;
+    gStatus.tileTotal = tileTotal;
+    /* Pause is deferred while a tile is running: the engine finishes that tile
+     * first, so the host shows "pausing after the current tile" until then. */
+    gStatus.pausePending = paused && gDeferPause.load();
+    gStatus.paused = paused;
     return gStatus;
 }

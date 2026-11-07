@@ -38,6 +38,14 @@ struct FlowerStatus {
     int64_t phaseTotal = 0;
     int64_t overallCurrent = 0;
     int64_t overallTotal = 0;
+    /* Large ranges run as a tiled sweep: when tiled is true the bar counts
+     * completed tiles and phase counters describe the tile that is running. */
+    bool tiled = false;
+    int tileIndex = 0;
+    int tileTotal = 0;
+    /* A pause was requested while the current tile is still running; the engine
+     * finishes that tile first and then blocks at the tile boundary. */
+    bool pausePending = false;
     int seedIndex = 0;
     int seedCount = 0;
     std::string error;

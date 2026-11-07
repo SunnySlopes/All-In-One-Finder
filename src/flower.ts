@@ -355,7 +355,6 @@ export class FlowerPanel {
       </div>
       <div class="progress-track"><div class="progress-fill" id="f-bar"></div></div>
       <div id="f-progress" class="hint"></div>
-      <div id="f-overall" class="hint"></div>
       <div id="f-elapsed" class="hint"></div>
       <div id="f-eta" class="hint"></div>
     `;
@@ -527,12 +526,10 @@ export class FlowerPanel {
   /** 状态写入页脚；render() 重建页脚后再用它恢复进度（含完成时的 100%）。 */
   private paintStatus(status: FlowerStatus): void {
     const progress = this.footer.querySelector('#f-progress');
-    const overall = this.footer.querySelector('#f-overall');
     const eta = this.footer.querySelector('#f-eta');
     const elapsed = this.footer.querySelector('#f-elapsed');
     const bar = this.footer.querySelector<HTMLElement>('#f-bar');
     if (progress) progress.textContent = this.progressText(status);
-    if (overall) overall.textContent = this.overallText(status);
     if (eta) eta.textContent = this.etaText(status);
     if (elapsed) {
       elapsed.textContent = t('common.searchExtra.elapsed', {
@@ -540,13 +537,21 @@ export class FlowerPanel {
       });
     }
     if (bar) {
-      /* Every phase now reports its own numeric counters: phase 1 the
-       * climate screen (including coarse-field rows), phase 2 the merged
-       * candidates, phase 3 the verified candidates. */
-      const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
-      const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
-      const pct = status.done ? 100 : total > 0 ? Math.min(100, (current / total) * 100) : 0;
-      bar.style.width = `${pct}%`;
+      if (status.done) {
+        bar.style.width = '100%';
+      } else if (isTiled(status)) {
+        /* A large range runs as a tile sweep: the bar advances once per
+         * completed tile, while the phase counters describe the running tile. */
+        bar.style.width = `${tilePercent(status)}%`;
+      } else {
+        /* Every phase reports its own numeric counters: phase 1 the climate
+         * screen (including coarse-field rows), phase 2 the merged candidates,
+         * phase 3 the verified candidates. */
+        const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
+        const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
+        const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
+        bar.style.width = `${pct}%`;
+      }
     }
   }
 
@@ -562,24 +567,38 @@ export class FlowerPanel {
         ? `${t('common.search.seedOf', { index: status.seedIndex + 1, count: status.seedCount })} `
         : '';
     if (status.done && !status.error) return `${seeds}${t('common.search.completed')}`;
+    const error = status.error ? ` ${messageOf(status.error)}` : '';
+    if (isTiled(status)) {
+      /* Tiled searches report block-level progress; the label names the tile
+       * and the phase of the tile that is currently running. */
+      return `${seeds}${t('flower.tiled', {
+        current: String(status.tileIndex),
+        total: String(status.tileTotal),
+        phase: this.phaseLabel(status.phase),
+      })}${error}`;
+    }
     const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
     const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
-    const error = status.error ? ` ${messageOf(status.error)}` : '';
     return `${seeds}${this.phaseLabel(status.phase)} ${current}/${total} (${pct}%)${error}`;
-  }
-
-  private overallText(status: FlowerStatus): string {
-    if (!(status.overallTotal > 0)) return '';
-    return t('flower.overallProgress', {
-      current: String(status.overallCurrent),
-      total: String(status.overallTotal),
-    });
   }
 
   private etaText(status: FlowerStatus): string {
     if (status.done) return t('common.search.eta.completed');
-    if (status.paused) return t('common.search.eta.paused');
+    if (status.paused) {
+      /* Pause takes effect at the next tile boundary, not immediately. */
+      return isTiled(status) && status.pausePending ? t('flower.pauseAfterTile') : t('common.search.eta.paused');
+    }
+    if (isTiled(status)) {
+      /* Block-level ETA: average wall time of the completed tiles. */
+      if (!(status.tileIndex > 0 && status.tileTotal > status.tileIndex)) {
+        return t('common.search.eta.calculating');
+      }
+      const elapsed = this.timer.elapsed();
+      const remaining = elapsed * ((status.tileTotal - status.tileIndex) / status.tileIndex);
+      if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
+      return t('common.search.eta.remaining', { time: formatDuration(remaining) });
+    }
     const current = status.phaseTotal > 0 ? status.phaseCurrent : status.current;
     const total = status.phaseTotal > 0 ? status.phaseTotal : status.total;
     if (!(current > 0 && total > current)) return t('common.search.eta.calculating');
@@ -588,4 +607,14 @@ export class FlowerPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
+}
+
+/** A tiled (large-range) search reports completed tiles instead of phase units. */
+function isTiled(status: FlowerStatus): boolean {
+  return status.tiled && status.tileTotal > 0;
+}
+
+function tilePercent(status: FlowerStatus): number {
+  const done = Math.max(0, Math.min(status.tileIndex, status.tileTotal));
+  return status.tileTotal > 0 ? Math.min(100, (done / status.tileTotal) * 100) : 0;
 }
