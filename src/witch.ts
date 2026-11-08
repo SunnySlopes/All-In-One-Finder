@@ -263,9 +263,9 @@ export class WitchPanel {
         </div>
         <div class="progress-track"><div class="progress-fill" id="w-bar"></div></div>
         <div class="progress-meta"><strong id="w-progress"></strong></div>
+        <div id="w-elapsed" class="hint"></div>
         <div id="w-eta" class="progress-estimate"></div>
       </div>
-      <div id="w-elapsed" class="hint"></div>
     `;
     this.footer.querySelector('#w-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#w-pause')?.addEventListener('click', () => void this.togglePause());
