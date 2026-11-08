@@ -1,3 +1,5 @@
+import type { ThemeId } from './theme';
+
 export interface MapSessionData {
   kind: 'aio-session';
   version: 1;
@@ -21,6 +23,11 @@ export interface MapSessionData {
   features: string[];
   /** 每个搜索器当前填写的条件（form + 面板私有状态）。 */
   searchers?: Record<string, unknown>;
+  /**
+   * 界面主题。写进存档后，下次启动（含换会话打开同一存档）会沿用，
+   * 而不是重新跟随系统。旧 session 缺省为 undefined，由调用方决定回退策略。
+   */
+  theme?: ThemeId;
 }
 
 export function parseSessionFile(text: string): MapSessionData | null {
@@ -87,5 +94,6 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
       ? data.features.filter((item): item is string => typeof item === 'string')
       : [],
     searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
+    theme: data.theme === 'dark' || data.theme === 'light' ? data.theme : undefined,
   };
 }

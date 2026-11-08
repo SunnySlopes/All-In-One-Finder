@@ -183,15 +183,15 @@ export class ResultsColumn {
           <button type="button" id="r-parse-btn" data-i18n="common.map.parse"></button>
         </div>
         <div class="hint" id="r-parse-error"></div>
-        <label class="feature" id="r-spawn-wrap">
+        <label class="check-row" id="r-spawn-wrap">
           <input id="r-spawn" type="checkbox" />
           <span data-i18n="common.results.drawSpawn"></span>
         </label>
       </div>
       <div id="r-list" class="results-list"></div>
       <div class="results-export row">
-        <button type="button" id="r-export-seeds" data-i18n="common.results.exportSeeds" disabled></button>
-        <button type="button" id="r-export-all" data-i18n="common.results.exportAll" disabled></button>
+        <button type="button" id="r-export-seeds" class="btn ghost sm" data-i18n="common.results.exportSeeds" disabled></button>
+        <button type="button" id="r-export-all" class="btn ghost sm" data-i18n="common.results.exportAll" disabled></button>
       </div>
     `;
     this.jumpX = this.root.querySelector('#r-x')!;

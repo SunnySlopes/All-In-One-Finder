@@ -3,7 +3,7 @@ import { caveDefaultAfkY, caveFullShellArea } from './cave-geometry';
 import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SearchStatus } from './native';
-import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
+import { applyForm, applyRunLock, captureForm, RunTimer, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -154,12 +154,12 @@ export class SearchPanel {
           <label data-i18n="common.search.maxZ"></label><input id="s-maxz" type="number" value="65535" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="s-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="s-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="s-side" type="number" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="s-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="s-border" type="button" data-i18n="common.search.border"></button>
+          <button id="s-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="s-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div id="s-params"></div>
       </div>
@@ -419,7 +419,7 @@ export class SearchPanel {
   /** GPU opt-in row shared by the single/list cave pages (the pit page has no GPU path). */
   private gpuToggleHtml(): string {
     return (
-      '<div class="span-full"><label class="feature"><input id="p-gpu" type="checkbox" ' +
+      '<div class="span-full"><label class="check-row"><input id="p-gpu" type="checkbox" ' +
       (this.allowGpu ? 'checked' : '') +
       ' /><span data-i18n="dripstonecave.allowGpu"></span></label></div>'
     );
@@ -531,15 +531,21 @@ export class SearchPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="s-start" type="button" data-i18n="common.search.start" ${this.supported && !this.running && !this.stopping ? '' : 'disabled'}></button>
-        <button id="s-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
-        <button id="s-stop" type="button" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="s-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.supported && !this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="s-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="s-stop" type="button" class="btn danger" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="s-bar"></div></div>
-      <div id="s-progress" class="hint"></div>
-      <div id="s-gpu" class="hint" hidden></div>
-      <div id="s-elapsed" class="hint"></div>
-      <div id="s-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="s-state"></span></span>
+          <span class="progress-percent" id="s-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="s-bar"></div></div>
+        <div class="progress-meta"><strong id="s-progress"></strong></div>
+        <div id="s-gpu" class="hint" hidden></div>
+        <div id="s-elapsed" class="hint"></div>
+        <div id="s-eta" class="progress-estimate"></div>
+      </div>
     `;
 
     this.footer.querySelector('#s-start')?.addEventListener('click', () => void this.start());
@@ -548,6 +554,7 @@ export class SearchPanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    initProgressCard(this.footer, 's');
   }
 
   private readFields(): void {
@@ -871,6 +878,11 @@ export class SearchPanel {
             : 0;
       bar.style.width = `${pct}%`;
     }
+  
+    paintProgressCard(this.footer, 's', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   private progressText(status: SearchStatus): string {
@@ -901,7 +913,16 @@ export class SearchPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: SearchStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}
+
 
 function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));

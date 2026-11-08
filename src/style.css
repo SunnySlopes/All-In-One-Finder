@@ -1,29 +1,513 @@
+/* ============================================================
+   All-In-One Finder 鈥?"Swamp Dusk" theme
+   设计参考 LowYSwampHutWeb：深林绿 + 萤火琥珀 + 玻璃质感。
+   字号基调固定 12px（决策 4），组件尺寸按比例缩放到 32/26/38px。
+
+   主题色（--accent*）随当前 Tab 变化（决策 1、3）；地图 Canvas 不跟随（决策 2）。
+   --gold / --danger / --amber 为语义色，永不被 Tab 主题覆盖（决策 10）。
+   ============================================================ */
+
 :root {
   color-scheme: dark;
-  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+
+  /* ---- 表面与文字 ---- */
+  /* 页底色由各 Tab 覆盖 --bg / --bg-2 决定；花田还会额外覆盖成渐变填充。 */
+  --bg: #07130f;
+  --bg-2: #091c16;
+  /* 侧栏、结果区、页面读这两个“填充”变量。
+     注意 must NOT 用 var(--bg-2)：CSS 变量在 :root 解析后即固定，
+     各 Tab 之后再覆盖 --bg-2 不会回灌到这里。
+     正确做法是在每条 Tab 规则里同时覆盖 --bg-2-fill / --page-fill（见下方各 Tab 块），
+     没覆盖的主题自然继承这里的默认值。花田则把它们换成 linear-gradient。 */
+  --bg-2-fill: #091c16;
+  --page-fill: #07130f;
+  --panel: rgba(10, 30, 23, 0.72);
+  --panel-solid: #0b2019;
+  --surface: #0d251c;
+  --input-bg: rgba(4, 16, 12, 0.35);
+  --line: rgba(132, 214, 178, 0.16);
+  --line-strong: rgba(132, 214, 178, 0.3);
+
+  --text: #eaf5ef;
+  --text-2: #c2dbcd;
+  --muted: #87a99a;
+  --muted-2: #6d8d7f;
+
+  /* ---- 语义色：固定，不随 Tab 主题变化 ---- */
+  --gold: #f6c66a;
+  --amber: #f3b15f;
+  --danger: #ff7373;
+  --danger-bg: rgba(255, 115, 115, 0.06);
+  --danger-line: rgba(255, 115, 115, 0.3);
+
+  /* ---- 主题色：默认值（map 页 纯青灰 #7c9aa8，决策 8 已定稿） ---- */
+  --accent: #7c9aa8;
+  --accent-2: #a8c2cc;
+  --accent-deep: #46626e;
+
+  /* 由主题色派生的一次性混色，避免每个组件重复计算 */
+  --accent-soft: rgba(124, 154, 168, 0.12);
+  --accent-line: rgba(124, 154, 168, 0.3);
+  --accent-ring: rgba(124, 154, 168, 0.55);
+  --accent-glow: rgba(124, 154, 168, 0.14);
+  --accent-shadow: rgba(124, 154, 168, 0.22);
+  --accent-btn: #7c9aa8;
+  --accent-btn-2: #a8c2cc;
+  --accent-btn-deep: #46626e;
+  /* 主按钮专用高亮色（决策 11）：每个 Tab 规则内显式定义，不在此处用 var() ——
+     :root 上的 var() 会被固定解析成默认值，无法跟随 Tab 主题。 */
+  --accent-btn: #7c9aa8;
+  --accent-btn-2: #a8c2cc;
+  --accent-btn-deep: #46626e;
+  /* ---- 尺寸：12px 基准（决策 4） ---- */
+  --btn-h: 32px;
+  --btn-h-sm: 26px;
+  --btn-h-lg: 38px;
+  --field-h: 26px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 10px;
+
+  --mono: "Cascadia Code", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --sans: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --shadow-sm: 0 8px 22px rgba(0, 0, 0, 0.28);
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+
+  font-family: var(--sans);
   font-size: 12px;
-  background: #121418;
-  color: #e7e1d6;
+  /* 底色交给 #app：body/html 读不到 #app 上的 --bg 覆盖 */
+  background: transparent;
+  color: var(--text);
 }
+
+/* #app 是 data-searcher 的宿主，各 Tab 的 --bg 覆盖在这里生效；
+   body 是它的父节点，读不到覆盖值，所以底色必须由 #app 承担。 */
+#app { background: var(--page-fill); min-height: 100%; }
+
+/* ============================================================
+   亮色主题覆盖（决策 6）
+   ============================================================ */
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #eef5ef;
+  --bg-2: #e3eee6;
+  --bg-2-fill: #e3eee6;
+  --page-fill: #eef5ef;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-solid: #ffffff;
+  --surface: #ffffff;
+  --input-bg: rgba(255, 255, 255, 0.85);
+  --line: rgba(24, 84, 58, 0.14);
+  --line-strong: rgba(24, 84, 58, 0.28);
+
+  --text: #10241b;
+  --text-2: #294536;
+  --muted: #5d7a6b;
+  --muted-2: #7c9587;
+
+  --gold: #b77a1c;
+  --amber: #b9771f;
+  --danger: #c84444;
+  --danger-bg: rgba(200, 68, 68, 0.07);
+  --danger-line: rgba(200, 68, 68, 0.32);
+
+  --accent: #46626e;
+  --accent-2: #5f7f8c;
+  --accent-deep: #2f4650;
+  --accent-soft: rgba(70, 98, 110, 0.1);
+  --accent-line: rgba(70, 98, 110, 0.28);
+  --accent-ring: rgba(70, 98, 110, 0.5);
+  --accent-glow: rgba(70, 98, 110, 0.12);
+  --accent-shadow: rgba(20, 60, 42, 0.18);
+
+  --shadow-sm: 0 8px 22px rgba(20, 60, 42, 0.1);
+  --shadow: 0 20px 60px rgba(20, 60, 42, 0.16);
+}
+
+/* ============================================================
+   Tab 主题色（决策 1、3、7、8、10）
+
+   只覆盖 --accent* 五件套；gold/danger/amber 保持全局值。
+   同源 Tab（River / LowYDripstoneCave / LowYPitDripstoneCave）使用完全相同
+   的色值，界面不额外标注（决策 7）。
+   ============================================================ */
+
+/* 1. map — 纯青灰 #7c9aa8（决策 8 已定稿） */
+#app[data-searcher="map"] {
+  --accent: #7c9aa8;
+  --accent-2: #a8c2cc;
+  --accent-deep: #46626e;
+  --accent-soft: rgba(124, 154, 168, 0.12);
+  --accent-line: rgba(124, 154, 168, 0.3);
+  --accent-ring: rgba(124, 154, 168, 0.55);
+  --accent-glow: rgba(124, 154, 168, 0.14);
+  --accent-shadow: rgba(124, 154, 168, 0.22);
+  --bg: #1d292a;
+  --bg-2: #1e2f2e;
+  --bg-2-fill: #1e2f2e;
+  --page-fill: #1d292a;
+  --accent-btn: #7c9aa8;
+  --accent-btn-2: #a8c2cc;
+  --accent-btn-deep: #46626e;
+}
+
+/* 2. LowYSwampHut — 沼泽绿（原地图基准色移交至此） */
+#app[data-searcher="LowYSwampHut"] {
+  --accent: #3ddc97;
+  --accent-2: #8ef0c0;
+  --accent-deep: #0f8f5f;
+  --accent-soft: rgba(61, 220, 151, 0.12);
+  --accent-line: rgba(61, 220, 151, 0.3);
+  --accent-ring: rgba(61, 220, 151, 0.55);
+  --accent-glow: rgba(61, 220, 151, 0.14);
+  --accent-shadow: rgba(35, 185, 124, 0.24);
+  --bg: #103626;
+  --bg-2: #123c2b;
+  --bg-2-fill: #123c2b;
+  --page-fill: #103626;
+  --accent-btn: #3ddc97;
+  --accent-btn-2: #8ef0c0;
+  --accent-btn-deep: #0f8f5f;
+}
+
+/* 3-5. River + LowYDripstoneCave + LowYPitDripstoneCave — 蓝系三页同色（决策 7） */
+#app[data-searcher="River"],
+#app[data-searcher="LowYDripstoneCave"],
+#app[data-searcher="LowYPitDripstoneCave"] {
+  --accent: #4aabde;
+  --accent-2: #9ad0f0;
+  --accent-deep: #1e6b96;
+  --accent-soft: rgba(74, 171, 222, 0.12);
+  --accent-line: rgba(74, 171, 222, 0.3);
+  --accent-ring: rgba(74, 171, 222, 0.55);
+  --accent-glow: rgba(74, 171, 222, 0.14);
+  --accent-shadow: rgba(30, 107, 150, 0.26);
+  --bg: #132d34;
+  --bg-2: #143239;
+  --bg-2-fill: #143239;
+  --page-fill: #132d34;
+  --accent-btn: #4aabde;
+  --accent-btn-2: #9ad0f0;
+  --accent-btn-deep: #1e6b96;
+}
+
+/* 6. SlimeChunk — 史莱姆绿 */
+#app[data-searcher="SlimeChunk"] {
+  --accent: #8ed14a;
+  --accent-2: #c4f09a;
+  --accent-deep: #4a8a1e;
+  --accent-soft: rgba(142, 209, 74, 0.12);
+  --accent-line: rgba(142, 209, 74, 0.3);
+  --accent-ring: rgba(142, 209, 74, 0.55);
+  --accent-glow: rgba(142, 209, 74, 0.14);
+  --accent-shadow: rgba(74, 138, 30, 0.24);
+  --bg: #203417;
+  --bg-2: #223a1c;
+  --bg-2-fill: #223a1c;
+  --page-fill: #203417;
+  --accent-btn: #8ed14a;
+  --accent-btn-2: #c4f09a;
+  --accent-btn-deep: #4a8a1e;
+}
+
+/* 7-8. DoubleMonument + MultiMonument 鈥?娴锋櫠闈?*/
+#app[data-searcher="DoubleMonument"],
+#app[data-searcher="MultiMonument"] {
+  /* 取自 Minecraft 海晶石砖（Prismarine Bricks）真实像素：
+     亮部 #6EB3AA / 中间 #4C897E / 暗部 #325E53，全图均值 #4D867C。 */
+  --accent: #509c92;
+  --accent-2: #8dbfb8;
+  --accent-deep: #2e5a55;
+  --accent-soft: rgba(80, 156, 146, 0.14);
+  --accent-line: rgba(80, 156, 146, 0.34);
+  --accent-ring: rgba(80, 156, 146, 0.55);
+  --accent-glow: rgba(80, 156, 146, 0.16);
+  --accent-shadow: rgba(46, 90, 85, 0.38);
+  --bg: #112420;
+  --bg-2: #132a25;
+  --bg-2-fill: #132a25;
+  --page-fill: #112420;
+  --accent-btn: #509c92;
+  --accent-btn-2: #8dbfb8;
+  --accent-btn-deep: #2e5a55;
+}
+/* 9-10. NetherFortress* — 取自下界砖真实像素
+
+   红下界砖 Red Nether Bricks: 亮部 #560D10 / 中间 #320304 / 均值 #360406
+   下界砖   Nether Bricks:     亮部 #361A1F / 中间 #221013 / 均值 #231013
+
+   红砖色相 358°、普通砖 350°，都是极深的暗红，直接做文字/强调色仅 1.x:1。
+   故：--bg 用砖色本体（真正的砖墙底色），--accent 取同色相提亮值，
+   --accent-deep 直接用红下界砖亮部原色。*/
+#app[data-searcher="NetherFortressCross"],
+#app[data-searcher="NetherFortressOverall"] {
+  --accent: #e05256;
+  --accent-2: #e3a0a2;
+  --accent-deep: #560d10;
+  --accent-soft: rgba(224, 82, 86, 0.14);
+  --accent-line: rgba(224, 82, 86, 0.34);
+  --accent-ring: rgba(224, 82, 86, 0.55);
+  --accent-glow: rgba(224, 82, 86, 0.16);
+  --accent-shadow: rgba(86, 13, 16, 0.45);
+  /* 砖色本体：普通下界砖均值 #231013 稍压暗 */
+  --bg: #1a0c0e;
+  --bg-2: #1e1012;
+  --bg-2-fill: #1e1012;
+  --page-fill: #1a0c0e;
+  /* 按钮：#30181C 暗色砖 / #44242A 暖色砖 */
+  --accent-btn: #30181c;
+  --accent-btn-2: #44242a;
+  --accent-btn-deep: #30181c;
+  /* 深色按钮底 -> 必须用浅字（#30181C 配深字仅 1.01:1） */
+  --btn-fg: #f7ebec;
+}
+
+/* 11. TrialSpawner — 铜金 */
+#app[data-searcher="TrialSpawner"] {
+  --accent: #d8a53a;
+  --accent-2: #f0cd82;
+  --accent-deep: #8f6a12;
+  --accent-soft: rgba(216, 165, 58, 0.12);
+  --accent-line: rgba(216, 165, 58, 0.3);
+  --accent-ring: rgba(216, 165, 58, 0.55);
+  --accent-glow: rgba(216, 165, 58, 0.14);
+  --accent-shadow: rgba(143, 106, 18, 0.24);
+  --bg: #2f2b14;
+  --bg-2: #313118;
+  --bg-2-fill: #313118;
+  --page-fill: #2f2b14;
+  --accent-btn: #d8a53a;
+  --accent-btn-2: #f0cd82;
+  --accent-btn-deep: #8f6a12;
+}
+
+/* 12. BuddingAmethyst 鈥?绱按鏅?*/
+#app[data-searcher="BuddingAmethyst"] {
+  --accent: #b07adf;
+  --accent-2: #d6b4f2;
+  --accent-deep: #6f3ba3;
+  --accent-soft: rgba(176, 122, 223, 0.12);
+  --accent-line: rgba(176, 122, 223, 0.3);
+  --accent-ring: rgba(176, 122, 223, 0.55);
+  --accent-glow: rgba(176, 122, 223, 0.14);
+  --accent-shadow: rgba(111, 59, 163, 0.26);
+  --bg: #272335;
+  --bg-2: #292839;
+  --bg-2-fill: #292839;
+  --page-fill: #272335;
+  --accent-btn: #b07adf;
+  --accent-btn-2: #d6b4f2;
+  --accent-btn-deep: #6f3ba3;
+}
+
+/* 13. FlowerFarm — 炫彩渐变（繁花意向）
+
+   单一花种必然与某个 Tab 撞色：牡丹粉紫 #E4AEF6 撞紫水晶(差13°)、
+   金黄蒲公英 #E8D349 撞试炼铜金(差11°)、丁香 #BC73BD 也撞紫水晶(差27°)。
+   故用「花束」渐变表达「全花种」：粉紫 → 玫红，落在 290°~338° 的空闲色相带，
+   主色 #E072C0(317.5°) 与所有 Tab 至少相差 40°。 */
+#app[data-searcher="FlowerFarm"] {
+  --accent: #e072c0;
+  --accent-2: #ecb0dc;
+  --accent-deep: #7d3568;
+  --accent-soft: rgba(224, 114, 192, 0.14);
+  --accent-line: rgba(224, 114, 192, 0.34);
+  --accent-ring: rgba(224, 114, 192, 0.55);
+  --accent-glow: rgba(224, 114, 192, 0.16);
+  --accent-shadow: rgba(125, 53, 104, 0.35);
+  /* 花束渐变：用于进度条、按钮、结果卡强调线 */
+  --accent-grad: linear-gradient(90deg, #d98be8 0%, #e072c0 50%, #e85a8e 100%);
+  --accent-grad-soft: linear-gradient(90deg, rgba(217,139,232,0.22) 0%, rgba(224,114,192,0.22) 50%, rgba(232,90,142,0.22) 100%);
+  /* 进度条轨道：即使 0% 也能看出渐变底色 */
+  --accent-grad-track: linear-gradient(90deg, rgba(217,139,232,0.30) 0%, rgba(224,114,192,0.30) 50%, rgba(232,90,142,0.30) 100%);
+  /* 按钮渐变比进度条深一档，使白字全部端点 CR>=4.78（进度条仍用浅色炫彩） */
+  --accent-grad-btn: linear-gradient(135deg, #ae4c8f 0%, #b04f94 52%, #a8447e 100%);
+  /* 白字：压在加深后的玫红渐变上，最弱端点 CR=4.78 */
+  --btn-fg: #ffffff;
+  /* 粉紫调深底 */
+  --bg: #190d16;
+  --bg-2: #20101c;
+  /* 多色炫彩背景：只用在「非语义」的页面底色上（侧栏/结果区/工作区）。
+     语义元素（--accent 及其派生色）仍是粉紫单色系，保证数字、图标、描边可读。
+     底色压得很暗，多色才不会互相干扰成灰浊。 */
+  --bg-2-fill: linear-gradient(150deg, #2a1526 0%, #1e1426 22%, #14202a 45%, #1a2419 68%, #2a1f14 100%);
+  --page-fill: linear-gradient(150deg, #22121e 0%, #18111f 25%, #101a22 50%, #151e14 75%, #221a11 100%);
+  --accent-btn: #e072c0;
+  --accent-btn-2: #ecb0dc;
+  --accent-btn-deep: #7d3568;
+}
+
+html[data-theme="light"] #app[data-searcher="LowYSwampHut"] {
+  --accent-2: #2ba87a;
+  --accent-deep: #0b6b47;
+}
+
+html[data-theme="light"] #app[data-searcher="River"],
+html[data-theme="light"] #app[data-searcher="LowYDripstoneCave"],
+html[data-theme="light"] #app[data-searcher="LowYPitDripstoneCave"] {
+  --accent-2: #3d8fb8;
+  --accent-deep: #12557d;
+}
+
+html[data-theme="light"] #app[data-searcher="SlimeChunk"] {
+  --accent-2: #6fa832;
+  --accent-deep: #35660f;
+}
+
+html[data-theme="light"] #app[data-searcher="DoubleMonument"],
+html[data-theme="light"] #app[data-searcher="MultiMonument"] {
+  --accent-2: #2a9c8c;
+  --accent-deep: #0d5f55;
+}
+
+html[data-theme="light"] #app[data-searcher="NetherFortressCross"],
+html[data-theme="light"] #app[data-searcher="NetherFortressOverall"] {
+  /* 亮色主题用红下界砖亮部原色 #560D10。
+     它本身很深：作文字时 on #f2e6e4 达 11.78:1，
+     作按钮底时配深字仅 1:1，因此下方 --btn-fg 用浅字。 */
+  --accent: #560d10;
+  --bg: #f2e6e4;
+  --bg-2: #ebdad7;
+  --bg-2-fill: #ebdad7;
+  --page-fill: #f2e6e4;
+  --accent-2: #7a1519;
+  --accent-deep: #2b0304;
+}
+
+html[data-theme="light"] #app[data-searcher="TrialSpawner"] {
+  --accent-2: #b0821f;
+  --accent-deep: #6b4d0a;
+}
+
+html[data-theme="light"] #app[data-searcher="BuddingAmethyst"] {
+  --accent-2: #8f52c4;
+  --accent-deep: #56287e;
+}
+
+html[data-theme="light"] #app[data-searcher="FlowerFarm"] {
+  --accent-2: #3a94b0;
+  --accent-deep: #1c5c73;
+}
+
+/* 亮色主题：主按钮专用高亮色。
+   --accent 在亮色下取深值（用于文字，需 >=4.5:1），
+   但按钮背景需要更亮的色，才能让 #04231a 深字保持对比度（决策 11）。 */
+html[data-theme="light"] { --accent-btn: #12a06c; --accent-btn-2: #17a874; --accent-btn-deep: #0a6e49; }
+html[data-theme="light"] #app[data-searcher="map"] { --btn-fg: #ffffff; --accent-btn: #5a7988; --accent-btn-2: #7c9aa8; --accent-btn-deep: #3d5560; }
+html[data-theme="light"] #app[data-searcher="LowYSwampHut"] { --btn-fg: #ffffff; --accent-btn: #0f8459; --accent-btn-2: #12a06c; --accent-btn-deep: #0a6040; }
+html[data-theme="light"] #app[data-searcher="River"],
+html[data-theme="light"] #app[data-searcher="LowYDripstoneCave"],
+html[data-theme="light"] #app[data-searcher="LowYPitDripstoneCave"] { --btn-fg: #ffffff; --accent-btn: #1f7cad; --accent-btn-2: #4aabde; --accent-btn-deep: #155a80; }
+html[data-theme="light"] #app[data-searcher="SlimeChunk"] { --btn-fg: #ffffff; --accent-btn: #518021; --accent-btn-2: #8ed14a; --accent-btn-deep: #3d6218; }
+html[data-theme="light"] #app[data-searcher="DoubleMonument"],
+html[data-theme="light"] #app[data-searcher="MultiMonument"] { --btn-fg: #ffffff; --accent-btn: #428179; --accent-btn-2: #509c92; --accent-btn-deep: #33635d; }
+html[data-theme="light"] #app[data-searcher="NetherFortressCross"],
+html[data-theme="light"] #app[data-searcher="NetherFortressOverall"] {
+  --accent-btn: #560d10;
+  --accent-btn-2: #6e1417;
+  --accent-btn-deep: #2b0304;
+  /* 砖红深底 -> 浅字（配深字仅 1:1） */
+  --btn-fg: #f7ebec;
+}
+html[data-theme="light"] #app[data-searcher="TrialSpawner"] { --btn-fg: #ffffff; --accent-btn: #946e1d; --accent-btn-2: #d8a53a; --accent-btn-deep: #6d5115; }
+html[data-theme="light"] #app[data-searcher="BuddingAmethyst"] { --btn-fg: #ffffff; --accent-btn: #9a55d6; --accent-btn-2: #b07adf; --accent-btn-deep: #74399f; }
+html[data-theme="light"] #app[data-searcher="FlowerFarm"] { --accent-btn: #d15ba8; --accent-btn-2: #e89bcb; --accent-btn-deep: #7d3568; }
+/* 亮色主题：Tab 主题色统一取深值，保证对比度（决策 11 同理） */
+html[data-theme="light"] {
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 32%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+html[data-theme="light"] #app[data-searcher="map"] { --accent: #46626e; }
+html[data-theme="light"] #app[data-searcher="LowYSwampHut"] { --accent: #0b7a51; }
+html[data-theme="light"] #app[data-searcher="River"],
+html[data-theme="light"] #app[data-searcher="LowYDripstoneCave"],
+html[data-theme="light"] #app[data-searcher="LowYPitDripstoneCave"] { --accent: #1d6f9e; }
+html[data-theme="light"] #app[data-searcher="SlimeChunk"] { --accent: #3f7a16; }
+html[data-theme="light"] #app[data-searcher="DoubleMonument"],
+html[data-theme="light"] #app[data-searcher="MultiMonument"] { --accent: #2c5650; }
+html[data-theme="light"] #app[data-searcher="TrialSpawner"] { --accent: #8a610f; }
+html[data-theme="light"] #app[data-searcher="BuddingAmethyst"] { --accent: #5e2e8c; }
+html[data-theme="light"] #app[data-searcher="FlowerFarm"] { --accent: #a8337e; }
+
+/* ============================================================
+   鍩虹
+   ============================================================ */
 
 * { box-sizing: border-box; }
 
 html, body, #app { margin: 0; height: 100%; }
+html { background: #07130f; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--accent-soft); color: var(--text); }
+
+/* 自定义滚动条 —— 让侧栏与结果栏的滚动条融入深绿基调 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-line);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
 
 button, input, select, textarea {
   font: inherit;
-  color: inherit;
-  background: #222833;
-  border: 1px solid #3c4454;
-  border-radius: 6px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   padding: 4px 6px;
+  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease), background 0.18s var(--ease);
+}
+
+input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent-ring);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 button { cursor: pointer; }
-button:disabled { opacity: 0.45; cursor: default; }
+button:disabled { opacity: 0.42; cursor: not-allowed; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* 越界输入的即时提示（河流四框联动校验用）。 */
-input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
+input.invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger) inset;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
 
 #app {
   display: flex;
@@ -31,65 +515,124 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   min-height: 100%;
 }
 
+/* ============================================================
+   顶栏 / Tab 栏（决策 9：13 个 Tab 用 flex-wrap 两行）
+   ============================================================ */
+
 #menubar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-bottom: 1px solid #2c3340;
-  background: #151922;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
   flex: none;
   position: relative;
   z-index: 20;
 }
 
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: linear-gradient(145deg, var(--accent-soft), transparent);
+  border: 1px solid var(--accent-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* 地图入口：地图已从 Tab 栏移除，改由这个图标承载。 */
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.brand-mark:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.brand-mark.active {
+  background: linear-gradient(180deg, var(--accent-soft), transparent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.brand-mark img,
+.brand-mark .icon {
+  width: 16px;
+  height: 16px;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+/* 13 个 Tab 的容器：flex-wrap 自然换行成两行（决策 9）
+   实测宽度：中文约 1279px / 英文约 1749px；1500px 窗口可用约 1358px。
+   因此中文只占一行、英文占两行 —— 用 min-height 锁定两行高度，
+   避免切换语言时顶栏高度跳变（风险 5）。 */
+.app-tabs,
 .searcher-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   gap: 4px;
   flex: 1;
   min-width: 0;
-  padding: 0 4px;
+  /* 单行高度 = 26 + padding 6 = 32px。中文实测仅 1 行，顶栏收窄；
+     英文需 2 行时由 flex-wrap 自动撑高到 62px（不抖动，只是按需变高）。 */
+  min-height: 34px;
+  padding: 3px;
+  border-radius: var(--radius);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
 }
 
-.searcher-chip {
+/* 单个 Tab：禁止拉伸、禁止内部折行，保证两行稳定不抖动 */
+.tab {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  height: var(--btn-h-sm);
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
-  border-color: transparent;
-  padding: 3px 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 650;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease), border-color 0.18s var(--ease);
 }
-.searcher-icon {
-  width: 14px;
-  height: 14px;
+.tab:hover:not(:disabled) { color: var(--text-2); background: var(--accent-soft); }
+.tab.active {
+  color: var(--text);
+  /* 花田等设了 --accent-grad-soft 的主题会显示彩色胶囊，其余主题维持原样 */
+  background: var(--accent-grad-soft, linear-gradient(180deg, var(--accent-soft), transparent));
+  border-color: var(--accent-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.searcher-icon,
+.tab .icon {
+  width: 13px;
+  height: 13px;
   flex: none;
   image-rendering: pixelated;
   object-fit: contain;
 }
 .searcher-icon-empty {
-  border: 1px dashed #4b5464;
+  border: 1px dashed var(--line-strong);
   border-radius: 3px;
   opacity: 0.55;
 }
-.searcher-chip:hover:not(:disabled) { background: #222833; border-color: #3c4454; }
-.searcher-chip.active { background: #3d6b4f; border-color: #6ea884; }
 
-.menu-lang {
+/* 顶栏右侧操作区：语言 + 主题切换 */
+.topbar-actions {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 6px;
 }
-.flat-lang {
-  flex: none;
-  margin-left: auto;
-  padding: 0 4px;
-  white-space: nowrap;
-}
-
 .search-panel {
   min-height: 0;
   overflow: hidden;
@@ -106,7 +649,7 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   flex: none;
   margin-top: auto;
   padding-top: 8px;
-  border-top: 1px solid #2c3340;
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -136,31 +679,31 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   list-style: none;
   max-height: 180px;
   overflow-y: auto;
-  background: #222833;
-  border: 1px solid #3c4454;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
 /* 作者样式里的 display 会盖掉 UA 的 [hidden]，这里重申一次。 */
 .y-combo-menu[hidden] { display: none; }
 .y-combo-menu li { padding: 3px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
-.y-combo-menu li:hover { background: #2d3546; }
-.y-combo-menu li.is-active { background: #33507a; }
-/* 紫水晶模距：输入框后面跟“区块数 N×N”。 */
+.y-combo-menu li:hover { background: var(--surface-2); }
+.y-combo-menu li.is-active { background: var(--accent-soft); }
+/* 绱按鏅舵ā璺濓細杈撳叆妗嗗悗闈㈣窡鈥滃尯鍧楁暟 N脳N鈥濄€?*/
 .sim-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
 .sim-row input { width: 72px; flex: none; }
 .sim-row .hint { white-space: nowrap; }
 .progress-track {
   height: 10px;
-  background: #12161d;
-  border: 1px solid #3c4454;
+  background: var(--input-bg);
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   overflow: hidden;
 }
 .progress-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #3d6b4f, #6ea884);
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
   transition: width 0.15s linear;
 }
 
@@ -176,7 +719,9 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   display: flex;
   flex-direction: column;
   border-right: none;
-  background: #181c24;
+  /* 侧栏底与结果区保持一致。用 --bg-2-fill：
+     默认等于 --bg-2 纯色，花田等主题把它换成渐变即为炫彩背景。 */
+  background: var(--bg-2-fill);
   min-height: 0;
   min-width: 180px;
   max-width: 560px;
@@ -186,13 +731,13 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   width: 5px;
   flex: none;
   cursor: col-resize;
-  background: #2c3340;
+  background: var(--line);
   position: relative;
   z-index: 5;
 }
 .col-resizer:hover,
 .col-resizer.active {
-  background: #6ea884;
+  background: var(--accent);
 }
 
 #panel {
@@ -215,7 +760,7 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .row[hidden], .hint[hidden] { display: none; }
 /* 河流页两种模式互斥的门槛输入框：隐藏时整对（标签+输入框）从网格里摘掉。 */
 .grid > [hidden] { display: none; }
-.hint { color: #b7c0aa; font-size: 12px; line-height: 1.4; }
+.hint { color: var(--text-2); font-size: 12px; line-height: 1.4; }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 12px; }
 .feature { display: flex; gap: 6px; align-items: center; }
 /* Disabled layer checkbox: the label text dims with its input. */
@@ -228,7 +773,7 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   width: 300px;
   flex: none;
   border-right: none;
-  background: #151922;
+  background: var(--bg-2-fill);
   min-height: 0;
   min-width: 180px;
   max-width: 560px;
@@ -247,7 +792,7 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .results-jump {
   flex: none;
   padding-bottom: 8px;
-  border-bottom: 1px solid #2c3340;
+  border-bottom: 1px solid var(--line);
 }
 
 .jump-coords label { min-width: 12px; }
@@ -256,7 +801,7 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   flex: 1;
   min-width: 0;
   resize: vertical;
-  background: #12161d;
+  background: var(--input-bg);
 }
 
 .results-list {
@@ -271,20 +816,29 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .results-empty {
   margin: 24px auto;
   text-align: center;
-  opacity: 0.7;
+  color: var(--muted);
+  opacity: 0.8;
+  font-size: 11.5px;
 }
 
 .result-card {
-  border: 1px solid #2c3340;
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   padding: 8px;
-  background: #1a1f28;
+  background: var(--surface);
   cursor: pointer;
+  transition: transform 0.16s var(--ease), border-color 0.16s var(--ease),
+              background 0.16s var(--ease), box-shadow 0.16s var(--ease);
 }
-.result-card:hover { border-color: #6ea884; background: #203028; }
+.result-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-sm);
+}
 .result-seed {
   font-size: 11px;
-  color: #9bb8a4;
+  color: var(--muted);
   margin-bottom: 4px;
   word-break: break-all;
 }
@@ -297,7 +851,7 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .result-dummies {
   margin-top: 4px;
   font-size: 12px;
-  color: #8fa79a;
+  color: var(--muted);
   word-break: break-all;
 }
 .result-dummies > div {
@@ -306,14 +860,14 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .result-gate {
   margin-top: 4px;
   font-size: 12px;
-  color: #8fa79a;
+  color: var(--muted);
 }
 .result-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 10px;
   margin-top: 6px;
-  color: #b7c0aa;
+  color: var(--text-2);
 }
 /* 河流结果卡的分数行独占一行，其后的面积项自动换到下一行。 */
 .result-stats .result-score {
@@ -332,26 +886,32 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .result-nether {
   margin-top: 4px;
   font-size: 12px;
-  color: #c9a08a;
+  color: var(--gold);
 }
 .results-export {
   flex: none;
-  border-top: 1px solid #2c3340;
+  border-top: 1px dashed var(--line);
   padding-top: 8px;
 }
 .results-export button { flex: 1; }
 
 #stage { flex: 1; position: relative; min-width: 0; }
-#map { width: 100%; height: 100%; display: block; background: #0e1116; cursor: grab; }
+#map { width: 100%; height: 100%; display: block; background: var(--bg); cursor: grab; }
 #map.dragging { cursor: grabbing; }
 #readout {
   position: absolute;
   left: 12px;
   bottom: 12px;
-  background: rgba(10, 12, 16, 0.78);
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 12px;
+  background: color-mix(in srgb, var(--panel-solid) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--text-2);
+  box-shadow: var(--shadow-sm);
   pointer-events: none;
 }
 #structure-info {
@@ -359,8 +919,10 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
   left: 12px;
   top: 12px;
   max-width: min(380px, calc(100% - 24px));
-  background: rgba(10, 12, 16, 0.86);
-  border: 1px solid #3c4454;
+  background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
@@ -372,8 +934,8 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 #structure-info[hidden] { display: none; }
 #structure-info .si-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 #structure-info .si-icon { width: 24px; height: 24px; image-rendering: pixelated; flex: none; }
-#structure-info .si-coords { color: #b7c0aa; }
-#structure-info .si-details { display: flex; flex-direction: column; gap: 2px; color: #d5dbe6; }
+#structure-info .si-coords { color: var(--text-2); }
+#structure-info .si-details { display: flex; flex-direction: column; gap: 2px; color: var(--text-2); }
 #tools { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; }
 
 #modal {
@@ -389,8 +951,8 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 #modal.show { display: flex; }
 #dialog {
   width: min(480px, 100%);
-  background: #1c212b;
-  border: 1px solid #3c4454;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 16px;
   display: flex;
@@ -400,7 +962,524 @@ input.invalid { border-color: #c9584f; box-shadow: 0 0 0 1px #c9584f inset; }
 .about-body {
   white-space: normal;
   line-height: 1.55;
-  color: #d5dbe6;
+  color: var(--text-2);
   max-height: 50vh;
   overflow: auto;
+}
+
+/* ============================================================
+   组件库（阶段 2）
+   尺寸按 12px 基准缩放（决策 4）：按钮 32/26/38，输入 26，圆角 8/6
+   ============================================================ */
+
+/* ---- 按钮 ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--btn-h);
+  padding: 0 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease),
+              background 0.16s var(--ease), border-color 0.16s var(--ease);
+}
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  background: var(--accent-glow);
+}
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn:disabled { opacity: 0.42; cursor: not-allowed; transform: none; }
+.btn .icon { width: 13px; height: 13px; flex: none; }
+
+.btn.sm { height: var(--btn-h-sm); padding: 0 9px; font-size: 11.5px; border-radius: 7px; }
+.btn.sm .icon { width: 12px; height: 12px; }
+.btn.lg { height: var(--btn-h-lg); padding: 0 16px; font-size: 12.5px; border-radius: var(--radius-lg); }
+
+/* 主行动色：随 Tab 主题变化（决策 3）。文字色由 --btn-fg 控制：
+   浅底主题用深字 #04231a，地狱等深底主题改用浅字（见 Nether 规则）。 */
+.btn.primary {
+  background: var(--accent-grad-btn, linear-gradient(135deg, var(--accent-btn) 0%, var(--accent-deep) 100%));
+  border-color: var(--accent-line);
+  color: var(--btn-fg, #04231a);
+  box-shadow: 0 6px 16px var(--accent-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-btn-2) 0%, var(--accent-btn) 100%);
+  box-shadow: 0 8px 20px var(--accent-shadow);
+}
+.btn.primary:disabled { box-shadow: none; }
+
+/* 语义色按钮：固定不跟随主题（决策 10） */
+.btn.amber {
+  background: linear-gradient(135deg, #f7ca7e, #e9a544);
+  border-color: rgba(246, 198, 106, 0.55);
+  color: #2a1a06;
+  box-shadow: 0 6px 14px rgba(233, 165, 68, 0.2);
+}
+.btn.amber:hover:not(:disabled) { background: linear-gradient(135deg, #ffd796, #f2b45a); }
+.btn.amber:disabled { box-shadow: none; }
+
+.btn.danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+.btn.danger:hover:not(:disabled) { background: rgba(255, 115, 115, 0.12); border-color: var(--danger); }
+html[data-theme="light"] .btn.danger:hover:not(:disabled) { background: rgba(200, 68, 68, 0.12); }
+
+.btn.ghost { background: transparent; border-color: var(--line); color: var(--text-2); }
+.btn.ghost:hover:not(:disabled) { background: var(--accent-soft); color: var(--text); }
+
+.mini-btn {
+  height: var(--btn-h-sm);
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.16s var(--ease);
+}
+.mini-btn:hover:not(:disabled) { border-color: var(--line-strong); color: var(--text); }
+
+.icon-btn {
+  margin-left: auto;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+/* ---- 自绘勾选框 ---- */
+.check-row,
+label.feature {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+}
+.check-row > input[type="checkbox"],
+label.feature > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  background: var(--input-bg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease);
+}
+.check-row > input[type="checkbox"]:checked,
+label.feature > input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  border-color: var(--accent-line);
+}
+.check-row > input[type="checkbox"]:checked::after,
+label.feature > input[type="checkbox"]:checked::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid #04231a;
+  border-bottom: 2px solid #04231a;
+  transform: rotate(-45deg) translateY(-1px);
+}
+.check-row > input[type="checkbox"]:focus-visible,
+label.feature > input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.check-row > input[type="checkbox"]:disabled + span,
+label.feature > input[type="checkbox"]:disabled + span { opacity: 0.45; }
+html[data-theme="light"] .check-row > input[type="checkbox"]:checked::after,
+html[data-theme="light"] label.feature > input[type="checkbox"]:checked::after {
+  border-color: #fff;
+}
+
+/* ---- 进度卡（决策 14：精简版 —— 百分比 + 1 格元数据 + 1 行 ETA） ---- */
+.progress-card {
+  flex: none;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(240px 90px at 100% 0%, var(--accent-soft), transparent 70%),
+    var(--input-bg);
+  padding: 9px 11px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.progress-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.progress-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-2);
+}
+.state-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+.progress-card.is-running .state-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 10px var(--accent-ring);
+  animation: aio-pulse 1.6s ease-in-out infinite;
+}
+.progress-card.is-paused .state-dot { background: var(--amber); box-shadow: 0 0 0 3px rgba(243, 177, 95, 0.16); }
+.progress-card.is-done .state-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.progress-card.is-error .state-dot { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 115, 115, 0.16); }
+
+@keyframes aio-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.progress-percent {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-grad-track, var(--accent-soft));
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.progress-fill,
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: var(--accent-grad, linear-gradient(90deg, var(--accent-deep), var(--accent) 55%, var(--accent-2)));
+  box-shadow: 0 0 12px var(--accent-shadow);
+  transition: width 0.18s linear;
+  position: relative;
+}
+.progress-card.is-running .progress-fill,
+.progress-card.is-running .progress-bar { overflow: hidden; }
+.progress-card.is-running .progress-fill::after,
+.progress-card.is-running .progress-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.3) 45%, transparent 70%);
+  background-size: 200% 100%;
+  animation: aio-shimmer 1.8s linear infinite;
+}
+@keyframes aio-shimmer { to { background-position: -200% 0; } }
+
+/* 1 格元数据 + 1 行 ETA（精简布局） */
+.progress-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.progress-meta > strong {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.progress-estimate {
+  font-size: 10.5px;
+  color: var(--muted-2);
+  line-height: 1.4;
+  min-height: 14px;
+}
+
+/* ---- 计数徽章 / 状态徽章 ---- */
+.count-badge {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* 修复：results.ts 使用 class="badge" 但此前无样式 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+/* ---- 弹窗 ---- */
+#modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 10, 7, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+#modal.show { display: flex; }
+
+#dialog {
+  width: min(460px, 100%);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+  line-height: 1.55;
+}
+#dialog > strong { color: var(--text); font-size: 13px; }
+#dialog .row { justify-content: flex-end; }
+
+.about-body {
+  white-space: normal;
+  line-height: 1.55;
+  color: var(--text-2);
+  max-height: 50vh;
+  overflow: auto;
+  font-size: 11.5px;
+}
+
+/* ---- Toast（决策 16：仅非阻塞轻提示） ---- */
+.toast-host {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  min-width: 150px;
+  max-width: 320px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--panel-solid);
+  border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: aio-toast-in 0.24s var(--ease);
+}
+.toast .icon { width: 13px; height: 13px; flex: none; color: var(--accent); }
+.toast.is-leaving { animation: aio-toast-out 0.2s var(--ease) forwards; }
+.toast.is-error { border-color: var(--danger-line); }
+.toast.is-error .icon { color: var(--danger); }
+
+@keyframes aio-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes aio-toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+
+/* ============================================================
+   亮色主题下的页面底色（必须放在暗色 Tab 规则之后）
+   暗色 Tab 规则里已有 --bg，选择器优先级相同、后者生效，
+   因此亮色必须用 html[data-theme="light"] 前缀提高优先级才能覆盖。
+   ============================================================ */
+html[data-theme="light"] #app[data-searcher="map"] { --bg: #e5eee9; --bg-2: #dbe7e1; --bg-2-fill: #dbe7e1; --page-fill: #e5eee9; }
+html[data-theme="light"] #app[data-searcher="LowYSwampHut"] { --bg: #e0f3e8; --bg-2: #d6ede0; --bg-2-fill: #d6ede0; --page-fill: #e0f3e8; }
+html[data-theme="light"] #app[data-searcher="River"],
+html[data-theme="light"] #app[data-searcher="LowYDripstoneCave"],
+html[data-theme="light"] #app[data-searcher="LowYPitDripstoneCave"] { --bg: #e1efee; --bg-2: #d7e9e5; --bg-2-fill: #d7e9e5; --page-fill: #e1efee; }
+html[data-theme="light"] #app[data-searcher="SlimeChunk"] { --bg: #e6f2e2; --bg-2: #dcecda; --bg-2-fill: #dcecda; --page-fill: #e6f2e2; }
+html[data-theme="light"] #app[data-searcher="DoubleMonument"],
+html[data-theme="light"] #app[data-searcher="MultiMonument"] { --bg: #deece6; --bg-2: #d4e6de; --bg-2-fill: #d4e6de; --page-fill: #deece6; }
+html[data-theme="light"] #app[data-searcher="NetherFortressCross"],
+html[data-theme="light"] #app[data-searcher="NetherFortressOverall"] { --bg: #f2e6e4; --bg-2: #ebdad7; --bg-2-fill: #ebdad7; --page-fill: #f2e6e4; }
+html[data-theme="light"] #app[data-searcher="TrialSpawner"] {
+  /* 暖金底色：此前色相 73°/83° 偏绿，锁回金色 40° */
+  --bg: #f2e9d7;
+  --bg-2: #ecdfc3;
+  --bg-2-fill: #ecdfc3;
+  --page-fill: #f2e9d7;
+}
+html[data-theme="light"] #app[data-searcher="BuddingAmethyst"] {
+  /* 淡紫底色：此前色相 216°/180° 偏青灰，锁回紫色 285° */
+  --bg: #ecddf1;
+  --bg-2: #e2c9eb;
+  --bg-2-fill: #e2c9eb;
+  --page-fill: #ecddf1;
+}
+html[data-theme="light"] #app[data-searcher="FlowerFarm"] {
+  --bg: #f6ecf3;
+  --bg-2: #f1e2ec;
+  /* 浅色下的多色炫彩背景：同样只用于非语义的页面底色。
+     浅底上的多色必须极淡（3~6% 饱和），否则会像调色板一样花。 */
+  --bg-2-fill: linear-gradient(150deg, #f9eef3 0%, #f2edf8 22%, #eaf0f8 45%, #eef4ec 68%, #f8f3ea 100%);
+  --page-fill: linear-gradient(150deg, #fcf6f9 0%, #f6f2fb 25%, #f0f4fb 50%, #f2f7f1 75%, #fbf7f0 100%);
+}
+
+/* ===== 亮色主题：原生浅色系（file 按钮 / help 文本 / 标题栏）===== */
+/* 亮色主题下这几处改用系统原生浅色外观，而不是自定义的绿调主题色，
+   以获得与 Windows 原生界面一致的观感。 */
+
+/* --- 标题栏（#menubar + Tab 栏）--- */
+html[data-theme="light"] #menubar {
+  background: #f3f3f3;
+  border-bottom: 1px solid #e0e0e0;
+}
+html[data-theme="light"] .app-tabs,
+html[data-theme="light"] .searcher-bar {
+  background: #ffffff;
+  border-color: #dcdcdc;
+}
+html[data-theme="light"] .tab,
+html[data-theme="light"] .searcher-chip {
+  color: #444444;
+}
+html[data-theme="light"] .tab:hover:not(:disabled),
+html[data-theme="light"] .searcher-chip:hover:not(:disabled) {
+  color: #1a1a1a;
+  background: #ececec;
+}
+html[data-theme="light"] .tab.active,
+html[data-theme="light"] .searcher-chip.active {
+  color: #1a1a1a;
+  /* 有主题渐变就沿用（如花田），否则用原生白胶囊 */
+  background: var(--accent-grad-soft, #ffffff);
+  border-color: #c8c8c8;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+html[data-theme="light"] .brand-mark {
+  background: #ffffff;
+  border-color: #dcdcdc;
+  box-shadow: none;
+}
+html[data-theme="light"] .topbar-actions .mini-btn {
+  background: #ffffff;
+  border-color: #c8c8c8;
+  color: #333333;
+}
+html[data-theme="light"] .topbar-actions .mini-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+  color: #111111;
+}
+
+/* --- file 按钮（选择文件 / 浏览类按钮）--- */
+html[data-theme="light"] #panel .btn.ghost,
+html[data-theme="light"] button[id$="-file"],
+html[data-theme="light"] .btn.sm {
+  color: #1a1a1a;
+}
+html[data-theme="light"] button[id$="-file"] {
+  background: #ffffff;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  color: #1a1a1a;
+  padding: 3px 10px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light"] button[id$="-file"]:hover:not(:disabled) {
+  background: #f7f7f7;
+  border-color: #a8a8a8;
+}
+
+/* --- help 文本 --- */
+html[data-theme="light"] .hint,
+html[data-theme="light"] #panel .hint {
+  color: #666666;
+}
+html[data-theme="light"] .progress-estimate {
+  color: #767676;
+}
+
+/* ===== 亮色主题：侧栏/结果区沿用各 Tab 的浅色底 ===== */
+/* 上一轮为了改善 help 文字可读性，这里被统一成了 #fafafa，
+   结果所有 Tab 的浅色底板都变成纯白、丢掉了各自的色调。
+   现在改回 --bg-2（由各 Tab 的主题色混出的浅色），
+   只把输入控件保持白底，兼顾辨识度与可读性。 */
+html[data-theme="light"] #sidebar,
+html[data-theme="light"] #results-host {
+  background: var(--bg-2-fill);
+  border-right: 1px solid var(--line);
+}
+html[data-theme="light"] #panel {
+  background: transparent;
+}
+/* 区域之间的拖拽条跟着主题走 */
+html[data-theme="light"] .col-resizer {
+  background: var(--line-strong);
+}
+html[data-theme="light"] .col-resizer:hover,
+html[data-theme="light"] .col-resizer.active {
+  background: var(--accent);
+}
+/* 输入控件：白底 + 浅灰边，与原生一致 */
+html[data-theme="light"] .grid > input,
+html[data-theme="light"] .grid > select,
+html[data-theme="light"] .search-panel-body input,
+html[data-theme="light"] .search-panel-body select,
+html[data-theme="light"] .search-panel-body textarea,
+html[data-theme="light"] #results input,
+html[data-theme="light"] #results textarea {
+  background: #ffffff;
+  border-color: #d0d0d0;
+  color: #1a1a1a;
+}
+/* 结果卡也跟着用原生白 */
+html[data-theme="light"] .result-card {
+  background: #ffffff;
+  border-color: #e0e0e0;
 }

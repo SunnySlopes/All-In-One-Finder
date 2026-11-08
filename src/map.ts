@@ -424,10 +424,10 @@ export class MapView {
         <label class="feature span-full"><input id="map-large" type="checkbox" /><span data-i18n="common.map.largeBiomes"></span></label>
       </div>
       <div class="row">
-        <label class="feature"><input id="map-grid" type="checkbox" checked /><span data-i18n="common.map.grid"></span></label>
+        <label class="check-row"><input id="map-grid" type="checkbox" checked /><span data-i18n="common.map.grid"></span></label>
       </div>
       <div class="row" id="map-terrain-row">
-        <label class="feature"><input id="map-terrain" type="checkbox" /><span data-i18n="common.map.terrain"></span></label>
+        <label class="check-row"><input id="map-terrain" type="checkbox" /><span data-i18n="common.map.terrain"></span></label>
       </div>
       <div id="map-layer-hint" class="hint" hidden></div>
       <div id="map-features" class="features"></div>
@@ -468,7 +468,7 @@ export class MapView {
     stage.append(this.canvas, this.readout, this.info);
     const tools = document.createElement('div');
     tools.id = 'tools';
-    tools.innerHTML = `<button type="button" id="zoom-in">+</button><button type="button" id="zoom-out">−</button>`;
+    tools.innerHTML = `<button type="button" class="btn ghost sm" id="zoom-in">+</button><button type="button" class="btn ghost sm" id="zoom-out">−</button>`;
     stage.append(tools);
     tools.querySelector('#zoom-in')!.addEventListener('click', () => this.zoom(1.25));
     tools.querySelector('#zoom-out')!.addEventListener('click', () => this.zoom(0.8));
@@ -1047,7 +1047,7 @@ export class MapView {
           ? `<img class="icon" src="/icons/${icon}.png" alt="" />`
           : `<span class="swatch" style="background:${COLORS[feature.key] || '#ddd'}"></span>`;
         return `
-      <label class="feature">
+      <label class="check-row">
         <input type="checkbox" data-id="${feature.id}" ${this.enabled.has(feature.id) ? 'checked' : ''} />
         ${mark}
         <span>${structureLabel(feature.key)}</span>

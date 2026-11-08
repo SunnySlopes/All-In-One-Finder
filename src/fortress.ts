@@ -1,7 +1,7 @@
 import { showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type FortressStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
@@ -101,12 +101,12 @@ export class FortressPanel {
           <label data-i18n="common.search.maxZ"></label><input id="f-maxz" type="number" value="16383" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="f-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="f-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="f-side" type="number" min="1" max="${MAX_SQUARE_SIDE}" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="f-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="f-border" type="button" data-i18n="fortress.maxRange"></button>
+          <button id="f-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="f-border" type="button" class="btn ghost sm" data-i18n="fortress.maxRange"></button>
           <button id="f-bordermode" type="button" hidden></button>
         </div>
         <div id="f-params"></div>
@@ -330,14 +330,20 @@ export class FortressPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="f-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
-        <button id="f-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="f-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="f-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
+        <button id="f-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="f-stop" type="button" class="btn danger" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="f-bar"></div></div>
-      <div id="f-progress" class="hint"></div>
-      <div id="f-elapsed" class="hint"></div>
-      <div id="f-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="f-state"></span></span>
+          <span class="progress-percent" id="f-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="f-bar"></div></div>
+        <div class="progress-meta"><strong id="f-progress"></strong></div>
+        <div id="f-elapsed" class="hint"></div>
+        <div id="f-eta" class="progress-estimate"></div>
+      </div>
     `;
     this.footer.querySelector('#f-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#f-pause')?.addEventListener('click', () => void this.togglePause());
@@ -345,6 +351,7 @@ export class FortressPanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    initProgressCard(this.footer, 'f');
   }
 
   private readFields(): void {
@@ -522,6 +529,11 @@ export class FortressPanel {
       const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
+  
+    paintProgressCard(this.footer, 'f', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   private progressText(status: FortressStatus): string {
@@ -544,4 +556,12 @@ export class FortressPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: FortressStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}

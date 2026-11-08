@@ -9,7 +9,7 @@ import {
   RIVER_WARN_SPAN_GT_24,
   RIVER_WARN_YMIN_GT_NEG58,
 } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
 
@@ -195,12 +195,12 @@ export class RiverPanel {
           <label data-i18n="common.search.maxZ"></label><input id="rv-maxz" type="number" value="65535" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="rv-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="rv-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="rv-side" type="number" value="${DEFAULT_SINGLE_SIDE}" />
         </div>
         <div class="row">
-          <button id="rv-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="rv-border" type="button" data-i18n="common.search.border"></button>
+          <button id="rv-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="rv-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div class="grid">
           <label data-i18n="river.mode"></label>
@@ -545,14 +545,20 @@ export class RiverPanel {
     this.renderSeedBlock();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="rv-start" type="button" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
-        <button id="rv-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="rv-stop" type="button" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="rv-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running ? 'disabled' : ''}></button>
+        <button id="rv-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="rv-stop" type="button" class="btn danger" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="rv-bar"></div></div>
-      <div id="rv-progress" class="hint"></div>
-      <div id="rv-elapsed" class="hint"></div>
-      <div id="rv-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="rv-state"></span></span>
+          <span class="progress-percent" id="rv-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="rv-bar"></div></div>
+        <div class="progress-meta"><strong id="rv-progress"></strong></div>
+        <div id="rv-elapsed" class="hint"></div>
+        <div id="rv-eta" class="progress-estimate"></div>
+      </div>
     `;
     this.footer.querySelector('#rv-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#rv-pause')?.addEventListener('click', () => void this.togglePause());
@@ -563,6 +569,7 @@ export class RiverPanel {
     // 否则"未参与当前模式的两项不可编辑"会在每次搜索结束后失效。
     this.applyMode();
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    initProgressCard(this.footer, 'rv');
   }
 
   private readFields(): void {
@@ -899,6 +906,11 @@ export class RiverPanel {
       const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
+  
+    paintProgressCard(this.footer, 'rv', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   /** 逐条展示引擎 warning；任一条选「否」即停止当前搜索。 */
@@ -947,4 +959,12 @@ export class RiverPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: RiverStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}

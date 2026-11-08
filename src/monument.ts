@@ -1,7 +1,7 @@
 import { showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type MonumentStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
@@ -99,12 +99,12 @@ export class MonumentPanel {
           <label data-i18n="common.search.maxZ"></label><input id="m-maxz" type="number" value="65535" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="m-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="m-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="m-side" type="number" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="m-reset" type="button" data-i18n="monument.resetDefault"></button>
-          <button id="m-border" type="button" data-i18n="common.search.border"></button>
+          <button id="m-reset" type="button" class="btn ghost sm" data-i18n="monument.resetDefault"></button>
+          <button id="m-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div id="m-params"></div>
       </div>
@@ -248,7 +248,7 @@ export class MonumentPanel {
     if (borderButton) borderButton.hidden = this.variant === 'double';
 
     const biomeRow = `
-        <label class="feature">
+        <label class="check-row">
           <input id="m-biome" type="checkbox"${this.biomeCheck ? ' checked' : ''} />
           <span data-i18n="monument.biomeCheck"></span>
         </label>`;
@@ -301,14 +301,20 @@ export class MonumentPanel {
 
     this.footer.innerHTML = `
       <div class="row">
-        <button id="m-start" type="button" data-i18n="common.search.start" ${this.running || this.stopping || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
-        <button id="m-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
-        <button id="m-stop" type="button" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="m-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running || this.stopping || isOtherSearcherRunning(this.tab) ? 'disabled' : ''}></button>
+        <button id="m-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
+        <button id="m-stop" type="button" class="btn danger" data-i18n="${this.stopping ? 'common.search.stopping' : 'common.search.stop'}" ${this.running && !this.stopping ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="m-bar"></div></div>
-      <div id="m-progress" class="hint"></div>
-      <div id="m-elapsed" class="hint"></div>
-      <div id="m-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="m-state"></span></span>
+          <span class="progress-percent" id="m-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="m-bar"></div></div>
+        <div class="progress-meta"><strong id="m-progress"></strong></div>
+        <div id="m-elapsed" class="hint"></div>
+        <div id="m-eta" class="progress-estimate"></div>
+      </div>
     `;
     this.footer.querySelector('#m-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#m-pause')?.addEventListener('click', () => void this.togglePause());
@@ -316,6 +322,7 @@ export class MonumentPanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    initProgressCard(this.footer, 'm');
   }
 
   private stopOp(): string {
@@ -527,6 +534,11 @@ export class MonumentPanel {
       const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
+  
+    paintProgressCard(this.footer, 'm', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   private progressText(status: MonumentStatus): string {
@@ -554,4 +566,12 @@ export class MonumentPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: MonumentStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}

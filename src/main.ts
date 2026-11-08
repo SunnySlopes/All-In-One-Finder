@@ -1,12 +1,19 @@
 import './style.css';
-import { escapeText, showNotice } from './dialog';
-import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n';
+import { escapeText } from './dialog';
+import { applyI18n, locale, onLocale, setLocale, t } from './i18n';
 import { MapView } from './map';
 import { FlowerPanel } from './flower';
 import { FortressPanel } from './fortress';
 import { GeodePanel } from './geode';
 import { MonumentPanel } from './monument';
 import { call, type FeatureInfo, type McVersion } from './native';
+import {
+  applyThemeToDom,
+  storeTheme,
+  storedTheme,
+  systemTheme,
+  type ThemeId,
+} from './theme';
 import { ResultsColumn } from './results';
 import { RiverPanel } from './river';
 import { SearchPanel } from './search';
@@ -15,19 +22,18 @@ import { TrialPanel } from './trial';
 import { WitchPanel } from './witch';
 import { onRunLockChange, runLockOwner } from './run-lock';
 import { SEARCHER_ITEMS, type SearcherId } from './searchers';
-import { parseSessionFile, type MapSessionData } from './session';
+import { type MapSessionData } from './session';
 
-const app = document.querySelector('#app')!;
+const app = document.querySelector<HTMLElement>('#app')!;
 app.innerHTML = `
   <header id="menubar">
-    <nav id="searcher-bar" class="searcher-bar" data-i18n-aria-label="common.map.searchersLabel"></nav>
-    <label class="menu-lang flat-lang">
-      <span data-i18n="common.menu.language"></span>
-      <select id="language">
-        <option value="zh">中文</option>
-        <option value="en">English</option>
-      </select>
-    </label>
+    <button type="button" class="brand-mark" id="map-home" data-i18n-title="common.searcher.map" data-i18n-aria-label="common.searcher.map"><img src="/icon.png" alt="" draggable="false" /></button>
+    <nav id="searcher-bar" class="app-tabs" role="tablist" data-i18n-aria-label="common.map.searchersLabel"></nav>
+    <div class="topbar-actions">
+      <button type="button" class="mini-btn" id="theme-toggle" aria-label="theme"></button>
+      <button type="button" class="mini-btn" id="lang-toggle" aria-label="language"></button>
+      <button type="button" class="mini-btn" id="about-toggle" data-i18n-title="common.about.title"></button>
+    </div>
   </header>
   <div id="workspace">
     <aside id="sidebar"><div id="panel"></div></aside>
@@ -37,11 +43,14 @@ app.innerHTML = `
     <div id="stage"></div>
   </div>
   <div id="modal"><div id="dialog"></div></div>
+  <div id="toast-host" class="toast-host"></div>
 `;
 
 const panel = document.querySelector('#panel')!;
 const resultsHost = document.querySelector<HTMLElement>('#results-host')!;
 const searcherBar = document.querySelector('#searcher-bar')!;
+/** 顶栏左侧的品牌图标：点击回到地图（地图不再占用独立 Tab）。 */
+const mapHome = document.querySelector<HTMLButtonElement>('#map-home')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const map = new MapView();
 const search = new SearchPanel();
@@ -103,7 +112,9 @@ function collectSearcherStates(): Record<string, unknown> {
 }
 
 function sessionSnapshot(): MapSessionData {
-  return map.exportSnapshot();
+  // 主题随存档一起落盘：换会话/重开程序时沿用用户上次的选择，
+  // 而不是重新跟随系统。旧存档没有该字段时保持原行为（跟随系统/本地记录）。
+  return { ...map.exportSnapshot(), theme: currentTheme };
 }
 
 function applySearcherStates(states: unknown): void {
@@ -207,7 +218,7 @@ function searcherIcon(icon: string | undefined): string {
 function paintSearcherBar(): void {
   searcherBar.innerHTML = SEARCHER_ITEMS.map(
     (item) =>
-      `<button type="button" data-searcher="${item.id}" ${item.enabled ? '' : 'disabled'} class="searcher-chip ${item.id === current ? 'active' : ''}">${searcherIcon(item.icon)}<span data-i18n="common.searcher.${item.id}"></span></button>`,
+      `<button type="button" data-searcher="${item.id}" role="tab" aria-selected="${item.id === current}" ${item.enabled ? '' : 'disabled'} class="tab ${item.id === current ? 'active' : ''}">${searcherIcon(item.icon)}<span data-i18n="common.searcher.${item.id}"></span></button>`,
   ).join('');
   searcherBar.querySelectorAll<HTMLButtonElement>('[data-searcher]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -220,12 +231,70 @@ function paintSearcherBar(): void {
   applyI18n(searcherBar);
 }
 
-const language = document.querySelector<HTMLSelectElement>('#language')!;
-language.value = locale();
-language.addEventListener('change', () => {
-  setLocale(language.value as LocaleId);
+/* ---- 语言切换：单按钮循环（参考项目的 syncLangLabel 风格） ---- */
+const langToggle = document.querySelector<HTMLButtonElement>('#lang-toggle')!;
+function syncLangLabel(): void {
+  // 按钮显示"将要切换到的语言"，与参考项目一致
+  langToggle.textContent = locale() === 'zh' ? 'EN' : '中文';
+  langToggle.dataset.i18nTitle = 'common.menu.language';
+  langToggle.title = t('common.menu.language');
+}
+langToggle.addEventListener('click', () => {
+  setLocale(locale() === 'zh' ? 'en' : 'zh');
+  syncLangLabel();
+  syncAboutLabel();
   setWindowTitle();
   paintSearcherBar();
+});
+
+/* ---- About 按钮：放在语言切换右侧（原生菜单栏移除后由它承担）---- */
+const aboutToggle = document.querySelector<HTMLButtonElement>('#about-toggle')!;
+function syncAboutLabel(): void {
+  aboutToggle.textContent = '?';
+  aboutToggle.title = t('common.about.title');
+  aboutToggle.setAttribute('aria-label', t('common.about.title'));
+}
+aboutToggle.addEventListener('click', () => showAbout());
+
+/* ---- 明暗主题切换（决策 6、12） ---- */
+const themeToggle = document.querySelector<HTMLButtonElement>('#theme-toggle')!;
+
+/** 当前主题。既写 DOM，也写 localStorage，供本次运行与下次启动使用。 */
+let currentTheme: ThemeId = storedTheme() ?? systemTheme();
+
+function paintThemeButton(theme: ThemeId): void {
+  // 按钮显示"将要切换到的主题"
+  themeToggle.textContent = theme === 'dark' ? '☀' : '☾';
+  themeToggle.title = theme === 'dark' ? 'Light' : 'Dark';
+  themeToggle.setAttribute('aria-label', themeToggle.title);
+}
+
+function applyTheme(theme: ThemeId): void {
+  currentTheme = theme;
+  applyThemeToDom(theme);
+  paintThemeButton(theme);
+}
+
+function setTheme(theme: ThemeId): void {
+  applyTheme(theme);
+  storeTheme(theme);
+}
+
+/** 供存档读写：当前主题。 */
+export function getTheme(): ThemeId {
+  return currentTheme;
+}
+
+/** 由存档恢复主题（跨 session 沿用用户上次的选择）。 */
+export function adoptSessionTheme(theme: ThemeId | undefined): void {
+  if (theme === 'dark' || theme === 'light') setTheme(theme);
+}
+
+applyTheme(currentTheme);
+themeToggle.addEventListener('click', () => {
+  const next: ThemeId =
+    document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  setTheme(next);
 });
 
 function showAbout(): void {
@@ -253,6 +322,10 @@ function showAbout(): void {
 
 function show(which: SearcherId): void {
   current = which;
+  // Tab 主题色入口（决策 1）：CSS 用 #app[data-searcher] 覆盖 --accent*。
+  app.dataset.searcher = which;
+  // 地图不再占 Tab，改由品牌图标承载；这里同步它的激活态。
+  mapHome.classList.toggle('active', which === 'map');
   if (which === 'map') {
     map.commitDraft();
     panel.replaceChildren(map.root);
@@ -390,29 +463,19 @@ onLocale(() => {
   monumentMulti.refresh();
   results.refresh();
   paintSearcherBar();
+  syncLangLabel();
+  syncAboutLabel();
   setWindowTitle();
 });
 
 window.aio?.onShowAbout?.(() => showAbout());
-window.aio?.onSessionExport?.(() => {
-  void window.aio.exportSession(sessionSnapshot()).then((ok) => {
-    if (!ok) showNotice(t('common.error.save-failed'));
-  });
-});
-window.aio?.onSessionImport?.((text) => {
-  const data = parseSessionFile(text);
-  if (!data) {
-    showNotice(t('common.map.badSession'));
-    return;
-  }
-  map.applySnapshot(data);
-  pushSeedToSingleTabs(data.seed);
-  applySearcherStates(data.searchers);
-  show('map');
-});
+
+mapHome.addEventListener('click', () => show('map'));
 
 setupColumnResize();
 paintSearcherBar();
+syncLangLabel();
+syncAboutLabel();
 show('map');
 applyI18n();
 window.addEventListener('load', () => setWindowTitle());
@@ -423,6 +486,9 @@ void Promise.all([call<McVersion[]>('versions'), call<FeatureInfo[]>('features')
     void map.load(versions, features).then((session) => {
       pushSeedToSingleTabs(map.getSeed());
       applySearcherStates(session?.searchers);
+      // 存档里带了主题就沿用它（跨 session 记住用户上次的选择）；
+      // 旧存档没有该字段时保留本次启动已确定的主题（本地记录或系统）。
+      adoptSessionTheme((session as { theme?: ThemeId } | null)?.theme);
     });
     search.load(versions);
     slime.load(versions);

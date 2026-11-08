@@ -2,7 +2,7 @@ import { showNotice } from './dialog';
 import { gpuRendererName } from './gpu';
 import { applyI18n, t } from './i18n';
 import { call, type GeodeStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 
@@ -164,11 +164,11 @@ export class GeodePanel {
           <label data-i18n="common.search.maxZ"></label><input id="g-max-z" type="number" value="${DEFAULT_MAX}" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="g-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="g-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="g-side" type="number" min="1" max="${MAX_SIDE}" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="g-reset" type="button" data-i18n="common.search.reset"></button>
+          <button id="g-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
           <button id="g-full" type="button" data-i18n="common.search.border"></button>
         </div>
         <div class="hint" id="g-range-hint"></div>
@@ -187,7 +187,7 @@ export class GeodePanel {
           <input id="g-min-budding" type="number" min="0" value="800" />
           <div class="span-full hint" data-i18n="geode.buddingHint"></div>
           <div class="span-full">
-            <label class="feature"><input id="g-allow-gpu" type="checkbox" /><span data-i18n="geode.allowGpu"></span></label>
+            <label class="check-row"><input id="g-allow-gpu" type="checkbox" /><span data-i18n="geode.allowGpu"></span></label>
           </div>
           <div class="span-full hint" data-i18n="geode.help"></div>
         </div>
@@ -426,15 +426,21 @@ export class GeodePanel {
     const stopDisabled = (!this.running && !this.paused) || this.stopping;
     this.footer.innerHTML = `
       <div class="row">
-        <button id="g-start" type="button" data-i18n="common.search.start" ${startDisabled ? 'disabled' : ''}></button>
-        <button id="g-pause" type="button" data-i18n="${pauseLabel}" ${pauseDisabled ? 'disabled' : ''}></button>
-        <button id="g-stop" type="button" data-i18n="${this.stopping ? 'geode.stoppingButton' : 'common.search.stop'}" ${stopDisabled ? 'disabled' : ''}></button>
+        <button id="g-start" type="button" class="btn primary" data-i18n="common.search.start" ${startDisabled ? 'disabled' : ''}></button>
+        <button id="g-pause" type="button" class="btn amber" data-i18n="${pauseLabel}" ${pauseDisabled ? 'disabled' : ''}></button>
+        <button id="g-stop" type="button" class="btn danger" data-i18n="${this.stopping ? 'geode.stoppingButton' : 'common.search.stop'}" ${stopDisabled ? 'disabled' : ''}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="g-bar"></div></div>
-      <div id="g-progress" class="hint"></div>
-      <div id="g-gpu" class="hint" hidden></div>
-      <div id="g-elapsed" class="hint"></div>
-      <div id="g-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="g-state"></span></span>
+          <span class="progress-percent" id="g-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="g-bar"></div></div>
+        <div class="progress-meta"><strong id="g-progress"></strong></div>
+        <div id="g-gpu" class="hint" hidden></div>
+        <div id="g-elapsed" class="hint"></div>
+        <div id="g-eta" class="progress-estimate"></div>
+      </div>
       <div id="g-error" class="hint"></div>
     `;
     this.footer.querySelector('#g-start')?.addEventListener('click', () => void this.start());
@@ -443,6 +449,7 @@ export class GeodePanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.updateProgress(this.lastStatus);
+    initProgressCard(this.footer, 'g');
   }
 
   private async pickFile(): Promise<void> {
@@ -760,5 +767,18 @@ export class GeodePanel {
       // “已停止”只由进度行显示，避免同一状态出现两次。
       error.textContent = '';
     }
+  
+    paintProgressCard(this.footer, 'g', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: GeodeStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}

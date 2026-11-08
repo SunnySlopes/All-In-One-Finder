@@ -1,7 +1,7 @@
 import { showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type FlowerStatus, type McVersion } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 
@@ -116,32 +116,32 @@ export class FlowerPanel {
           <label data-i18n="common.search.maxZ"></label><input id="f-maxz" type="number" value="65535" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="f-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="f-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="f-side" type="number" value="${SINGLE_SIDE_LATEST}" />
         </div>
         <div class="row">
-          <button id="f-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="f-border" type="button" data-i18n="common.search.border"></button>
+          <button id="f-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="f-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div class="grid">
           <label data-i18n="flower.longSide"></label><input id="f-long" type="number" min="${MIN_WINDOW}" max="${MAX_WINDOW}" value="640" />
           <label data-i18n="flower.shortSide"></label><input id="f-short" type="number" min="${MIN_WINDOW}" max="${MAX_WINDOW}" value="320" />
-          <label class="feature"><input id="f-window-square" type="checkbox" /><span data-i18n="flower.windowSquare"></span></label>
-          <label class="feature"><input id="f-fast" type="checkbox" checked /><span data-i18n="flower.fastMode"></span></label>
+          <label class="check-row"><input id="f-window-square" type="checkbox" /><span data-i18n="flower.windowSquare"></span></label>
+          <label class="check-row"><input id="f-fast" type="checkbox" checked /><span data-i18n="flower.fastMode"></span></label>
         </div>
         <div class="row">
-          <label class="feature"><input id="f-both-wildflowers" type="checkbox" /><span data-i18n="flower.bothWildflowers"></span></label>
-          <label class="feature"><input id="f-basalt" type="checkbox" /><span data-i18n="flower.basaltDeltas"></span></label>
+          <label class="check-row"><input id="f-both-wildflowers" type="checkbox" /><span data-i18n="flower.bothWildflowers"></span></label>
+          <label class="check-row"><input id="f-basalt" type="checkbox" /><span data-i18n="flower.basaltDeltas"></span></label>
         </div>
         <div class="square-row">
-          <label class="feature"><input id="f-orientation" type="checkbox" /><span data-i18n="flower.orientation"></span></label>
+          <label class="check-row"><input id="f-orientation" type="checkbox" /><span data-i18n="flower.orientation"></span></label>
           <select id="f-orientation-axis">
             <option value="horizontal" data-i18n="flower.orientationHorizontal"></option>
             <option value="vertical" data-i18n="flower.orientationVertical"></option>
           </select>
         </div>
         <div class="square-row">
-          <label class="feature"><input id="f-flower-margin" type="checkbox" /><span data-i18n="flower.flowerCenterMargin"></span></label>
+          <label class="check-row"><input id="f-flower-margin" type="checkbox" /><span data-i18n="flower.flowerCenterMargin"></span></label>
           <input id="f-flower-margin-value" type="number" min="0" value="0" />
         </div>
         <div class="grid">
@@ -349,14 +349,20 @@ export class FlowerPanel {
     this.viewDistance.title = t('flower.simulationDistanceHint');
     this.footer.innerHTML = `
       <div class="row">
-        <button id="f-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('FlowerFarm') ? 'disabled' : ''}></button>
-        <button id="f-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="f-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="f-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('FlowerFarm') ? 'disabled' : ''}></button>
+        <button id="f-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="f-stop" type="button" class="btn danger" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="f-bar"></div></div>
-      <div id="f-progress" class="hint"></div>
-      <div id="f-elapsed" class="hint"></div>
-      <div id="f-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="f-state"></span></span>
+          <span class="progress-percent" id="f-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="f-bar"></div></div>
+        <div class="progress-meta"><strong id="f-progress"></strong></div>
+        <div id="f-elapsed" class="hint"></div>
+        <div id="f-eta" class="progress-estimate"></div>
+      </div>
     `;
     this.footer.querySelector('#f-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#f-pause')?.addEventListener('click', () => void this.togglePause());
@@ -364,6 +370,7 @@ export class FlowerPanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    initProgressCard(this.footer, 'f');
   }
 
   private readFields(): void {
@@ -553,6 +560,11 @@ export class FlowerPanel {
         bar.style.width = `${pct}%`;
       }
     }
+  
+    paintProgressCard(this.footer, 'f', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   private phaseLabel(phase: number): string {
@@ -607,7 +619,16 @@ export class FlowerPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: FlowerStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}
+
 
 /** A tiled (large-range) search reports completed tiles instead of phase units. */
 function isTiled(status: FlowerStatus): boolean {

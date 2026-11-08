@@ -10,13 +10,12 @@ declare global {
       /** True when a saved map session file already exists. */
       hasSession: boolean;
       setTitle(title: string): void;
+      /** Keep the native window caption in step with the in-page theme. */
+      setTheme(theme: 'dark' | 'light'): void;
       openFile(): Promise<string | null>;
       saveFile(name: string, text: string): Promise<boolean>;
       readSession(name: string): Promise<string | null>;
       writeSession(name: string, text: string): Promise<boolean>;
-      exportSession(data: unknown): Promise<boolean>;
-      onSessionExport(handler: () => void): void;
-      onSessionImport(handler: (text: string) => void): void;
       onShowAbout(handler: () => void): void;
     };
   }

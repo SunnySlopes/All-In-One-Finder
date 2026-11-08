@@ -24,7 +24,7 @@ export interface SearcherItem {
 }
 
 export const SEARCHER_ITEMS: SearcherItem[] = [
-  { id: 'map', enabled: true, icon: 'spawn' },
+  // 地图不占 Tab：它由顶栏左侧的品牌图标承载（点击图标即回到地图）。
   { id: 'LowYSwampHut', enabled: true, icon: 'hut' },
   { id: 'River', enabled: true, icon: 'drowned' },
   { id: 'LowYDripstoneCave', enabled: true, icon: 'drowned' },

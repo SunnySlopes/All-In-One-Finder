@@ -49,6 +49,7 @@
       "stoppingEta": "停止中：等待当前工作单元结束",
       "stopped": "已停止",
       "working": "计算中",
+      "paused": "已暂停",
       "completed": "已完成",
       "unsupported": "当前版本不能运行这个搜索。",
       "seedOf": "种子 {index} / {count}",

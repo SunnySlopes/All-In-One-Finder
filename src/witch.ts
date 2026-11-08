@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type WitchStatus } from './native';
-import { applyForm, applyRunLock, captureForm, RunTimer, escapeAttr, formatDuration, messageOf } from './panel-utils';
+import { applyForm, applyRunLock, captureForm, RunTimer, escapeAttr, formatDuration, messageOf, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 
@@ -95,12 +95,12 @@ export class WitchPanel {
           <label data-i18n="common.search.maxZ"></label><input id="w-maxz" type="number" value="65535" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="w-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="w-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="w-side" type="number" value="${DEFAULT_SINGLE_SIDE}" />
         </div>
         <div class="row">
-          <button id="w-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="w-border" type="button" data-i18n="common.search.border"></button>
+          <button id="w-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="w-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div class="grid">
           <label data-i18n="lowyswamphut.maxY"></label>
@@ -109,8 +109,8 @@ export class WitchPanel {
           </select>
         </div>
         <div class="row" id="w-sort-row" hidden>
-          <button id="w-sort-distance" type="button" data-i18n="lowyswamphut.sortByDistance" disabled></button>
-          <button id="w-sort-y" type="button" data-i18n="lowyswamphut.sortByY" disabled></button>
+          <button id="w-sort-distance" type="button" class="btn ghost sm" data-i18n="lowyswamphut.sortByDistance" disabled></button>
+          <button id="w-sort-y" type="button" class="btn ghost sm" data-i18n="lowyswamphut.sortByY" disabled></button>
         </div>
         <div class="hint" data-i18n="lowyswamphut.help"></div>
       </div>
@@ -252,14 +252,20 @@ export class WitchPanel {
     this.updateSortButtons();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="w-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('LowYSwampHut') ? 'disabled' : ''}></button>
-        <button id="w-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="w-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="w-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('LowYSwampHut') ? 'disabled' : ''}></button>
+        <button id="w-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="w-stop" type="button" class="btn danger" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="w-bar"></div></div>
-      <div id="w-progress" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="w-state"></span></span>
+          <span class="progress-percent" id="w-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="w-bar"></div></div>
+        <div class="progress-meta"><strong id="w-progress"></strong></div>
+        <div id="w-eta" class="progress-estimate"></div>
+      </div>
       <div id="w-elapsed" class="hint"></div>
-      <div id="w-eta" class="hint"></div>
     `;
     this.footer.querySelector('#w-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#w-pause')?.addEventListener('click', () => void this.togglePause());
@@ -267,6 +273,7 @@ export class WitchPanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    else initProgressCard(this.footer, 'w');
   }
 
   private updateSortButtons(): void {
@@ -424,17 +431,38 @@ export class WitchPanel {
     const eta = this.footer.querySelector('#w-eta');
     const elapsed = this.footer.querySelector('#w-elapsed');
     const bar = this.footer.querySelector<HTMLElement>('#w-bar');
+    const percent = this.footer.querySelector<HTMLElement>('#w-percent');
+    const state = this.footer.querySelector<HTMLElement>('#w-state');
+    const card = this.footer.querySelector<HTMLElement>('.progress-card');
+
+    const pct = status.done ? 100 : status.total > 0 ? Math.min(100, Math.round((status.current / status.total) * 100)) : 0;
+
     if (progress) progress.textContent = this.progressText(status);
     if (eta) eta.textContent = this.etaText(status);
+    if (percent) percent.textContent = `${pct}%`;
+    if (state) state.textContent = this.stateText(status);
     if (elapsed) {
       elapsed.textContent = t('common.searchExtra.elapsed', {
         time: formatDuration(this.timer.elapsed()),
       });
     }
-    if (bar) {
-      const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
-      bar.style.width = `${pct}%`;
+    if (bar) bar.style.width = `${pct}%`;
+    // 状态灯：卡片级 class 驱动（决策 14 的精简布局）
+    if (card) {
+      card.classList.toggle('is-running', this.running && !this.paused);
+      card.classList.toggle('is-paused', this.running && this.paused);
+      card.classList.toggle('is-done', status.done && !status.error);
+      card.classList.toggle('is-error', !!status.error);
     }
+  }
+
+  /** 进度卡左上角的状态词：错误 > 暂停 > 运行中 > 已完成 > 就绪。 */
+  private stateText(status: WitchStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
   }
 
   private progressText(status: WitchStatus): string {

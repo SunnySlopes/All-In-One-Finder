@@ -119,6 +119,41 @@ export class RunTimer {
 const THREADS_FIELD = 'input[id$="-threads"]';
 const RUN_LOCK_ATTR = 'runLock';
 
+export type ProgressCardState = 'idle' | 'running' | 'paused' | 'done' | 'error';
+
+/**
+ * 把一次搜索状态同步到精简进度卡（决策 14：百分比 + 1 格元数据 + 1 行 ETA）。
+ *
+ * 各面板的进度百分比算法互不相同（有的按分块、有的按阶段计数器），
+ * 这里不重复计算，而是**读取进度条实际写入的宽度**换算成百分比，
+ * 从而保证进度条与百分比数字永远一致。
+ */
+export function paintProgressCard(
+  footer: HTMLElement,
+  prefix: string,
+  opts: { state: ProgressCardState; stateText: string },
+): void {
+  const bar = footer.querySelector<HTMLElement>(`#${prefix}-bar`);
+  const card = footer.querySelector<HTMLElement>('.progress-card');
+  const percent = footer.querySelector<HTMLElement>(`#${prefix}-percent`);
+  const label = footer.querySelector<HTMLElement>(`#${prefix}-state`);
+
+  if (percent && bar) {
+    const raw = Number.parseFloat(bar.style.width || '0');
+    const value = Number.isFinite(raw) ? Math.min(100, Math.max(0, Math.round(raw))) : 0;
+    percent.textContent = `${value}%`;
+  }
+
+  if (label) label.textContent = opts.stateText;
+
+  if (card) {
+    card.classList.toggle('is-running', opts.state === 'running');
+    card.classList.toggle('is-paused', opts.state === 'paused');
+    card.classList.toggle('is-done', opts.state === 'done');
+    card.classList.toggle('is-error', opts.state === 'error');
+  }
+}
+
 /**
  * 搜索运行/暂停时锁定参数区：运行中所有字段不可修改；暂停中只保留线程数可改。
  *
@@ -152,4 +187,25 @@ export function applyRunLock(root: HTMLElement, running: boolean, paused: boolea
     control.disabled = true;
     control.dataset[RUN_LOCK_ATTR] = '1';
   });
+}
+
+/**
+ * 进度卡的初始外观：面板刚渲染、尚未开始搜索时调用。
+ *
+ * 各面板只在拿到第一个状态后才调 paintStatus/paintProgressCard，
+ * 因此初次进入某个 Tab 时状态词会是空的。这里补一次「就绪」文案，
+ * 让用户看到 `就绪 / 0%` 而不是空白。
+ */
+export function initProgressCard(footer: HTMLElement, prefix: string): void {
+  const card = footer.querySelector<HTMLElement>('.progress-card');
+  const percent = footer.querySelector<HTMLElement>(`#${prefix}-percent`);
+  const label = footer.querySelector<HTMLElement>(`#${prefix}-state`);
+  const bar = footer.querySelector<HTMLElement>(`#${prefix}-bar`);
+
+  if (percent) percent.textContent = '0%';
+  if (label && !label.textContent) label.textContent = t('common.search.start');
+  if (bar && !bar.style.width) bar.style.width = '0%';
+  if (card) {
+    card.classList.remove('is-running', 'is-paused', 'is-done', 'is-error');
+  }
 }

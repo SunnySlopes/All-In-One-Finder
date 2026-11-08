@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type McVersion, type SlimeStatus } from './native';
-import { applyForm, applyRunLock, captureForm, RunTimer } from './panel-utils';
+import { applyForm, applyRunLock, captureForm, RunTimer, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 
@@ -116,18 +116,18 @@ export class SlimePanel {
           <label data-i18n="common.search.maxZ"></label><input id="sl-maxz" type="number" value="16383" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="sl-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="sl-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="sl-side" type="number" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="sl-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="sl-border" type="button" data-i18n="common.search.border"></button>
+          <button id="sl-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="sl-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div class="grid">
           <label data-i18n="slime.minArea"></label>
           <input id="sl-min-area" type="number" min="${MIN_AREA}" max="${MAX_AREA}" step="1" value="${DEFAULT_MIN_AREA}" />
         </div>
-        <label class="feature">
+        <label class="check-row">
           <input id="sl-convert" type="checkbox" checked />
           <span data-i18n="slime.convert"></span>
         </label>
@@ -270,14 +270,20 @@ export class SlimePanel {
     this.renderSeedBlock();
     this.footer.innerHTML = `
       <div class="row">
-        <button id="sl-start" type="button" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('SlimeChunk') ? 'disabled' : ''}></button>
-        <button id="sl-pause" type="button" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
-        <button id="sl-stop" type="button" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
+        <button id="sl-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('SlimeChunk') ? 'disabled' : ''}></button>
+        <button id="sl-pause" type="button" class="btn amber" data-i18n="${this.paused ? 'common.search.resume' : 'common.search.pause'}" ${this.running ? '' : 'disabled'}></button>
+        <button id="sl-stop" type="button" class="btn danger" data-i18n="common.search.stop" ${this.running ? '' : 'disabled'}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="sl-bar"></div></div>
-      <div id="sl-progress" class="hint"></div>
-      <div id="sl-elapsed" class="hint"></div>
-      <div id="sl-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="sl-state"></span></span>
+          <span class="progress-percent" id="sl-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="sl-bar"></div></div>
+        <div class="progress-meta"><strong id="sl-progress"></strong></div>
+        <div id="sl-elapsed" class="hint"></div>
+        <div id="sl-eta" class="progress-estimate"></div>
+      </div>
     `;
     this.footer.querySelector('#sl-start')?.addEventListener('click', () => void this.start());
     this.footer.querySelector('#sl-pause')?.addEventListener('click', () => void this.togglePause());
@@ -285,6 +291,7 @@ export class SlimePanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.paintStatus(this.lastStatus);
+    initProgressCard(this.footer, 'sl');
   }
 
   private readFields(): void {
@@ -465,6 +472,11 @@ export class SlimePanel {
         bar.style.width = `${pct}%`;
       }
     }
+  
+    paintProgressCard(this.footer, 'sl', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   private progressText(status: SlimeStatus): string {
@@ -498,7 +510,16 @@ export class SlimePanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: SlimeStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}
+
 
 function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));

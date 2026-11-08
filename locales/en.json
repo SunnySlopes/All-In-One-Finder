@@ -49,6 +49,7 @@
       "stoppingEta": "Stopping: waiting for the current work unit",
       "stopped": "Stopped",
       "working": "Working",
+      "paused": "Paused",
       "completed": "Completed",
       "unsupported": "This search does not support the selected version.",
       "seedOf": "Seed {index} / {count}",

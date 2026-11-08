@@ -50,23 +50,54 @@ constexpr UINT kSessionTimer = 2;
 constexpr UINT kSessionIntervalMs = 5000;
 constexpr UINT WM_APP_ENGINE = WM_APP + 1;
 
-constexpr int ID_IMPORT = 1001;
-constexpr int ID_EXPORT = 1002;
-constexpr int ID_EXIT = 1003;
-constexpr int ID_ABOUT = 1004;
 
-// Windows 10/11 dark title bar. Attribute 20 is the current immersive-dark flag,
-// 19 the pre-20H1 fallback; 35/36 paint the caption/text explicitly on Win11.
-void applyDarkTitleBar(HWND hwnd)
+// Windows 11 title bar appearance. Attribute 20 is the immersive-dark flag (19 is the
+// pre-20H1 fallback); 35/36 set the caption/text colours explicitly.
+//
+// The page owns the theme (localStorage aio.theme) and reports it via window.aio.setTheme,
+// so the native caption must follow that instead of being pinned to dark.
+//
+// Two details that broke the light mode before:
+//  * 0xFFFFFFFF is not a valid COLORREF; the documented "give control back" value is
+//    DWMWA_COLOR_DEFAULT, so light mode must pass exactly that.
+//  * DWM caches the frame, so after flipping the attributes the non-client area has to
+//    be invalidated with SWP_FRAMECHANGED or the caption keeps its previous colour.
+void applyTitleBarTheme(HWND hwnd, bool dark)
 {
-    BOOL dark = TRUE;
-    if (FAILED(DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark))))
-        DwmSetWindowAttribute(hwnd, 19, &dark, sizeof(dark));
+    if (!hwnd) return;
 
-    const COLORREF caption = RGB(21, 25, 34);
-    const COLORREF text = RGB(231, 225, 214);
+    const BOOL flag = dark ? TRUE : FALSE;
+    if (FAILED(DwmSetWindowAttribute(hwnd, 20, &flag, sizeof(flag))))
+        DwmSetWindowAttribute(hwnd, 19, &flag, sizeof(flag));
+
+#ifndef DWMWA_COLOR_DEFAULT
+#define DWMWA_COLOR_DEFAULT 0xFFFFFFFF
+#endif
+    const COLORREF caption = dark ? RGB(21, 25, 34) : DWMWA_COLOR_DEFAULT;
+    const COLORREF text = dark ? RGB(231, 225, 214) : DWMWA_COLOR_DEFAULT;
     DwmSetWindowAttribute(hwnd, 35, &caption, sizeof(caption));
     DwmSetWindowAttribute(hwnd, 36, &text, sizeof(text));
+
+    // Force DWM to repaint the non-client area with the new attributes.
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    RedrawWindow(hwnd, nullptr, nullptr, RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+}
+
+void applyDarkTitleBar(HWND hwnd) { applyTitleBarTheme(hwnd, true); }
+
+// Windows「应用模式」是否为深色。读的是个性化设置项，与页面 prefers-color-scheme 同源，
+// 因此窗口首帧的标题栏能和页面首帧的配色对上。
+bool systemUsesDarkApps()
+{
+    DWORD value = 1;  // 键不存在时 Windows 默认浅色，这里保守按深色兜底再校正
+    DWORD size = sizeof(value);
+    const LSTATUS status = RegGetValueW(
+        HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size);
+    if (status != ERROR_SUCCESS) return true;  // 读不到就维持原来的深色外观
+    return value == 0;                          // 0 = 深色应用模式
 }
 
 constexpr wchar_t kSessionFilter[] =
@@ -89,9 +120,6 @@ struct Config
 
 Config g_config;
 HWND g_hwnd = nullptr;
-HBRUSH g_menuBrush = nullptr;
-HBRUSH g_menuSelBrush = nullptr;
-HFONT g_menuFont = nullptr;
 bool g_smokeDone = false;
 int g_exitCode = 0; // normal window close exits 0; failures set an explicit code
 bool g_tempProfileTried = false; /* one retry with a profile under %TEMP% */
@@ -520,14 +548,6 @@ void replyError(long long id, const char *message)
     postRaw("{\"id\":" + std::to_string(id) + ",\"ok\":false,\"error\":\"" + std::string(message) + "\"}");
 }
 
-void postEvent(const char *name, const std::string &textB64 = std::string())
-{
-    std::string json = std::string("{\"event\":\"") + name + "\"";
-    if (!textB64.empty()) json += ",\"textB64\":\"" + textB64 + "\"";
-    json += "}";
-    postRaw(json);
-}
-
 // ---------------------------------------------------------------------------
 // Dialogs + session storage
 // ---------------------------------------------------------------------------
@@ -608,6 +628,14 @@ void handleAio(const std::string &message, long long id)
         if (!title.empty() && g_hwnd) SetWindowTextW(g_hwnd, title.c_str());
         return;
     }
+    if (method == "set-theme")
+    {
+        // "dark" / "light"; anything else leaves the current caption untouched.
+        const std::string theme = jsonField(message, "theme");
+        if (g_hwnd && (theme == "dark" || theme == "light"))
+            applyTitleBarTheme(g_hwnd, theme == "dark");
+        return;
+    }
     if (method == "open-file")
     {
         std::wstring path;
@@ -639,20 +667,6 @@ void handleAio(const std::string &message, long long id)
         const std::wstring name = b64ToWide(jsonField(message, "nameB64"));
         const std::string text = base64Decode(jsonField(message, "textB64"));
         replyResult(id, !name.empty() && writeFileBytes(sessionFile(name), text, true));
-        return;
-    }
-    if (method == "export-session")
-    {
-        const std::string jsonText = base64Decode(jsonField(message, "jsonB64"));
-        const std::string txtText = base64Decode(jsonField(message, "txtB64"));
-        std::wstring path;
-        if (!pickSaveFile(path, kSessionFilter, L"json", L"session.json"))
-        {
-            replyResult(id, false);
-            return;
-        }
-        const bool asText = path.size() > 4 && _wcsicmp(path.c_str() + path.size() - 4, L".txt") == 0;
-        replyResult(id, writeFileBytes(path, asText ? txtText : jsonText, false));
         return;
     }
     replyError(id, "unknown-method");
@@ -953,89 +967,10 @@ bool retryWithTempProfile()
 // Window
 // ---------------------------------------------------------------------------
 
-bool isMenuMeasure(const MEASUREITEMSTRUCT *item)
-{
-    return item && item->CtlType == ODT_MENU;
-}
-
-void measureMenuItem(const MEASUREITEMSTRUCT *item)
-{
-    auto *mutableItem = const_cast<MEASUREITEMSTRUCT *>(item);
-    const wchar_t *text = reinterpret_cast<const wchar_t *>(item->itemData);
-    if (!text || !*text)
-    {
-        mutableItem->itemWidth = 0;
-        mutableItem->itemHeight = 8;
-        return;
-    }
-
-    HDC dc = GetDC(g_hwnd);
-    HGDIOBJ oldFont = SelectObject(dc, g_menuFont ? g_menuFont : GetStockObject(DEFAULT_GUI_FONT));
-    RECT bounds = {};
-    DrawTextW(dc, text, -1, &bounds, DT_CALCRECT | DT_SINGLELINE | DT_EXPANDTABS);
-    TEXTMETRICW metrics = {};
-    GetTextMetricsW(dc, &metrics);
-    SelectObject(dc, oldFont);
-    ReleaseDC(g_hwnd, dc);
-
-    mutableItem->itemWidth = bounds.right + 24;
-    mutableItem->itemHeight = metrics.tmHeight + 8;
-}
-
-void drawMenuItem(const DRAWITEMSTRUCT *item)
-{
-    const bool selected = (item->itemState & ODS_SELECTED) != 0;
-    const bool disabled = (item->itemState & ODS_DISABLED) != 0;
-    FillRect(item->hDC, &item->rcItem, selected ? g_menuSelBrush : g_menuBrush);
-
-    const wchar_t *text = reinterpret_cast<const wchar_t *>(item->itemData);
-    if (!text || !*text)
-    {
-        RECT line = item->rcItem;
-        line.top = (line.top + line.bottom) / 2;
-        line.bottom = line.top + 1;
-        line.left += 8;
-        line.right -= 8;
-        FillRect(item->hDC, &line, reinterpret_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
-        return;
-    }
-
-    SetBkMode(item->hDC, TRANSPARENT);
-    SetTextColor(item->hDC,
-                 disabled ? RGB(120, 128, 140) : selected ? RGB(255, 255, 255) : RGB(231, 225, 214));
-    HGDIOBJ oldFont = SelectObject(item->hDC, g_menuFont ? g_menuFont : GetStockObject(DEFAULT_GUI_FONT));
-    RECT textRect = item->rcItem;
-    textRect.left += 10;
-    textRect.right -= 8;
-    DrawTextW(item->hDC, text, -1, &textRect,
-              DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_EXPANDTABS);
-    SelectObject(item->hDC, oldFont);
-}
-
 LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_MEASUREITEM:
-    {
-        const auto *item = reinterpret_cast<MEASUREITEMSTRUCT *>(lParam);
-        if (isMenuMeasure(item))
-        {
-            measureMenuItem(item);
-            return TRUE;
-        }
-        return DefWindowProcW(hwnd, message, wParam, lParam);
-    }
-    case WM_DRAWITEM:
-    {
-        const auto *item = reinterpret_cast<DRAWITEMSTRUCT *>(lParam);
-        if (item->CtlType == ODT_MENU)
-        {
-            drawMenuItem(item);
-            return TRUE;
-        }
-        return DefWindowProcW(hwnd, message, wParam, lParam);
-    }
     case WM_DPICHANGED:
     {
         const RECT *suggested = reinterpret_cast<const RECT *>(lParam);
@@ -1062,23 +997,6 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
         else if (wParam == kSessionTimer)
         {
             saveSession(false);
-        }
-        return 0;
-    case WM_COMMAND:
-        switch (LOWORD(wParam))
-        {
-        case ID_IMPORT:
-        {
-            std::wstring path;
-            std::string text;
-            if (pickOpenFile(path, kSessionFilter) && readFileBytes(path, text))
-                postEvent("session-import", base64Encode(text));
-            break;
-        }
-        case ID_EXPORT: postEvent("session-export"); break;
-        case ID_ABOUT: postEvent("show-about"); break;
-        case ID_EXIT: PostMessageW(hwnd, WM_CLOSE, 0, 0); break;
-        default: break;
         }
         return 0;
     case WM_APP_ENGINE:
@@ -1122,51 +1040,9 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 void installMenu()
 {
-    if (!g_menuBrush) g_menuBrush = CreateSolidBrush(RGB(21, 25, 34));
-    if (!g_menuSelBrush) g_menuSelBrush = CreateSolidBrush(RGB(47, 58, 73));
-    if (!g_menuFont)
-    {
-        NONCLIENTMETRICSW metrics = {};
-        metrics.cbSize = sizeof(metrics);
-        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0))
-            g_menuFont = CreateFontIndirectW(&metrics.lfMenuFont);
-    }
-
-    HMENU menu = CreateMenu();
-    HMENU file = CreatePopupMenu();
-    AppendMenuW(file, MF_OWNERDRAW, ID_IMPORT, reinterpret_cast<LPCWSTR>(L"&Import Session...\tCtrl+O"));
-    AppendMenuW(file, MF_OWNERDRAW, ID_EXPORT, reinterpret_cast<LPCWSTR>(L"&Export Session...\tCtrl+S"));
-    AppendMenuW(file, MF_OWNERDRAW | MF_DISABLED, 0, nullptr);
-    AppendMenuW(file, MF_OWNERDRAW, ID_EXIT, reinterpret_cast<LPCWSTR>(L"E&xit"));
-
-    HMENU help = CreatePopupMenu();
-    AppendMenuW(help, MF_OWNERDRAW, ID_ABOUT, reinterpret_cast<LPCWSTR>(L"&About"));
-
-    MENUITEMINFO fileItem = {};
-    fileItem.cbSize = sizeof(fileItem);
-    fileItem.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_DATA;
-    fileItem.fType = MFT_OWNERDRAW;
-    fileItem.hSubMenu = file;
-    fileItem.dwItemData = reinterpret_cast<ULONG_PTR>(L"&File");
-    InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &fileItem);
-
-    MENUITEMINFO helpItem = {};
-    helpItem.cbSize = sizeof(helpItem);
-    helpItem.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_DATA;
-    helpItem.fType = MFT_OWNERDRAW;
-    helpItem.hSubMenu = help;
-    helpItem.dwItemData = reinterpret_cast<ULONG_PTR>(L"&Help");
-    InsertMenuItemW(menu, GetMenuItemCount(menu), TRUE, &helpItem);
-
-    MENUINFO info = {};
-    info.cbSize = sizeof(info);
-    info.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
-    info.hbrBack = g_menuBrush;
-    SetMenuInfo(menu, &info);
-    SetMenuInfo(file, &info);
-    SetMenuInfo(help, &info);
-
-    SetMenu(g_hwnd, menu);
+    // 原生菜单栏已移除：Import/Export 会话的入口不再需要，About 也搬到页面顶栏。
+    // 窗口样式仍是 WS_OVERLAPPEDWINDOW，所以这里显式清掉默认菜单位置。
+    SetMenu(g_hwnd, nullptr);
 }
 
 std::wstring localAppDataDir()
@@ -1478,7 +1354,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     }
     if (windowClass.hIcon) SendMessageW(g_hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(windowClass.hIcon));
     if (windowClass.hIconSm) SendMessageW(g_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(windowClass.hIconSm));
-    applyDarkTitleBar(g_hwnd);
+    // 标题栏初始跟随系统设置（与页面首次 paint 的 prefers-color-scheme 一致），
+    // 之后由页面通过 window.aio.setTheme 校正。此前这里硬编码深色，
+    // 导致浅色主题下标题栏仍是黑的。
+    applyTitleBarTheme(g_hwnd, systemUsesDarkApps());
     installMenu();
     ShowWindow(g_hwnd, SW_SHOWNORMAL);
     UpdateWindow(g_hwnd);

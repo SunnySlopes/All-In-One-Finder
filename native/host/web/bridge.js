@@ -9,7 +9,7 @@
 //   page -> host : {channel:"op", id, op, args}        engine call (forwarded to allinone.dll)
 //                  {channel:"aio", id, method, ...B64}  shell call (dialogs/session/title)
 //   host -> page : {id, ok, result?}  {id, ok, bin}  {id, ok, b64}  {id, ok:false, error}
-//                  {event:"session-export"|"session-import"|"show-about", textB64?}
+//                  {event:"show-about"}
 (function () {
   var webview = window.chrome && window.chrome.webview;
   if (!webview) return;
@@ -17,7 +17,7 @@
   var boot = window.__AIO_BOOT__ || {};
   var nextId = 1;
   var pending = new Map();
-  var handlers = { 'session-export': [], 'session-import': [], 'show-about': [] };
+  var handlers = { 'show-about': [] };
 
   var ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -107,23 +107,6 @@
     else entry.resolve(message.result === undefined ? null : message.result);
   });
 
-  function sessionText(data) {
-    var features = Array.isArray(data && data.features) ? data.features.join(',') : '';
-    return [
-      'kind=aio-session',
-      'version=1',
-      'seed=' + (data.seed == null ? '' : data.seed),
-      'mcVersion=' + (data.mcVersion == null ? '' : data.mcVersion),
-      'dim=' + (data.dim == null ? 0 : data.dim),
-      'y=' + (data.y == null ? 256 : data.y),
-      'largeBiomes=' + (data.largeBiomes ? 'true' : 'false'),
-      'grid=' + (data.grid ? 'true' : 'false'),
-      'terrain=' + (data.terrain ? 'true' : 'false'),
-      'features=' + features,
-      ''
-    ].join('\n');
-  }
-
   // Surface page errors in the host log; without this a broken renderer just shows
   // a blank panel with no clue.
   function report(level, message, where) {
@@ -144,6 +127,10 @@
     setTitle: function (title) {
       send({ channel: 'aio', id: 0, method: 'set-title', titleB64: utf8ToB64(title == null ? '' : title) });
     },
+    // Keeps the native caption in step with html[data-theme]; fire-and-forget like setTitle.
+    setTheme: function (theme) {
+      send({ channel: 'aio', id: 0, method: 'set-theme', theme: theme === 'light' ? 'light' : 'dark' });
+    },
     openFile: function () { return request('open-file'); },
     saveFile: function (name, text) {
       return request('save-file', { nameB64: utf8ToB64(name), textB64: utf8ToB64(text) });
@@ -154,14 +141,6 @@
     writeSession: function (name, text) {
       return request('write-session', { nameB64: utf8ToB64(name), textB64: utf8ToB64(text) });
     },
-    exportSession: function (data) {
-      return request('export-session', {
-        jsonB64: utf8ToB64(JSON.stringify(data, null, 2)),
-        txtB64: utf8ToB64(sessionText(data))
-      });
-    },
-    onSessionExport: function (handler) { handlers['session-export'].push(handler); },
-    onSessionImport: function (handler) { handlers['session-import'].push(handler); },
     onShowAbout: function (handler) { handlers['show-about'].push(handler); }
   };
 

@@ -1,7 +1,7 @@
 import { ask, showNotice } from './dialog';
 import { applyI18n, t } from './i18n';
 import { call, type TrialStatus } from './native';
-import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm } from './panel-utils';
+import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn, TrialWindowView } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 
@@ -167,12 +167,12 @@ export class TrialPanel {
           <label data-i18n="common.search.maxZ"></label><input id="t-maxz" type="number" value="${DEFAULT_MAX}" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="t-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
+          <label class="check-row"><input id="t-square" type="checkbox" checked /><span data-i18n="common.search.square"></span></label>
           <input id="t-side" type="number" min="1" max="${MAX_SIDE}" value="${DEFAULT_SIDE}" />
         </div>
         <div class="row">
-          <button id="t-reset" type="button" data-i18n="common.search.reset"></button>
-          <button id="t-border" type="button" data-i18n="common.search.border"></button>
+          <button id="t-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
+          <button id="t-border" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div class="grid">
           <label data-i18n="trial.clusterShape"></label>
@@ -187,7 +187,7 @@ export class TrialPanel {
           <label data-i18n="trial.clusterShort"></label>
           <input id="t-cluster-short" type="number" min="${MIN_WINDOW_SIDE}" max="${MAX_WINDOW_SIDE}" value="${DEFAULT_CLUSTER_SHORT}" />
           <div class="span-full row">
-            <label class="feature"><input id="t-cluster-square" type="checkbox" checked /><span data-i18n="trial.clusterSquareWindow"></span></label>
+            <label class="check-row"><input id="t-cluster-square" type="checkbox" checked /><span data-i18n="trial.clusterSquareWindow"></span></label>
           </div>
           <label data-i18n="trial.simulationDistance"></label>
           <input id="t-view-distance" type="number" min="${MIN_SIMULATION_DISTANCE}" max="${MAX_SIMULATION_DISTANCE}" value="${DEFAULT_SIMULATION_DISTANCE}" />
@@ -199,7 +199,7 @@ export class TrialPanel {
           <input id="t-ratio" type="number" min="0" max="1" step="0.001" value="${DEFAULT_RATIO.toFixed(3)}" />
         </div>
         <div class="square-row">
-          <label class="feature"><input id="t-strict" type="checkbox" /><span data-i18n="trial.strictMode"></span></label>
+          <label class="check-row"><input id="t-strict" type="checkbox" /><span data-i18n="trial.strictMode"></span></label>
           <input id="t-strict-margin" type="number" min="0" max="${MAX_STRICT_MARGIN}" value="${DEFAULT_STRICT_MARGIN}" />
         </div>
         <div class="hint" data-i18n="trial.help"></div>
@@ -414,15 +414,21 @@ export class TrialPanel {
     const stopDisabled = !this.running && !this.paused;
     this.footer.innerHTML = `
       <div class="row">
-        <button id="t-start" type="button" data-i18n="common.search.start" ${startDisabled ? 'disabled' : ''}></button>
-        <button id="t-pause" type="button" data-i18n="${pauseLabel}" ${pauseDisabled ? 'disabled' : ''}></button>
-        <button id="t-stop" type="button" data-i18n="common.search.stop" ${stopDisabled ? 'disabled' : ''}></button>
+        <button id="t-start" type="button" class="btn primary" data-i18n="common.search.start" ${startDisabled ? 'disabled' : ''}></button>
+        <button id="t-pause" type="button" class="btn amber" data-i18n="${pauseLabel}" ${pauseDisabled ? 'disabled' : ''}></button>
+        <button id="t-stop" type="button" class="btn danger" data-i18n="common.search.stop" ${stopDisabled ? 'disabled' : ''}></button>
       </div>
-      <div class="progress-track"><div class="progress-fill" id="t-bar"></div></div>
-      <div id="t-progress" class="hint"></div>
-      <div id="t-counters" class="hint"></div>
-      <div id="t-elapsed" class="hint"></div>
-      <div id="t-eta" class="hint"></div>
+      <div class="progress-card">
+        <div class="progress-top">
+          <span class="progress-state"><span class="state-dot"></span><span id="t-state"></span></span>
+          <span class="progress-percent" id="t-percent">0%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="t-bar"></div></div>
+        <div class="progress-meta"><strong id="t-progress"></strong></div>
+        <div id="t-counters" class="hint"></div>
+        <div id="t-elapsed" class="hint"></div>
+        <div id="t-eta" class="progress-estimate"></div>
+      </div>
       <div id="t-truncated" class="hint"></div>
     `;
     this.footer.querySelector('#t-start')?.addEventListener('click', () => void this.start());
@@ -431,6 +437,7 @@ export class TrialPanel {
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
     if (this.lastStatus) this.updateProgress(this.lastStatus);
+    initProgressCard(this.footer, 't');
   }
 
   private readFields(): void {
@@ -744,6 +751,11 @@ export class TrialPanel {
         : '';
     }
     if (bar) bar.style.width = `${pct}%`;
+  
+    paintProgressCard(this.footer, 't', {
+      state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
+      stateText: this.progressStateText(status),
+    });
   }
 
   private phaseLabel(phase: number): string {
@@ -774,4 +786,12 @@ export class TrialPanel {
     if (!(remaining > 0) || !Number.isFinite(remaining)) return t('common.search.eta.calculating');
     return t('common.search.eta.remaining', { time: formatDuration(remaining) });
   }
-}
+
+  /** 进度卡左上角状态词，与 paintProgressCard 配套。 */
+  private progressStateText(status: TrialStatus): string {
+    if (status.error) return messageOf(status.error);
+    if (status.done) return t('common.search.completed');
+    if (this.running && this.paused) return t('common.search.paused');
+    if (this.running) return t('common.search.working');
+    return t('common.search.start');
+  }}
