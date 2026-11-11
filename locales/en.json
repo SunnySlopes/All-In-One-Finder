@@ -111,7 +111,10 @@
       "trialCageAt": "{kind} ({x}, {z}), Y = {y}",
       "trialCageColumn": "{kind} ({x}, {z}), Y = {ys}",
       "trialNotGenerated": "No chamber generated at this position",
-      "geodeBudding": "Budding count {count}"
+      "strongholdPortal": "End portal ({x}, {y}, {z})",
+      "strongholdEyes": "Eyes {eyes} / 12",
+      "strongholdPortalTruncated": "Layout exceeded the piece limit; portal not located",
+      "geodeBuddingBounds": "Max budding {max} / typical lower {realistic} / lower {lower}"
     },
     "error": {
       "bad-seed": "Enter an integer seed.",
@@ -563,13 +566,19 @@
       "done": "Done"
     },
     "card": {
-      "budding": "Budding count {count}",
+      "budding": "Budding upper bound {count}",
       "geodes": "Geodes count {count}",
       "verified": "Verified",
       "approximate": "Approximate candidates",
-      "listed": "listed {count}"
+      "listed": "listed {count}",
+      "exactRange": "typical lower {realistic} / lower {lower}",
+      "exactHint": "Recomputes the top N entries block by block to add the typical and guaranteed lower bounds; ranking is unchanged."
     },
     "stopped": "Stopped; results were cleared.",
-    "stoppedProgress": "Stopped"
+    "stoppedProgress": "Stopped",
+    "exactTitle": "Exact results (top",
+    "exactSuffix": ")",
+    "exactHint": "Recomputes the top N entries block by block to add the typical and guaranteed lower bounds; ranking is unchanged.",
+    "boundsHint": "Typical lower: holds under same-time loading(/tp or fly from different directions are allowed) without mods like C2ME. Lower: holds under any load order."
   }
 }

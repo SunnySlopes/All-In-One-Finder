@@ -7,6 +7,7 @@ import {
   type GeodeChunkInfo,
   type McVersion,
   type Placed,
+  type StrongholdPortalInfo,
   type StructureBoundsData,
   type TrialChamberInfo,
   type TrialFrame,
@@ -140,6 +141,32 @@ const TRIAL_CAGE_SLOW = '#7fd0c8';
  */
 const BIOME_POLL_MS = 30;
 const TRIAL_CAGE_EDGE = 'rgba(20, 20, 20, 0.8)';
+/**
+ * Stronghold End portals. The 3x3 end_portal area is always drawn (no zoom
+ * threshold) so a portal is visible wherever its stronghold icon is; only the
+ * leader line has a threshold, and that one is a pixel distance so it doubles
+ * as the "portal overlaps the icon" test.
+ */
+const STRONGHOLD_PORTAL_MIN_PX = 3;
+const STRONGHOLD_PORTAL_FILL = 'rgba(122, 229, 180, 0.55)';
+/**
+ * 缩放过小时 3×3 的绿框不到最小像素、无法辨认，改用这个图标代替，
+ * 尺寸取要塞标记（ICON_SIZE）的一半。
+ */
+const END_PORTAL_ICON = 'end_portal_frame_top';
+/**
+ * Leader line is suppressed only when the portal genuinely sits on top of the
+ * stronghold icon. That is a *world* distance test, not a pixel test: at 1:16 a
+ * 55-block gap is only 3.4 px, and suppressing the line there would make zoom
+ * silently change the meaning of the layer.
+ */
+const STRONGHOLD_LEADER_MIN_BLOCKS = 4;
+const STRONGHOLD_LEADER_STROKE = 'rgba(122, 229, 180, 0.45)';
+const STRONGHOLD_DETAIL_BATCH = 8;
+const STRONGHOLD_DETAIL_MARGIN = 128;
+const STRONGHOLD_DETAIL_DEBOUNCE = 150;
+const STRONGHOLD_DETAIL_CACHE = 200;
+const STRONGHOLD_PORTAL_HIT_PX = 7;
 const SESSION_NAME = 'map';
 const DEFAULT_FEATURES = [
   'swamp_hut',
@@ -219,13 +246,37 @@ interface SelectedStructure {
   details: DetailState;
   /** Set when the user clicked a trial cage column instead of the chamber icon. */
   cage?: TrialCageColumn;
-  /** Geode icon: generate that chunk and show its budding-amethyst count. */
-  geode?: { state: 'pending' | 'ready' | 'failed'; budding?: number };
+  /** Geode icon: generate that chunk and show its budding-amethyst counts. */
+  geode?: {
+    state: 'pending' | 'ready' | 'failed';
+    /** 最大母岩数（该晶洞的全部母岩）。 */
+    budding?: number;
+    /** 常见下限母岩数（同批加载下会落地的）。 */
+    buddingRealistic?: number;
+    /** 下限母岩数（任何加载顺序都必然落地的）。 */
+    buddingLower?: number;
+  };
+}
+
+/** Compact portal data kept in the map cache. Y is exact (see stronghold_detail.h). */
+interface StrongholdPortalDetail {
+  ok: boolean;
+  truncated: boolean;
+  portalX: number;
+  portalZ: number;
+  /** World Y of the 3x3 end portal frame; exact. */
+  portalY: number;
+  /** World Y bounds of the whole portal room; exact. */
+  roomMinY: number;
+  roomMaxY: number;
+  /** null when the version has no eye data. */
+  eyes: number | null;
+  frame: { minX: number; minZ: number; maxX: number; maxZ: number } | null;
+  footprint: { minX: number; minZ: number; maxX: number; maxZ: number; area: number } | null;
 }
 
 /** All cages sharing one XZ column; drawn as a single point, listed Y by Y. */
-interface TrialCageColumn {
-  x: number;
+interface TrialCageColumn {  x: number;
   z: number;
   entries: TrialSpawner[];
   slow: boolean;
@@ -398,6 +449,13 @@ export class MapView {
   private trialTimer = 0;
   private trialFailed = false;
   private trialHover: TrialCageColumn | null = null;
+  private strongholdTypeId = -1;
+  private strongholdDetail = new Map<string, StrongholdPortalDetail>();
+  private strongholdInflight = new Set<string>();
+  private strongholdEpoch = 0;
+  private strongholdView = 0;
+  private strongholdTimer = 0;
+  private strongholdFailed = false;
   private biomeName = '';
   private saveTimer = 0;
   private collectSearchers: (() => Record<string, unknown>) | null = null;
@@ -480,6 +538,7 @@ export class MapView {
     this.versions = mapVersions(versions);
     this.features = features;
     this.trialTypeId = features.find((feature) => feature.key === 'trial_chambers')?.id ?? -1;
+    this.strongholdTypeId = features.find((feature) => feature.key === 'stronghold')?.id ?? -1;
     this.version.innerHTML = this.versions.map((item) => `<option value="${item.id}">${item.name}</option>`).join('');
     const hadSession = !!window.aio?.hasSession;
     const session = await this.loadSession();
@@ -1062,6 +1121,7 @@ export class MapView {
           this.enabled.delete(id);
           this.placed = this.placed.filter((item) => item.type !== id);
           if (id === this.trialTypeId) this.clearTrialDetail();
+          if (id === this.strongholdTypeId) this.clearStrongholdDetail();
           if (this.selected?.type === id) this.clearSelection();
         }
         if (id === -2) this.slimeCanvas = null;
@@ -1144,7 +1204,12 @@ export class MapView {
       })
         .then((info) => {
           if (token !== this.selectGen || this.selected !== selected) return;
-          selected.geode = { state: 'ready', budding: info.budding };
+          selected.geode = {
+            state: 'ready',
+            budding: info.budding,
+            buddingRealistic: info.buddingRealistic,
+            buddingLower: info.buddingLower,
+          };
           selected.details = 'ready';
           this.renderSelectedInfo();
         })
@@ -1174,6 +1239,32 @@ export class MapView {
             } else {
               selected.details = 'failed';
             }
+            this.renderSelectedInfo();
+            this.queueDraw();
+          })
+          .catch(() => {
+            if (token !== this.selectGen || this.selected !== selected) return;
+            selected.details = 'failed';
+            this.renderSelectedInfo();
+            this.queueDraw();
+          });
+      }
+    } else if (feature.key === 'stronghold') {
+      const cached = this.strongholdDetailAt(item.x, item.z);
+      if (cached) {
+        selected.details = 'ready';
+      } else {
+        selected.details = 'pending';
+        void call<StrongholdPortalInfo[]>('strongholdPortals', {
+          ...this.state(),
+          portals: [{ x: item.x, z: item.z }],
+        })
+          .then((list) => {
+            if (token !== this.selectGen || this.selected !== selected) return;
+            for (const info of list) {
+              this.strongholdDetail.set(this.trialKey(info.x, info.z), this.compactStronghold(info));
+            }
+            selected.details = this.strongholdDetailAt(item.x, item.z) ? 'ready' : 'failed';
             this.renderSelectedInfo();
             this.queueDraw();
           })
@@ -1229,7 +1320,40 @@ export class MapView {
         }
       }
     } else if (selected.key === 'geode' && selected.geode?.state === 'ready') {
-      rows.push(`<div>${escapeText(t('common.map.geodeBudding', { count: selected.geode.budding ?? 0 }))}</div>`);
+      // 三个口径：最大（全部母岩）/ 常见下限（同批加载会落地的）/ 下限（必然落地的）。
+      rows.push(
+        `<div>${escapeText(
+          t('common.map.geodeBuddingBounds', {
+            max: selected.geode.budding ?? 0,
+            realistic: selected.geode.buddingRealistic ?? 0,
+            lower: selected.geode.buddingLower ?? 0,
+          }),
+        )}</div>`,
+      );
+    } else if (selected.key === 'stronghold') {
+      // Y is exact: the backend reproduces vanilla's moveBelowSeaLevel, which
+      // depends only on constant sea level / min Y plus the layout RNG state.
+      const detail = this.strongholdDetailAt(selected.x, selected.z);
+      if (detail?.ok) {
+        rows.push(
+          `<div>${escapeText(
+            t('common.map.strongholdPortal', {
+              x: detail.portalX,
+              y: detail.portalY,
+              z: detail.portalZ,
+            }),
+          )}</div>`,
+        );
+        if (detail.eyes !== null) {
+          rows.push(`<div>${escapeText(t('common.map.strongholdEyes', { eyes: detail.eyes }))}</div>`);
+        }
+      } else if (detail?.truncated) {
+        rows.push(`<div>${escapeText(t('common.map.strongholdPortalTruncated'))}</div>`);
+      } else if (selected.details === 'pending') {
+        rows.push(`<div>${escapeText(t('common.map.calculating'))}</div>`);
+      } else if (selected.details === 'failed') {
+        rows.push(`<div>${escapeText(t('common.map.boundsFailed'))}</div>`);
+      }
     } else if (selected.details === 'pending') {
       rows.push(`<div>${escapeText(t('common.map.calculating'))}</div>`);
     } else if (selected.details === 'failed') {
@@ -1242,6 +1366,13 @@ export class MapView {
     const cage = this.findTrialCage(screenX, screenY, TRIAL_CAGE_HIT_PX);
     if (cage) {
       this.selectStructure(cage.item, cage.cage);
+      return;
+    }
+    // A visible portal wins over the icon underneath it: it is drawn on top, so
+    // the click should hit what the user actually sees.
+    const portal = this.findStrongholdPortal(screenX, screenY);
+    if (portal) {
+      this.selectStructure(portal.item);
       return;
     }
     const radius = ICON_SIZE / 2 + 6;
@@ -1356,6 +1487,7 @@ export class MapView {
       this.slimeFlight = false;
       this.placed = [];
       this.clearTrialDetail();
+      this.clearStrongholdDetail();
       this.clearSelection();
     }
     this.queueDraw();
@@ -1371,6 +1503,15 @@ export class MapView {
     window.clearTimeout(this.trialTimer);
   }
 
+  /** Same, for the stronghold portal layer. */
+  private clearStrongholdDetail(): void {
+    this.strongholdEpoch += 1;
+    this.strongholdDetail.clear();
+    this.strongholdInflight.clear();
+    this.strongholdFailed = false;
+    window.clearTimeout(this.strongholdTimer);
+  }
+
   private queueDraw(): void {
     if (this.drawing) {
       this.drawQueued = true;
@@ -1383,6 +1524,7 @@ export class MapView {
     window.clearTimeout(this.featureTimer);
     this.featureTimer = window.setTimeout(() => void this.loadFeatures(), 180);
     this.queueTrialDetails();
+    this.queueStrongholdDetails();
   }
 
   private trialKey(x: number, z: number): string {
@@ -1536,9 +1678,161 @@ export class MapView {
     this.trialHover = null;
   }
 
+  /* ---------------------------------------------------------------------- */
+  /* Stronghold End portals                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Portal details are available for the overworld whenever the stronghold
+   * layer is on. Unlike trial chambers, large biomes are fine: the stronghold
+   * salt config does not depend on the biome.
+   */
+  private strongholdDetailAllowed(): boolean {
+    if (Number(this.dimension.value) !== 0) return false;
+    if (this.strongholdTypeId < 0 || !this.enabled.has(this.strongholdTypeId)) return false;
+    return !this.strongholdFailed;
+  }
+
+  private queueStrongholdDetails(): void {
+    window.clearTimeout(this.strongholdTimer);
+    if (!this.strongholdDetailAllowed()) return;
+    this.strongholdTimer = window.setTimeout(() => void this.loadStrongholdDetails(), STRONGHOLD_DETAIL_DEBOUNCE);
+  }
+
+  private strongholdViewport(): { x0: number; z0: number; x1: number; z1: number } {
+    const view = this.viewBounds();
+    const pad = STRONGHOLD_DETAIL_MARGIN;
+    return { x0: view.x0 - pad, z0: view.z0 - pad, x1: view.x1 + pad, z1: view.z1 + pad };
+  }
+
+  /** Portal data already cached for one stronghold icon point. */
+  private strongholdDetailAt(x: number, z: number): StrongholdPortalDetail | undefined {
+    return this.strongholdDetail.get(this.trialKey(x, z));
+  }
+
+  private compactStronghold(info: StrongholdPortalInfo): StrongholdPortalDetail {
+    return {
+      ok: info.ok,
+      truncated: info.truncated,
+      portalX: info.portalX ?? 0,
+      portalZ: info.portalZ ?? 0,
+      portalY: info.portalY ?? 0,
+      roomMinY: info.roomMinY ?? 0,
+      roomMaxY: info.roomMaxY ?? 0,
+      eyes: info.eyes === undefined ? null : info.eyes,
+      frame: info.frame ?? null,
+      footprint: info.footprint ?? null,
+    };
+  }
+
+  private async loadStrongholdDetails(): Promise<void> {
+    if (!this.strongholdDetailAllowed()) return;
+    const view = this.strongholdViewport();
+    const todo: Placed[] = [];
+    for (const item of this.placed) {
+      if (item.type !== this.strongholdTypeId) continue;
+      if (item.x < view.x0 || item.x > view.x1 || item.z < view.z0 || item.z > view.z1) continue;
+      const key = this.trialKey(item.x, item.z);
+      if (this.strongholdDetail.has(key) || this.strongholdInflight.has(key)) continue;
+      todo.push(item);
+    }
+    if (!todo.length) return;
+
+    const center = this.viewBounds();
+    const midX = (center.x0 + center.x1) / 2;
+    const midZ = (center.z0 + center.z1) / 2;
+    todo.sort((a, b) => {
+      const da = (a.x - midX) ** 2 + (a.z - midZ) ** 2;
+      const db = (b.x - midX) ** 2 + (b.z - midZ) ** 2;
+      return da - db;
+    });
+
+    const batch = todo.slice(0, STRONGHOLD_DETAIL_BATCH);
+    for (const item of batch) this.strongholdInflight.add(this.trialKey(item.x, item.z));
+    const epoch = this.strongholdEpoch;
+    const viewToken = ++this.strongholdView;
+    try {
+      const list = await call<StrongholdPortalInfo[]>('strongholdPortals', {
+        ...this.state(),
+        portals: batch.map((item) => ({ x: item.x, z: item.z })),
+      });
+      if (epoch !== this.strongholdEpoch) return;
+      for (const info of list) {
+        this.strongholdDetail.set(this.trialKey(info.x, info.z), this.compactStronghold(info));
+      }
+      this.trimStrongholdCache();
+      this.queueDraw();
+      if (list.length < batch.length) {
+        // Engine rejected the version/batch; stop instead of retrying every pan.
+        this.strongholdFailed = true;
+        return;
+      }
+      if (viewToken === this.strongholdView && this.strongholdDetailAllowed()) {
+        this.strongholdTimer = window.setTimeout(() => void this.loadStrongholdDetails(), 16);
+      }
+    } catch {
+      if (epoch === this.strongholdEpoch) this.strongholdFailed = true;
+    } finally {
+      for (const item of batch) this.strongholdInflight.delete(this.trialKey(item.x, item.z));
+    }
+  }
+
+  /** Drop off-screen portal details once the cache outgrows its budget. */
+  private trimStrongholdCache(): void {
+    if (this.strongholdDetail.size <= STRONGHOLD_DETAIL_CACHE) return;
+    const view = this.strongholdViewport();
+    const icons = new Map(this.placed.map((item) => [this.trialKey(item.x, item.z), item]));
+    for (const key of [...this.strongholdDetail.keys()]) {
+      if (this.strongholdInflight.has(key)) continue;
+      const icon = icons.get(key);
+      if (!icon) {
+        this.strongholdDetail.delete(key);
+        continue;
+      }
+      if (icon.x < view.x0 || icon.x > view.x1 || icon.z < view.z0 || icon.z > view.z1) {
+        this.strongholdDetail.delete(key);
+      }
+    }
+    if (this.strongholdDetail.size > STRONGHOLD_DETAIL_CACHE) this.strongholdDetail.clear();
+  }
+
+  /** Strongholds in view whose portal was successfully located. */
+  private visibleStrongholdPortals(): Placed[] {
+    if (!this.strongholdDetailAllowed()) return [];
+    const view = this.viewBounds();
+    const out: Placed[] = [];
+    for (const item of this.placed) {
+      if (item.type !== this.strongholdTypeId) continue;
+      if (item.x < view.x0 || item.x > view.x1 || item.z < view.z0 || item.z > view.z1) continue;
+      const detail = this.strongholdDetailAt(item.x, item.z);
+      if (!detail || !detail.ok || !detail.frame) continue;
+      out.push(item);
+    }
+    return out;
+  }
+
+  /** Nearest portal under the cursor/click; preferred over the icon hit test. */
+  private findStrongholdPortal(screenX: number, screenY: number): { item: Placed; detail: StrongholdPortalDetail } | null {
+    if (!this.strongholdDetailAllowed()) return null;
+    let best: { item: Placed; detail: StrongholdPortalDetail } | null = null;
+    let bestDistance = STRONGHOLD_PORTAL_HIT_PX * STRONGHOLD_PORTAL_HIT_PX;
+    for (const item of this.visibleStrongholdPortals()) {
+      const detail = this.strongholdDetailAt(item.x, item.z);
+      if (!detail) continue;
+      const point = this.worldToScreen(detail.portalX + 0.5, detail.portalZ + 0.5);
+      const dx = point.x - screenX;
+      const dy = point.y - screenY;
+      const distance = dx * dx + dy * dy;
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = { item, detail };
+      }
+    }
+    return best;
+  }
+
   /** Loaded chambers whose whole-trial extent intersects the viewport. */
-  private visibleTrialChambers(): Placed[] {
-    if (!this.trialDetailAllowed()) return [];
+  private visibleTrialChambers(): Placed[] {    if (!this.trialDetailAllowed()) return [];
     const view = this.viewBounds();
     const out: Placed[] = [];
     for (const item of this.placed) {
@@ -1656,7 +1950,10 @@ export class MapView {
       this.drawStructureFrames(ctx);
       this.drawTrialFrames(ctx);
       this.drawTrialSpawners(ctx);
+      // Portals are drawn after the icons so a portal that overlaps its icon
+      // is still visible (and clickable) — see the plan's hit-test priority.
       this.drawPlaced(ctx);
+      this.drawStrongholdPortals(ctx);
       this.drawSelection(ctx);
       this.syncReadout();
     } finally {
@@ -2139,6 +2436,7 @@ export class MapView {
       if (token !== this.featureGen) return;
       this.placed = placed;
       this.queueTrialDetails();
+      this.queueStrongholdDetails();
       this.queueDraw();
     } catch {
       if (token !== this.featureGen) return;
@@ -2275,12 +2573,21 @@ export class MapView {
     if (!selected) return;
     // The cage ring only makes sense while cage points are actually drawn.
     const cage = selected.cage && this.trialSpawnersVisible() ? selected.cage : null;
-    const point = cage ? this.worldToScreen(cage.x + 0.5, cage.z + 0.5) : this.worldToScreen(selected.x, selected.z);
+    // A stronghold with a located portal selects the portal, not the icon.
+    const portal =
+      selected.key === 'stronghold' && this.strongholdDetailAllowed()
+        ? this.strongholdDetailAt(selected.x, selected.z)
+        : undefined;
+    let point: { x: number; y: number };
+    if (cage) point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
+    else if (portal?.ok) point = this.worldToScreen(portal.portalX + 0.5, portal.portalZ + 0.5);
+    else point = this.worldToScreen(selected.x, selected.z);
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, cage ? 5 : ICON_SIZE / 2 + 5, 0, Math.PI * 2);
+    const radius = cage ? 5 : portal?.ok ? 6 : ICON_SIZE / 2 + 5;
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -2479,6 +2786,84 @@ export class MapView {
     ctx.lineWidth = 2;
     ctx.strokeStyle = color;
     ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+    ctx.restore();
+  }
+
+  /**
+   * Stronghold End portals: the 3x3 end_portal area plus a leader line back to
+   * the stronghold start icon.
+   *
+   * Always drawn, at every zoom level, so a portal is visible wherever its
+   * stronghold is. The only threshold is the leader line, and it is a pixel
+   * distance rather than a zoom level: when the portal sits on top of the icon
+   * the line is skipped, which is exactly the "overlapping" case.
+   */
+  private drawStrongholdPortals(ctx: CanvasRenderingContext2D): void {
+    if (!this.strongholdDetailAllowed()) return;
+    const portals = this.visibleStrongholdPortals();
+    if (!portals.length) return;
+    ctx.save();
+
+    // (1) Leader line: stronghold start icon -> portal centre.
+    ctx.strokeStyle = STRONGHOLD_LEADER_STROKE;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    for (const item of portals) {
+      const detail = this.strongholdDetailAt(item.x, item.z);
+      if (!detail?.frame) continue;
+      // Overlapping / too close in *world* space: no line. A pixel test here
+      // would make deeply zoomed-out views lose their lines.
+      const bx = detail.portalX - item.x;
+      const bz = detail.portalZ - item.z;
+      if (bx * bx + bz * bz < STRONGHOLD_LEADER_MIN_BLOCKS * STRONGHOLD_LEADER_MIN_BLOCKS) continue;
+      const from = this.worldToScreen(item.x + 0.5, item.z + 0.5);
+      const to = this.worldToScreen(detail.portalX + 0.5, detail.portalZ + 0.5);
+      // Both endpoints off the same screen edge: skip.
+      if (
+        (from.x < 0 && to.x < 0) || (from.x > this.canvas.width && to.x > this.canvas.width) ||
+        (from.y < 0 && to.y < 0) || (from.y > this.canvas.height && to.y > this.canvas.height)
+      ) continue;
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // (2) The 3x3 portal blocks, on top of the icons.
+    ctx.fillStyle = STRONGHOLD_PORTAL_FILL;
+    for (const item of portals) {
+      const detail = this.strongholdDetailAt(item.x, item.z);
+      const frame = detail?.frame;
+      if (!detail || !frame) continue;
+      const topLeft = this.worldToScreen(frame.minX, frame.minZ);
+      const bottomRight = this.worldToScreen(frame.maxX + 1, frame.maxZ + 1);
+      let width = bottomRight.x - topLeft.x;
+      let height = bottomRight.y - topLeft.y;
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
+      let x = topLeft.x;
+      let y = topLeft.y;
+      // 缩小到 3×3 不足最小像素时绿框无法辨认，改画末地传送门图标，
+      // 尺寸为要塞标记（ICON_SIZE）的一半，保证任何缩放级别都能看到。
+      if (width < STRONGHOLD_PORTAL_MIN_PX || height < STRONGHOLD_PORTAL_MIN_PX) {
+        const center = this.worldToScreen(detail.portalX + 0.5, detail.portalZ + 0.5);
+        const size = ICON_SIZE / 2;
+        if (
+          center.x + size < 0 || center.y + size < 0 ||
+          center.x - size > this.canvas.width || center.y - size > this.canvas.height
+        ) continue;
+        const icon = this.loadIcon(END_PORTAL_ICON);
+        if (icon.complete && icon.naturalWidth > 0) {
+          ctx.drawImage(icon, center.x - size / 2, center.y - size / 2, size, size);
+        } else {
+          // 图标尚未加载完成：退回原来的小方块，避免出现空档。
+          ctx.fillRect(center.x - size / 2, center.y - size / 2, size, size);
+        }
+        continue;
+      }
+      if (x > this.canvas.width || y > this.canvas.height || x + width < 0 || y + height < 0) continue;
+      ctx.fillRect(x, y, width, height);
+    }
     ctx.restore();
   }
 

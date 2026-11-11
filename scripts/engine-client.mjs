@@ -1,4 +1,4 @@
-﻿// Engine client for the regression harness: speaks the length-prefixed JSON
+// Engine client for the regression harness: speaks the length-prefixed JSON
 // protocol to `aio-engine --serve` (the same server the host runs via --engine),
 // and exposes the add-on method names so native-regression.mjs can run unchanged.
 import { spawn } from 'node:child_process';
@@ -11,6 +11,7 @@ const OPS = [
   'biomeAt',
   'structures',
   'structureBounds',
+  'strongholdPortals',
   'renderTile',
   'renderTiles',
   'slimeMask',
@@ -42,6 +43,7 @@ const OPS = [
   'geodeStart',
   'geodePoll',
   'geodeStop',
+  'geodeChunk',
 ];
 
 export async function createEngineClient({ exe, dll, timeoutMs = 180000 }) {

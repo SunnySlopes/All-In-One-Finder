@@ -7,6 +7,7 @@
 #include "multi_monument_host.h"
 #include "river_host.h"
 #include "slime_host.h"
+#include "stronghold_detail.h"
 #include "terrain_map.h"
 #include "trial_detail.h"
 #include "trial_host.h"
@@ -831,6 +832,76 @@ Napi::Value TrialChambers(const Napi::CallbackInfo &info)
     return out;
 }
 
+/**
+ * Portal room location and eye counts for strongholds.
+ *
+ * args: { mc, seed, portals: [{x, z}] } — the stronghold start points as the
+ * map's `structures` op reported them.
+ *
+ * Note there is deliberately no Y in the payload: cubiomes does not model the
+ * vertical placement of 1.13+ stronghold pieces, so a Y would be a guess.
+ */
+Napi::Value StrongholdPortals(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Napi::Object args = info[0].As<Napi::Object>();
+    const int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    const int64_t seed = readSeed(args.Get("seed"), true);
+    Napi::Array requested = args.Get("portals").As<Napi::Array>();
+    // The map requests one batch per viewport refresh; this is a safety valve.
+    if (requested.Length() > 256) throw Napi::Error::New(env, "too-many-portals");
+
+    std::vector<std::pair<int, int> > starts;
+    starts.reserve(requested.Length());
+    for (uint32_t i = 0; i < requested.Length(); i++) {
+        Napi::Object item = requested.Get(i).As<Napi::Object>();
+        starts.emplace_back(item.Get("x").As<Napi::Number>().Int32Value(),
+                            item.Get("z").As<Napi::Number>().Int32Value());
+    }
+
+    const auto list = strongholdPortals(mc, static_cast<uint64_t>(seed), starts);
+    Napi::Array out = Napi::Array::New(env, list.size());
+    for (size_t i = 0; i < list.size(); i++) {
+        const StrongholdPortalInfo &p = list[i];
+        Napi::Object item = Napi::Object::New(env);
+        item.Set("x", p.x);
+        item.Set("z", p.z);
+        item.Set("chunkX", p.chunkX);
+        item.Set("chunkZ", p.chunkZ);
+        item.Set("ok", p.ok);
+        item.Set("truncated", p.truncated);
+        item.Set("pieces", p.pieces);
+        if (p.ok) {
+            item.Set("portalX", p.portalX);
+            item.Set("portalZ", p.portalZ);
+            // World Y of the portal frame; exact (see stronghold_detail.h).
+            item.Set("portalY", p.portalY);
+            item.Set("roomMinY", p.roomMinY);
+            item.Set("roomMaxY", p.roomMaxY);
+            item.Set("yExact", p.yExact);
+            Napi::Object frame = Napi::Object::New(env);
+            frame.Set("minX", p.frameMinX);
+            frame.Set("minZ", p.frameMinZ);
+            frame.Set("maxX", p.frameMaxX);
+            frame.Set("maxZ", p.frameMaxZ);
+            item.Set("frame", frame);
+            Napi::Object footprint = Napi::Object::New(env);
+            footprint.Set("minX", p.footprintMinX);
+            footprint.Set("minZ", p.footprintMinZ);
+            footprint.Set("maxX", p.footprintMaxX);
+            footprint.Set("maxZ", p.footprintMaxZ);
+            footprint.Set("area", p.footprintArea);
+            item.Set("footprint", footprint);
+        }
+        // null (not 0) when the version predates the salt config, so the UI can
+        // tell "no eyes" apart from "not modelled".
+        if (p.eyes < 0) item.Set("eyes", env.Null());
+        else item.Set("eyes", p.eyes);
+        out.Set(i, item);
+    }
+    return out;
+}
+
 Napi::Value GeodeStart(const Napi::CallbackInfo &info)
 {
     Napi::Object args = info[0].As<Napi::Object>();
@@ -865,7 +936,10 @@ Napi::Value GeodeStart(const Napi::CallbackInfo &info)
     request.minBudding = args.Has("minBudding") ? args.Get("minBudding").As<Napi::Number>().Int32Value() : 1;
     request.autoBudget = args.Has("autoBudget") ? args.Get("autoBudget").As<Napi::Boolean>().Value() : true;
     request.budget = args.Has("budget") ? args.Get("budget").As<Napi::Number>().Int32Value() : 0;
-    request.verifyTop = args.Has("verifyTop") ? args.Get("verifyTop").As<Napi::Number>().Int32Value() : 20;
+    request.verifyTop = args.Has("verifyTop") ? args.Get("verifyTop").As<Napi::Number>().Int32Value() : 0;
+    request.writeOrder = args.Has("writeOrder") && args.Get("writeOrder").IsString()
+                             ? args.Get("writeOrder").As<Napi::String>().Utf8Value()
+                             : "max";
     request.allowGpu = args.Has("allowGpu") ? args.Get("allowGpu").As<Napi::Boolean>().Value() : true;
     request.resume = args.Has("resume") ? args.Get("resume").As<Napi::Boolean>().Value() : true;
     request.seeds = readSeeds(info.Env(), args.Get("seeds"));
@@ -918,6 +992,10 @@ Napi::Object geodeStatusToObject(Napi::Env env, const GeodeStatus &status)
         item.Set("verified", hit.verified);
         item.Set("listedBudding", hit.listedBudding);
         item.Set("listedGeodes", hit.listedGeodes);
+        item.Set("buddingEstimate", hit.buddingEstimate);
+        item.Set("buddingUpper", hit.buddingUpper);
+        item.Set("buddingLower", hit.buddingLower);
+        item.Set("buddingLowerRealistic", hit.buddingLowerRealistic);
         hits.Set(i, item);
     }
     out.Set("hits", hits);
@@ -959,6 +1037,8 @@ Napi::Value GeodeChunk(const Napi::CallbackInfo &info)
     Napi::Object out = Napi::Object::New(env);
     out.Set("exists", summary.exists);
     out.Set("budding", summary.budding);
+    out.Set("buddingRealistic", summary.buddingRealistic);
+    out.Set("buddingLower", summary.buddingLower);
     return out;
 }
 
@@ -1317,6 +1397,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("trialResume", Napi::Function::New(env, TrialResume));
     exports.Set("trialStop", Napi::Function::New(env, TrialStop));
     exports.Set("trialChambers", Napi::Function::New(env, TrialChambers));
+    exports.Set("strongholdPortals", Napi::Function::New(env, StrongholdPortals));
     exports.Set("geodeStart", Napi::Function::New(env, GeodeStart));
     exports.Set("geodePoll", Napi::Function::New(env, GeodePoll));
     exports.Set("geodePause", Napi::Function::New(env, GeodePause));

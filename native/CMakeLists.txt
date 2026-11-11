@@ -28,6 +28,10 @@ set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
 set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower")
 set(TRIAL "${CMAKE_SOURCE_DIR}/../tools/trial")
 set(GEODE "${CMAKE_SOURCE_DIR}/../tools/geode")
+# 要塞传送门/布局定位使用 geode 子模块内嵌的 1.18+ 模拟器
+# （tools/geode/src/stronghold_118）。它是 vanilla StrongholdPieces 的忠实移植，
+# 并且复现了 moveBelowSeaLevel 的竖直放置，所以能给出**精确世界 Y**。
+# 因此这里直接链接 geode 的 geode_stronghold_118。
 if (EXISTS "${FLOWER}/cubiomes/biomes.h")
   message(WARNING
     "tools/flower/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
@@ -196,6 +200,12 @@ add_library(geode_objs OBJECT
   "${GEODE}/src/terrain.cpp"
   "${GEODE}/src/carver.cpp"
   "${GEODE}/src/structures.cpp"
+"${GEODE}/src/overwrites.cpp"
+  # 结构覆盖（要塞/矿井）：下限计算依赖它。
+  "${GEODE}/src/structure_cover.c"
+  "${GEODE}/src/stronghold_118/sh1_18.c"
+  "${GEODE}/src/stronghold_118/vendor/stronghold_pieces.c"
+  "${GEODE}/src/mineshaft_gen/mineshaft_gen.c"
   "${GEODE}/src/structure_layout/layout.cpp"
   "${GEODE}/src/structure_layout/climate263.cpp"
 )
@@ -204,6 +214,9 @@ target_include_directories(geode_objs PRIVATE
   "${GEODE}/src"
   "${GEODE}/data"
   "${GEODE}/src/structure_layout"
+  # search.cpp 引用要塞/矿井覆盖模块的版本常量。
+  "${GEODE}/src/stronghold_118"
+  "${GEODE}/src/mineshaft_gen"
   "${CUBI263}"
   "${CUBI}"
 )
@@ -217,6 +230,15 @@ target_compile_options(geode_objs PRIVATE
   -ffunction-sections -fdata-sections
 )
 
+# geode 的 vendor 副本与 cubiomes 的 features/stronghold.c 定义同名符号，
+# 而 finders.c 还需要 cubiomes 那份 getStrongholdLoot，两份都得在。
+# 只对 vendor 这个翻译单元改名，sh1_18.c 的调用保持不变（它调用的是原名，
+# 所以给它保留原符号的对象是 cubiomes 那份 —— 两者行为一致）。
+set_source_files_properties("${GEODE}/src/stronghold_118/vendor/stronghold_pieces.c"
+  PROPERTIES COMPILE_DEFINITIONS
+    "getStrongholdPieces=geode_sh118_getStrongholdPieces;getStrongholdLoot=geode_sh118_getStrongholdLoot"
+)
+
 add_library(geode_bridge OBJECT "${GEODE}/src/structure_layout/biome_bridge.c")
 set_target_properties(geode_bridge PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(geode_bridge PRIVATE "${CUBI263}" "${CUBI}")
@@ -224,6 +246,9 @@ target_compile_options(geode_bridge PRIVATE
   -O3 -DNDEBUG -fwrapv -ffp-contract=off -fno-lto
   -ffunction-sections -fdata-sections
 )
+
+# geode 的要塞/矿井/覆盖源码已并入 geode_objs，此处不再单独成库。
+
 
 # 河流：river-native 引擎。只编 search.cpp（引擎本体）+ coverage.cpp（计分几何）。
 # 不编 storage.cpp / protocol.cpp：它们只为 CLI/JSON 导出服务，会额外拖入 953 KB 的
@@ -278,6 +303,7 @@ set(HOT_CXX
   flower_host.cpp
   trial_host.cpp
   trial_detail.cpp
+  stronghold_detail.cpp
   geode_host.cpp
   search_gate.cpp
   "${SLIME}/slime_search.cpp"
@@ -346,6 +372,7 @@ target_include_directories(allinone PRIVATE
   "${FLOWER}/cts"
   "${TRIAL}/src"
   "${GEODE}/src"
+  "${GEODE}/src/stronghold_118"
   "${CUBI263}"
   "${CUBI}"
   "${LOWY}"

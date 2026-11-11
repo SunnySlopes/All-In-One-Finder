@@ -38,6 +38,11 @@ const WORLD_MAX = 30000000;
 const MIN_GEODES = 1;
 const MIN_SIMULATION_DISTANCE = 2;
 const MAX_SIMULATION_DISTANCE = 16;
+/** 精确复核条数范围。 */
+const MIN_EXACT_TOP = 1;
+const MAX_EXACT_TOP = 500;
+/** 填写框默认值。 */
+const DEFAULT_EXACT_TOP = 20;
 const LARGE_RANGE_HALF = 32768;
 
 /** 每个引擎档位只显示一行；标签里的地图版本用于结果跳图。 */
@@ -110,6 +115,9 @@ export class GeodePanel {
   private minBudding!: HTMLInputElement;
   /** Opt-in GPU coarse scan; unchecked by default, so the engine stays on CPU. */
   private allowGpu!: HTMLInputElement;
+  /** 勾选后对前 N 名执行精确复核；默认不勾选。 */
+  private exactVerify!: HTMLInputElement;
+  private exactTop!: HTMLInputElement;
   /** Whether the current range is the whole world (drives the 40/1600 defaults). */
   private fullMapMode = false;
   private rangeHint!: HTMLElement;
@@ -189,6 +197,16 @@ export class GeodePanel {
           <div class="span-full">
             <label class="check-row"><input id="g-allow-gpu" type="checkbox" /><span data-i18n="geode.allowGpu"></span></label>
           </div>
+          <div class="span-full">
+            <label class="check-row">
+              <input id="g-exact" type="checkbox" />
+              <span data-i18n="geode.exactTitle"></span>
+              <input id="g-exact-top" type="number" min="${MIN_EXACT_TOP}" max="${MAX_EXACT_TOP}" value="20" class="exact-top" />
+              <span data-i18n="geode.exactSuffix"></span>
+            </label>
+          </div>
+          <div class="span-full hint" data-i18n="geode.exactHint"></div>
+          <div class="span-full hint" data-i18n="geode.boundsHint"></div>
           <div class="span-full hint" data-i18n="geode.help"></div>
         </div>
       </div>
@@ -210,9 +228,20 @@ export class GeodePanel {
     this.minGeodes = this.root.querySelector('#g-min-geodes')!;
     this.minBudding = this.root.querySelector('#g-min-budding')!;
     this.allowGpu = this.root.querySelector('#g-allow-gpu')!;
+    this.exactVerify = this.root.querySelector('#g-exact')!;
+    this.exactTop = this.root.querySelector('#g-exact-top')!;
     this.rangeHint = this.root.querySelector('#g-range-hint')!;
     this.threads.value = String(Math.min(MAX_THREADS, navigator.hardwareConcurrency || 8));
     this.populateVersions();
+    // 默认不勾选精确复核，填写框预置 20 但禁用。
+    this.exactTop.value = String(DEFAULT_EXACT_TOP);
+    this.syncExactState();
+    this.exactVerify.addEventListener('change', () => this.syncExactState());
+    this.exactTop.addEventListener('change', () => {
+      this.exactTop.value = String(
+        clampInt(Number(this.exactTop.value), MIN_EXACT_TOP, MAX_EXACT_TOP) || DEFAULT_EXACT_TOP,
+      );
+    });
 
     this.square.addEventListener('change', () => this.applyRange());
     this.side.addEventListener('input', () => this.applyRange());
@@ -260,6 +289,12 @@ export class GeodePanel {
     applyForm(this.root, s);
     this.render();
     applyForm(this.root, s);
+    // applyForm 直接写 .checked / .value，不会触发 change 事件，因此依赖勾选
+    // 状态的控件必须手动同步一次。否则「勾选精确复核 → 关闭 → 重启」之后，
+    // 复选框是从会话里恢复成勾上的，而「精确计算结果数」输入框仍停留在
+    // 初始的 disabled 状态，看起来能勾但数值改不了。
+    this.syncExactState();
+    this.syncRangeEnabled();
   }
 
   setSeedFromMap(seed: string): void {
@@ -319,13 +354,22 @@ export class GeodePanel {
     this.chunkCount.textContent = t('geode.chunkCount', { n: chunks });
   }
 
-  /** 正方形勾选时由边长填充四至；取消后四至保留最后值并可手改。 */
-  private applyRange(): void {
+  /**
+   * 只同步「正方形勾选 → 四至是否可编辑」，不改数值。
+   * 恢复会话时数值已由 applyForm 写好，不能在这里重新推导覆盖。
+   */
+  private syncRangeEnabled(): void {
     const square = this.square.checked;
     this.side.disabled = !square;
     for (const input of [this.minXInput, this.maxXInput, this.minZInput, this.maxZInput]) {
       input.disabled = square;
     }
+  }
+
+  /** 正方形勾选时由边长填充四至；取消后四至保留最后值并可手改。 */
+  private applyRange(): void {
+    const square = this.square.checked;
+    this.syncRangeEnabled();
     if (!square) {
       this.updateDerived();
       return;
@@ -372,6 +416,30 @@ export class GeodePanel {
     this.fullMapMode = fullMap;
     this.minGeodes.value = String(fullMap ? 40 : 20);
     this.minBudding.value = String(fullMap ? 1600 : 800);
+  }
+
+  /**
+   * 精确复核的顺序模型。
+   *
+   * 界面不暴露顺序选择：固定用 parallel。
+   * parallel 与 max 在"不裁剪跨区块写入"上一致，
+   * 但会计入岩浆湖/地牢的覆盖修正，
+   * 因此 upper 与 estimate 的差异正好来自覆盖模型。
+   * 若使用 isolated 会把跨区块母岩全丢，与原估值差距过大，
+   * 对界面上的"上下限"语义不利。
+   */
+  private writeOrderForSearch(): string {
+    return this.exactVerify.checked ? 'parallel' : 'max';
+  }
+
+  /** 勾选精确复核时才允许编辑条数。 */
+  private syncExactState(): void {
+    this.exactTop.disabled = !this.exactVerify.checked;
+    if (this.exactVerify.checked) {
+      this.exactTop.value = String(
+        clampInt(Number(this.exactTop.value), MIN_EXACT_TOP, MAX_EXACT_TOP) || DEFAULT_EXACT_TOP,
+      );
+    }
   }
 
   private resetRange(): void {
@@ -482,6 +550,7 @@ export class GeodePanel {
     autoBudget: boolean;
     budget: number;
     verifyTop: number;
+    writeOrder: string;
     allowGpu: boolean;
     resume: boolean;
     seeds: string;
@@ -507,7 +576,11 @@ export class GeodePanel {
       // 候选预算由引擎按等效边长自动分档；复核/断点续跑不再暴露给用户。
       autoBudget: true,
       budget: 0,
-      verifyTop: 0,
+      /* 勾选精确复核时传入前 N 名；未勾选时为 0。 */
+      verifyTop: this.exactVerify.checked
+        ? clampInt(Number(this.exactTop.value), MIN_EXACT_TOP, MAX_EXACT_TOP)
+        : 0,
+      writeOrder: this.writeOrderForSearch(),
       allowGpu: this.allowGpu.checked,
       resume: false,
       seeds: listMode ? this.seedText : this.seed,
@@ -588,7 +661,7 @@ export class GeodePanel {
       minZ: range.minZ,
       maxZ: range.maxZ,
       prefilter: this.prefilterFor(range),
-      verifyTop: 0,
+      verifyTop: request.verifyTop,
       simulationDistance: request.simulationDistance,
       modernActivity: isModernVersion(request.version),
     };

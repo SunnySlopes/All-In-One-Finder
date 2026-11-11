@@ -197,6 +197,41 @@ export interface TrialSpawner {
   slow: boolean;
 }
 
+/**
+ * Portal room data for one stronghold, from the `strongholdPortals` op.
+ *
+ * Y is exact. The backend ports vanilla's `StrongholdPieces` and reproduces the
+ * post-layout vertical placement (`moveBelowSeaLevel`), which depends only on
+ * the constant sea level / min Y and the layout RNG state — never on the terrain
+ * heightmap — so the reported Y is the real world Y rather than an estimate.
+ */
+export interface StrongholdPortalInfo {
+  x: number;
+  z: number;
+  chunkX: number;
+  chunkZ: number;
+  /** Portal room was generated and located. */
+  ok: boolean;
+  /** Piece cap hit before the portal room was found; coordinates unusable. */
+  truncated: boolean;
+  pieces: number;
+  /** Inclusive bounds of the 3x3 end_portal block area (ok only). */
+  portalX?: number;
+  portalZ?: number;
+  /** World Y of the 3x3 end portal frame (ok only). Exact. */
+  portalY?: number;
+  /** World Y bounds of the whole portal room (ok only). Exact. */
+  roomMinY?: number;
+  roomMaxY?: number;
+  /** True when Y came from the exact vertical-placement model. */
+  yExact?: boolean;
+  frame?: { minX: number; minZ: number; maxX: number; maxZ: number };
+  /** Whole-stronghold planar coverage (union of every piece). */
+  footprint?: { minX: number; minZ: number; maxX: number; maxZ: number; area: number };
+  /** Eyes already generated (0..12); null when the version predates the salt config. */
+  eyes?: number | null;
+}
+
 /** Per-chamber map overlay data returned by the `trialChambers` op. */
 export interface TrialChamberInfo {
   x: number;
@@ -211,8 +246,7 @@ export interface TrialChamberInfo {
   spawners: TrialSpawner[];
 }
 
-export interface TrialStatus {
-  running: boolean;
+export interface TrialStatus {  running: boolean;
   done: boolean;
   paused: boolean;
   /** Pause requested; waiting for the in-flight shard to finish. */
@@ -238,7 +272,12 @@ export interface TrialStatus {
 
 export interface GeodeChunkInfo {
   exists: boolean;
+  /** 该晶洞的全部母岩（最大口径）。 */
   budding: number;
+  /** 常见下限：同批加载下会落地的数量。 */
+  buddingRealistic: number;
+  /** 下限：任何加载顺序下都必然落地。 */
+  buddingLower: number;
 }
 
 export interface GeodeHit {
@@ -249,11 +288,27 @@ export interface GeodeHit {
   budding: number;
   /** 活跃晶洞数（仅展示）。 */
   geodes: number;
-  /** 该点已用 evaluate() 逐块重算。 */
+  /** 该点已用 evaluate()/refine_center() 逐块重算。 */
   verified: boolean;
   /** 复核前的榜单值；与复核值一致时为 -1。 */
   listedBudding: number;
   listedGeodes: number;
+  /**
+   * 精确复核的三值口径（数值大小：estimate >= upper >= lower）。
+   * 仅在 verified 为真时有意义；budding 保持为引擎原预测值。
+   *   estimate —— 不带 &&bounded 的最大取值（未复核时会输出的原值）
+   *   upper    —— 带 &&bounded 的顺序模型确定值
+   *   lower    —— own_budding，仅本区块内必然落地的母岩
+   */
+  buddingEstimate: number;
+  buddingUpper: number;
+  buddingLower: number;
+  /**
+   * 常见加载口径的下限：把「写入无晶洞目标区块」也算成功。
+   * 同批加载时成立；分批加载/回访时目标区块可能先封存，真实值会跌回
+   * buddingLower。因此它是典型值，不是下界。
+   */
+  buddingLowerRealistic: number;
 }
 
 export interface GeodeStatus {

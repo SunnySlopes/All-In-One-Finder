@@ -111,7 +111,10 @@
       "trialCageAt": "{kind} ({x}, {z}), Y = {y}",
       "trialCageColumn": "{kind} ({x}, {z}), Y = {ys}",
       "trialNotGenerated": "该位置未生成密室",
-      "geodeBudding": "母岩数 {count}"
+      "strongholdPortal": "末地传送门 ({x}, {y}, {z})",
+      "strongholdEyes": "眼数 {eyes} / 12",
+      "strongholdPortalTruncated": "布局超出生成上限，未定位传送门",
+      "geodeBuddingBounds": "最大母岩数 {max} / 常见下限 {realistic} / 下限 {lower}"
     },
     "error": {
       "bad-seed": "请填写整数种子。",
@@ -563,13 +566,19 @@
       "done": "完成"
     },
     "card": {
-      "budding": "母岩数 {count}",
+      "budding": "母岩上限数 {count}",
       "geodes": "晶洞数 {count}",
       "verified": "已复核",
       "approximate": "近似候选",
-      "listed": "榜单 {count}"
+      "listed": "榜单 {count}",
+      "exactRange": "常见下限 {realistic} / 下限 {lower}",
+      "exactHint": "勾选后对榜单前几名逐块重算，补充常见下限与下限；排名不变。"
     },
     "stopped": "已停止，结果已清空。",
-    "stoppedProgress": "已停止"
+    "stoppedProgress": "已停止",
+    "exactTitle": "精确计算结果数（前",
+    "exactSuffix": "名）",
+    "exactHint": "勾选后对榜单前几名逐块重算，补充常见下限与下限；排名不变。",
+    "boundsHint": "常见下限：同时加载（包括/tp或从不同方向加载）且不装如C2ME等mod时成立；下限：任何加载顺序都成立。"
   }
 }

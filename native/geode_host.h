@@ -23,6 +23,22 @@ struct GeodeHit {
     /** Engine leaderboard value before verification; -1 when verification matched. */
     int listedBudding = -1;
     int listedGeodes = -1;
+    /**
+     * 精确复核的三值口径（数值大小：estimate >= upper >= lower）。
+     * 仅在 verified 为真时有意义；budding 保持为引擎原预测值不变。
+     *   estimate —— 不带 &&bounded 的最大取值（即未复核时会输出的原值）
+     *   upper    —— 带 &&bounded 的顺序模型确定值
+     *   lower    —— own_budding，仅本区块内必然落地的母岩
+     */
+    int buddingEstimate = -1;
+    int buddingUpper = -1;
+    int buddingLower = -1;
+    /**
+     * 常见加载口径的下限：把「写入无晶洞目标区块」也算成功。
+     * 同批加载时成立，但分批加载/回访时目标区块可能先封存，
+     * 真实值会跌回 buddingLower。因此它是典型值，不是下界。
+     */
+    int buddingLowerRealistic = -1;
 };
 
 struct GeodeStatus {
@@ -85,7 +101,14 @@ struct GeodeRequest {
     int minBudding = 1;
     bool autoBudget = true;
     int budget = 0; /* manual budget when autoBudget == false */
-    int verifyTop = 20; /* single seed only; list mode forces 0 */
+    /* 精确复核前 N 名；0 = 不复核。仅单种子可用，列表模式强制 0。 */
+    int verifyTop = 0;
+    /*
+     * 顺序模型：max / parallel / lexicographic / reverse-lexicographic / isolated。
+     * 空字符串表示使用引擎默认（max）。
+     * 低于 generation 4 的版本会被引擎拒绝非 max 值。
+     */
+    std::string writeOrder = "max";
     bool allowGpu = true;
     bool resume = true;
     std::vector<int64_t> seeds;
@@ -98,10 +121,15 @@ void geodeResume();
 void geodeStop();
 GeodeStatus geodePoll();
 
-/** One geode structure icon's in-model budding-amethyst count. */
+/** One geode structure icon's in-model budding-amethyst counts. */
 struct GeodeChunkSummary {
     bool exists = false;
+    /** 该晶洞的全部母岩（最大口径）。 */
     int budding = 0;
+    /** 常见下限：同批加载下会落地的数量（扣除被覆写/被结构顶掉的）。 */
+    int buddingRealistic = 0;
+    /** 下限：任何加载顺序下都必然落地（仅源区块内 + 未被顶掉）。 */
+    int buddingLower = 0;
 };
 
 /** Generate one geode chunk for the map's structure info card. */

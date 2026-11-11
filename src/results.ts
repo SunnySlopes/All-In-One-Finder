@@ -1067,7 +1067,31 @@ export class ResultsColumn {
     const approximate = this.geodeView.prefilter > 0;
     this.list.innerHTML = this.geodeHits
       .map((hit, index) => {
-        const verified = hit.verified ? ` <span class="badge">${escapeText(t('geode.card.verified'))}</span>` : '';
+        // 卡片布局：
+        //   第一行 —— 母岩上限数（含复核前旧值）+ 晶洞数
+        //   第二行 —— 常见下限 / 下限 + 已复核标签（仅复核后才有）
+        // 数值大小：母岩上限数 >= 常见下限 >= 下限。
+        //
+        // 搜索阶段已经在模拟里扣掉了要塞与矿井，所以第一行的取值本身就是
+        // 母岩数的上界；复核阶段的 buddingUpper 只是再叠加了地牢/岩浆湖覆写，
+        // 差值为 0~7，不再单独展示，避免出现两个"上限"。
+        //
+        // 常见下限把「写入无晶洞目标区块」也算成功：同批加载时成立，
+        // 分批加载/回访时目标区块可能先封存，真实值会跌回下限。
+        const realistic =
+          hit.buddingLowerRealistic >= 0 ? hit.buddingLowerRealistic : hit.buddingLower;
+        const hasExact = hit.verified && hit.buddingLower >= 0 && realistic >= 0;
+        const verifiedBadge = hasExact
+          ? ` <span class="badge">${escapeText(t('geode.card.verified'))}</span>`
+          : '';
+        const range = hasExact
+          ? `<span class="result-stats-row">${escapeText(
+              t('geode.card.exactRange', {
+                realistic,
+                lower: hit.buddingLower,
+              }),
+            )}${verifiedBadge}</span>`
+          : '';
         const listed =
           hit.listedBudding >= 0 ? ` (${escapeText(t('geode.card.listed', { count: hit.listedBudding }))})` : '';
         const approx = approximate ? `<span>${escapeText(t('geode.card.approximate'))}</span>` : '';
@@ -1078,8 +1102,9 @@ export class ResultsColumn {
           <button type="button" class="icon-btn result-copy" data-i18n-title="common.results.copy" data-index="${index}" data-i18n-aria-label="common.results.copy">⧉</button>
         </div>
         <div class="result-stats">
-          <span>${escapeText(t('geode.card.budding', { count: hit.budding }))}${escapeText(listed)}${verified}</span>
+          <span>${escapeText(t('geode.card.budding', { count: hit.budding }))}${escapeText(listed)}</span>
           <span>${escapeText(t('geode.card.geodes', { count: hit.geodes }))}</span>
+          ${range}
           ${approx}
         </div>
       </article>`;

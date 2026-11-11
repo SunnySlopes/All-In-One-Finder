@@ -218,6 +218,10 @@ geode::Options optionsFor(const GeodeRequest &request, int64_t seed, int budget,
     options.simulation_distance = request.simulationDistance;
     options.min_geodes = request.minGeodes;
     options.min_budding = request.minBudding;
+    // 精确复核两个参数：顺序模型与复核条数。
+    // 默认 max + 0 保持旧行为；低版本非 max 会在引擎侧被拒绝。
+    if (!request.writeOrder.empty()) options.write_order = request.writeOrder;
+    options.refine_top = std::max(0, std::min(500, request.verifyTop));
     options.threads = std::max(1, std::min(kMaxThreads, request.threads));
     // 全图粗筛允许更多线程；模拟仍受 threads 限制。
     options.scan_threads = fullMap ? std::min(256, std::max(128, options.threads)) : 0;
@@ -330,7 +334,9 @@ void job(GeodeRequest request, int startSeed)
         }
 
         bool verifyFailed = false;
-        if (verifyTop > 0 && output.approximate && !hits.empty() && !gStop.load()) {
+        // 精确复核：任意模式可用（不再限定 approximate）。
+        // 只就地填充三个口径，**不改变原排名**。
+        if (verifyTop > 0 && !hits.empty() && !gStop.load()) {
             const int count = std::min<int>(verifyTop, static_cast<int>(hits.size()));
             gPhaseCode.store(4);
             gPhaseIndex.store(4);
@@ -339,15 +345,22 @@ void job(GeodeRequest request, int startSeed)
             gVerifyTotal.store(static_cast<uint64_t>(count));
             int mismatch = 0, verifiedCount = 0;
             try {
+                // 复核需要顺序模型；未指定时用 parallel（与 max 等价但会计入覆盖）。
+                geode::Options refined = options;
+                if (refined.write_order.empty()) refined.write_order = "parallel";
                 for (int i = 0; i < count; ++i) {
                     control->checkpoint();
                     try {
-                        const auto exact = geode::evaluate(options, hits[i].x, hits[i].z);
-                        if (exact.budding != hits[i].budding || exact.geodes != hits[i].geodes) {
+                        const auto r = geode::refine_center(refined, hits[i].x, hits[i].z);
+                        // 原预测值保留在 budding；listedBudding 保持 -1
+                        // 以表示"并未因复核而变化排序值"。
+                        hits[i].buddingEstimate = r.estimate;
+                        hits[i].buddingUpper = r.upper;
+                        hits[i].buddingLower = r.lower;
+                        hits[i].buddingLowerRealistic = r.lower_realistic;
+                        if (r.estimate != hits[i].budding || r.geodes != hits[i].geodes) {
                             hits[i].listedBudding = hits[i].budding;
                             hits[i].listedGeodes = hits[i].geodes;
-                            hits[i].budding = exact.budding;
-                            hits[i].geodes = exact.geodes;
                             ++mismatch;
                         }
                         hits[i].verified = true;
@@ -374,11 +387,6 @@ void job(GeodeRequest request, int startSeed)
             if (cancelled || gStop.load()) {
                 break;
             }
-            // 前 N 条按精确值用 v3 规则重排；N 之后保持引擎顺序。
-            std::stable_sort(hits.begin(), hits.begin() + count, [&](const GeodeHit &a, const GeodeHit &b) {
-                return geode::final_better(options.center_x, options.center_z, {a.x, a.z, a.budding, a.geodes},
-                                           {b.x, b.z, b.budding, b.geodes});
-            });
             if (verifyFailed && error.empty()) error = "geode-verify-failed";
         }
 
@@ -558,13 +566,13 @@ std::string geodeStart(const GeodeRequest &input)
     request.minGeodes = std::max(1, request.minGeodes);
     request.minBudding = std::max(0, request.minBudding);
     request.budget = std::max(0, request.budget);
-    request.verifyTop = std::max(0, std::min(100, request.verifyTop));
-    if (request.verifyTop != 0 && request.verifyTop != 5 && request.verifyTop != 10 && request.verifyTop != 20)
-        request.verifyTop = 20;
+    // 精确复核条数由界面自由填写（1..500）；0 = 不复核。
+    // 不再限定为 5/10/20 三档，也不再强制改写为 20。
+    request.verifyTop = std::max(0, std::min(500, request.verifyTop));
 
     const bool fullMap = isFullWorld(request);
     const int budget = budgetFor(request);
-    const int phaseCount = (request.seeds.size() == 1 && budget > 0 && request.verifyTop > 0) ? 4 : 3;
+    const int phaseCount = (request.seeds.size() == 1 && request.verifyTop > 0) ? 4 : 3;
     // A fresh start must not silently resume when the UI explicitly asked to restart.
     if (fullMap && !request.resume) clearCheckpoints();
     const bool resumed = fullMap && request.resume && hasCheckpoint();
@@ -711,11 +719,13 @@ GeodeChunkSummary geodeChunkSummary(const std::string &version, int64_t seed, in
     GeodeChunkSummary out;
     geode::Options options;
     geode::set_version(options, version);
-    geode::Simulator simulator(static_cast<uint64_t>(seed), options.generation);
-    auto terrain = options.terrain ? std::make_unique<geode::Terrain>(static_cast<uint64_t>(seed), options.generation)
-                                   : nullptr;
-    const auto result = simulator.generate(geode::floor_div(x, 16), geode::floor_div(z, 16), terrain.get());
-    out.exists = result.exists;
-    out.budding = static_cast<int>(result.budding.size());
+    options.seed = static_cast<uint64_t>(seed);
+    options.seed_text = std::to_string(seed);
+    const geode::ChunkBuddingBounds bounds =
+        geode::chunk_budding_bounds(options, geode::floor_div(x, 16), geode::floor_div(z, 16));
+    out.exists = bounds.exists;
+    out.budding = bounds.max;
+    out.buddingRealistic = bounds.realistic;
+    out.buddingLower = bounds.lower;
     return out;
 }

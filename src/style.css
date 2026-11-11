@@ -862,6 +862,15 @@ input.invalid {
   font-size: 12px;
   color: var(--muted);
 }
+/* 精确上下限行：强制换行并占满整行，
+   使「上限/下限 + 已核验」独立于母岩数与晶洞数那一行。 */
+.result-stats-row {
+  flex: 1 0 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .result-stats {
   display: flex;
   flex-wrap: wrap;
@@ -1074,6 +1083,18 @@ label.feature {
   user-select: none;
   margin: 0;
 }
+/* 精确复核的条数输入框：仅在勾选时可用 */
+.exact-top {
+  width: 62px;
+  margin: 0 4px;
+  flex: none;
+}
+
+.exact-top:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .check-row > input[type="checkbox"],
 label.feature > input[type="checkbox"] {
   appearance: none;

@@ -194,6 +194,19 @@ cases.basic = {
       types: features.filter((item) => item.dim === 1).map((item) => item.id),
     }),
   ),
+  // Stronghold portals: exact X/Z + eye counts, and deliberately no Y anywhere
+  // (cubiomes does not model 1.13+ vertical piece placement).
+  strongholdPortals: canon(
+    await addon.strongholdPortals({
+      mc,
+      seed: '123',
+      portals: [
+        { x: -476, z: -2620 },
+        { x: 1988, z: 788 },
+        { x: -1852, z: 1636 },
+      ],
+    }),
+  ),
   tile16: hash(
     await addon.renderTile({
       mc,
