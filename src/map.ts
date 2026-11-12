@@ -121,6 +121,13 @@ const TRIAL_FRAME_MIN_PPB = 0.25;
 const TRIAL_CAGE_MIN_PPB = 1;
 /** Geodes generate roughly once per 43 chunks; below 1:1 their icons overlap into noise. */
 const GEODE_ICON_MIN_PPB = 1;
+/**
+ * Desert wells: getStructurePos yields ~1/1000 candidates but only ~2% land in a
+ * desert, so the effective density is ~1/45,700 chunks. They are drawn only at
+ * 1:32 or closer (cubiomes-viewer uses the same per-structure scale of 32) and at
+ * half the normal icon size.
+ */
+const DESERT_WELL_MIN_PPB = 1 / 32;
 const TRIAL_DETAIL_BATCH = 8;
 const TRIAL_DETAIL_MARGIN = 128;
 const TRIAL_DETAIL_DEBOUNCE = 150;
@@ -1135,7 +1142,35 @@ export class MapView {
   private structureIconName(key: string, variant = 0): string {
     if (key === 'end_city' && variant === 1) return 'end_ship';
     if (key === 'abandoned_camp' && variant === 1) return 'camp_copper';
+    // 带地下室的雪屋用独立图标（Ladder + 地下室），与普通雪屋区分。
+    if (key === 'igloo' && variant === 1) return 'igloo_basement';
     return ICONS[key] || '';
+  }
+
+  /**
+   * 带变体的结构名：用于信息栏标题与 tooltip。
+   * variant 的含义由 native 侧给出（见 map_service.cpp 的 addGeneric / addEndGateways）：
+   *   abandoned_camp 1 = 含铜箱子；end_city 1 = 带末地船；
+   *   igloo 1 = 带地下室；end_gateway 1 = 首个折跃门，2 = 外岛落点。
+   */
+  private structureVariantLabel(key: string, variant = 0): string {
+    if (key === 'abandoned_camp' && variant === 1) return t('common.map.campCopperChest');
+    if (key === 'end_city' && variant === 1) return t('common.map.endCityShip');
+    if (key === 'igloo' && variant === 1) return t('common.map.iglooBasement');
+    // 全图唯一一个名称不同的折跃门：首个末地折跃门（其余都叫「折跃门」）。
+    if (key === 'end_gateway' && variant === 1) return t('common.map.endGatewayFirst');
+    // 堡垒遗迹 4 种起始池（variant 由 native 的 getVariant 给出）：
+    // 0 units -> 住所型，1 hoglin_stable -> 兽栏型，2 treasure -> 宝藏型，3 bridge -> 桥型。
+    if (key === 'bastion') {
+      const names = [
+        'common.map.bastionHousing',
+        'common.map.bastionStables',
+        'common.map.bastionTreasure',
+        'common.map.bastionBridge',
+      ];
+      if (variant >= 0 && variant < names.length) return t(names[variant]);
+    }
+    return structureLabel(key);
   }
 
   private boxSizeText(box: Bounds3): string {
@@ -1291,7 +1326,7 @@ export class MapView {
     const icon = this.structureIconName(selected.key, selected.variant);
     this.infoIcon.src = icon ? `/icons/${icon}.png` : '';
     this.infoIcon.style.display = icon ? '' : 'none';
-    const name = structureLabel(selected.key);
+    const name = this.structureVariantLabel(selected.key, selected.variant);
     this.infoName.textContent = name;
     this.infoCoords.textContent = `(${selected.x}, ${selected.z})`;
 
@@ -2838,11 +2873,11 @@ export class MapView {
       if (!detail || !frame) continue;
       const topLeft = this.worldToScreen(frame.minX, frame.minZ);
       const bottomRight = this.worldToScreen(frame.maxX + 1, frame.maxZ + 1);
-      let width = bottomRight.x - topLeft.x;
-      let height = bottomRight.y - topLeft.y;
+      const width = bottomRight.x - topLeft.x;
+      const height = bottomRight.y - topLeft.y;
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
-      let x = topLeft.x;
-      let y = topLeft.y;
+      const x = topLeft.x;
+      const y = topLeft.y;
       // 缩小到 3×3 不足最小像素时绿框无法辨认，改画末地传送门图标，
       // 尺寸为要塞标记（ICON_SIZE）的一半，保证任何缩放级别都能看到。
       if (width < STRONGHOLD_PORTAL_MIN_PX || height < STRONGHOLD_PORTAL_MIN_PX) {
@@ -2869,14 +2904,37 @@ export class MapView {
 
   private drawPlaced(ctx: CanvasRenderingContext2D): void {
     const byId = new Map(this.features.map((feature) => [feature.id, feature]));
+    // 首个末地折跃门 -> 原点(0,0) 的连线。先画，避免压住图标。
+    // 参考 cubiomes-viewer：源门与落点之间画一条半透明红线（i == 0 那条更粗）。
+    const firstGateway = this.placed.find((item) => {
+      const feature = byId.get(item.type);
+      return feature?.key === 'end_gateway' && (item.variant ?? 0) === 1;
+    });
+    if (firstGateway) {
+      const from = this.worldToScreen(firstGateway.x, firstGateway.z);
+      const to = this.worldToScreen(0, 0);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(192, 0, 0, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.restore();
+    }
     for (const item of this.placed) {
       if (item.type === -2) continue;
       const feature = byId.get(item.type);
       if (feature?.key === 'geode' && this.pixelsPerBlock < GEODE_ICON_MIN_PPB) continue;
+      // 沙漠水井极稀有（有效密度约 1/45,700 区块），只在 1:32 及更近才显示；图标与普通结构同尺寸。
+      const well = feature?.key === 'desert_well';
+      if (well && this.pixelsPerBlock < DESERT_WELL_MIN_PPB) continue;
       const point = this.worldToScreen(item.x, item.z);
       const icon = feature ? this.structureIcon(feature.key, item.variant ?? 0) : null;
+      const size = ICON_SIZE;
       if (icon) {
-        ctx.drawImage(icon, point.x - ICON_SIZE / 2, point.y - ICON_SIZE / 2, ICON_SIZE, ICON_SIZE);
+        ctx.drawImage(icon, point.x - size / 2, point.y - size / 2, size, size);
       } else {
         ctx.fillStyle = COLORS[feature?.key || ''] || '#fff';
         ctx.beginPath();

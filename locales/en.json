@@ -114,7 +114,15 @@
       "strongholdPortal": "End portal ({x}, {y}, {z})",
       "strongholdEyes": "Eyes {eyes} / 12",
       "strongholdPortalTruncated": "Layout exceeded the piece limit; portal not located",
-      "geodeBuddingBounds": "Max budding {max} / typical lower {realistic} / lower {lower}"
+      "geodeBuddingBounds": "Max budding {max} / typical lower {realistic} / lower {lower}",
+      "campCopperChest": "Abandoned Camp (copper chest)",
+      "endCityShip": "End City (with ship)",
+      "iglooBasement": "Igloo (with basement)",
+      "bastionBridge": "Bastion (bridge)",
+      "bastionHousing": "Bastion (housing)",
+      "bastionStables": "Bastion (stables)",
+      "bastionTreasure": "Bastion (treasure)",
+      "endGatewayFirst": "First End Gateway"
     },
     "error": {
       "bad-seed": "Enter an integer seed.",

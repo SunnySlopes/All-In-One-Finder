@@ -114,7 +114,15 @@
       "strongholdPortal": "末地传送门 ({x}, {y}, {z})",
       "strongholdEyes": "眼数 {eyes} / 12",
       "strongholdPortalTruncated": "布局超出生成上限，未定位传送门",
-      "geodeBuddingBounds": "最大母岩数 {max} / 常见下限 {realistic} / 下限 {lower}"
+      "geodeBuddingBounds": "最大母岩数 {max} / 常见下限 {realistic} / 下限 {lower}",
+      "campCopperChest": "废弃营地(含铜箱子)",
+      "endCityShip": "末地城(含末地船)",
+      "iglooBasement": "雪屋(带地下室)",
+      "bastionBridge": "堡垒遗迹(桥型)",
+      "bastionHousing": "堡垒遗迹(住所型)",
+      "bastionStables": "堡垒遗迹(兽栏型)",
+      "bastionTreasure": "堡垒遗迹(宝藏型)",
+      "endGatewayFirst": "首个末地折跃门"
     },
     "error": {
       "bad-seed": "请填写整数种子。",

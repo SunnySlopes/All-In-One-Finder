@@ -187,10 +187,12 @@ cases.basic = {
       seed: '123',
       dim: 1,
       largeBiomes: false,
-      x0: -512,
-      z0: -512,
-      x1: 512,
-      z1: 512,
+      // 末地折跃门只上报外岛落点（半径约 600~1200），±512 窗口里一个都没有；
+      // 放宽到 ±1200 才能覆盖到它们。
+      x0: -1200,
+      z0: -1200,
+      x1: 1200,
+      z1: 1200,
       types: features.filter((item) => item.dim === 1).map((item) => item.id),
     }),
   ),

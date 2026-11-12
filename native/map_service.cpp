@@ -275,12 +275,30 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
     // Chunk-scale decorators (regionSize 1) are expensive on huge views.
     // Raise the budget so zoomed-in maps still show geodes / treasure / wells,
     // and when the view is still too large, scan only the center window.
-    const long long limit = cfg.regionSize <= 1 ? 192LL * 192 : 2500LL;
+    //
+    // The End is special: its only decorator is the natural end gateway
+    // (rarity 1/700, end_highlands), and players look for those across the whole
+    // outer-island ring. A 192x192 chunk window (3072 blocks) covers too little
+    // there, so use a wider window. The scan is cheap because the per-chunk work
+    // is one rarity RNG draw and the biome check only runs on the rare hits.
+    // The End is matched to the end-city coverage: end cities use regionSize 32
+    // with a 2500-region budget (= 25,600 blocks across). A gateway chunk covers
+    // 16 blocks, so 1024 chunks (= 16,384 blocks) is the closest affordable window
+    // (about 80 ms worst case; typical viewports are far smaller and never clamp).
+    // The End is matched to the end-city coverage on purpose: end cities use
+    // regionSize 20 (320 blocks) with a 2500-region budget, so they stop being
+    // computed once the view exceeds ~15,680 blocks across. Gateways use the same
+    // cutoff, otherwise the map would show gateways long after the cities vanished.
+    if (dim == DIM_END && cfg.regionSize <= 1) {
+        const int span = (x1 - x0 > z1 - z0 ? x1 - x0 : z1 - z0);
+        if (span > 15680) return;
+    }
+    const int maxSide = (dim == DIM_END) ? 1024 : 192;
+    const long long limit = cfg.regionSize <= 1 ? (long long)maxSide * maxSide : 2500LL;
     int scan0x = r0x, scan1x = r1x, scan0z = r0z, scan1z = r1z;
     if (count <= 0) return;
     if (count > limit) {
         if (cfg.regionSize > 1) return;
-        const int maxSide = 192;
         const int midX = (r0x + r1x) / 2;
         const int midZ = (r0z + r1z) / 2;
         scan0x = midX - maxSide / 2;
@@ -335,6 +353,22 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
                         if (n > 0 && campHasCopperChest(pieces, n)) variant = 1;
                     }
                 }
+            } else if (type == Bastion) {
+                // 堡垒遗迹的 4 种起始池由结构 RNG 决定（cubiomes getVariant 已实现）：
+                //   start 0 = units/air_base          -> 住所型
+                //   start 1 = hoglin_stable/air_base  -> 兽栏型
+                //   start 2 = treasure/big_air_full   -> 宝藏型
+                //   start 3 = bridge/.../entrance_base-> 桥型
+                StructureVariant sv{};
+                getVariant(&sv, Bastion, mc, seed, pos.x, pos.z, -1);
+                variant = sv.start & 3;
+            } else if (type == Igloo) {
+                // 带地下室的雪屋：cubiomes 的 StructureVariant.basement 由一次
+                // nextDouble() < 0.5 决定（finders.c getVariant），与方块无关，
+                // 所以每座雪屋都算一次，代价可忽略。
+                StructureVariant sv{};
+                getVariant(&sv, Igloo, mc, seed, pos.x, pos.z, id);
+                if (sv.basement) variant = 1;
             }
             out.push_back({type, pos.x, pos.z, variant});
         }
@@ -343,9 +377,14 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
 
 void addEndGateways(std::vector<PlacedFeature> &out, int mc, uint64_t seed, int x0, int z0, int x1, int z1)
 {
-    // Match cubiomes-viewer: show outer-island linked gateways only (not the
-    // 20 fixed main-island sources from defeating the dragon).
+    // 三类标记（variant）：
+    //   0 = 普通主岛源门（第 2..20 次击杀末影龙出现）
+    //   1 = 首个折跃门（第 1 次击杀；getFixedEndGateways 按生成顺序写入，src[0] 即首个）
+    //   2 = 外岛落点（主岛源门在外岛的连通目的地）
+    // 只存在于末地，主世界不产生任何标记。
     if (mc <= MC_1_12) return;
+    // 与末地城同一可见范围（见 addGeneric 里的同一条注释）。
+    if (x1 - x0 > 15680 || z1 - z0 > 15680) return;
     Pos fixed[20];
     getFixedEndGateways(mc, seed, fixed);
     EndNoise en{};
@@ -353,9 +392,12 @@ void addEndGateways(std::vector<PlacedFeature> &out, int mc, uint64_t seed, int 
     SurfaceNoise sn{};
     initSurfaceNoise(&sn, DIM_END, seed);
     for (int i = 0; i < 20; i++) {
+        // 只发出外岛落点（回程折跃门）。主岛中央那 20 个源门在图标地图上会挤成一团，
+        // 与 cubiomes-viewer 一致：中央门不单独成标记。
+        // variant：1 = 首个折跃门（i == 0，第一次击杀末影龙生成）对应的外岛落点，2 = 其余落点。
         Pos dst = getLinkedGatewayPos(&en, &sn, seed, fixed[i]);
-        if (dst.x >= x0 && dst.x <= x1 && dst.z >= z0 && dst.z <= z1)
-            out.push_back({End_Gateway, dst.x, dst.z, 0});
+        if (dst.x < x0 || dst.x > x1 || dst.z < z0 || dst.z > z1) continue;
+        out.push_back({End_Gateway, dst.x, dst.z, i == 0 ? 1 : 2});
     }
 }
 
@@ -529,7 +571,10 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
 
     for (const auto &def : kFeatures) {
         if (def.dim != dim || !wanted(types, def.id)) continue;
-        if (def.id == Stronghold || def.id == Mineshaft || def.id == End_Gateway || def.id < 0) continue;
+        // End_Gateway 走 addGeneric：它在本 cubiomes 里是逐区块的 decorator 特征
+        // （getStructurePos 的 rarity 分支，1/700，end_highlands），也就是末地里
+        // "全图分布"的自然折跃门；击杀末影龙产生的 20 个另由 addEndGateways 提供。
+        if (def.id == Stronghold || def.id == Mineshaft || def.id < 0) continue;
         addGeneric(out, def.id, mc, seed, dim, flags, x0, z0, x1, z1);
     }
 
