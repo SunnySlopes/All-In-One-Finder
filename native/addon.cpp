@@ -20,6 +20,10 @@
 #include <napi.h>
 
 #include <cstring>
+#include <iterator>
+#include <map>
+#include <utility>
+#include <vector>
 
 uint32_t mapFlags(bool largeBiomes)
 {
@@ -72,6 +76,210 @@ Napi::Value Features(const Napi::CallbackInfo &info)
         item.Set("key", list[i].key);
         item.Set("dim", list[i].dim);
         out.Set(i, item);
+    }
+    return out;
+}
+
+// 前置声明：BoxToObject 定义在本文件靠后的位置，一期新增的 wrapper 需要它。
+Napi::Object BoxToObject(Napi::Env env, const Box3i &box);
+
+/** 一期：各图层在当前版本下是否可用（勾选框禁用与 tooltip 用）。 */
+Napi::Value OverlayCapabilityOp(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    const OverlayCapability cap = overlayCapability(mc);
+    Napi::Env env = info.Env();
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("cityTier", cap.cityTier);
+    out.Set("citySilence", cap.citySilence);
+    out.Set("cityWard", cap.cityWard);
+    out.Set("citySwiftSneak", cap.citySwiftSneak);
+    out.Set("cityGoldenApple", cap.cityGoldenApple);
+    out.Set("oreDiamond", cap.oreDiamond);
+    out.Set("oreLapis", cap.oreLapis);
+    out.Set("netherDebris", cap.netherDebris);
+    out.Set("supported", overlaySupported(mc));
+    return out;
+}
+
+
+/** 下界要塞 / 末地城的箱子战利品。 */
+Napi::Value MonumentSpongeOp(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    int64_t seed = readSeed(args.Get("seed"), true);
+    int flags = args.Has("flags") ? args.Get("flags").As<Napi::Number>().Int32Value() : 0;
+    std::vector<std::pair<int, int>> monuments;
+    if (args.Has("monuments") && args.Get("monuments").IsArray()) {
+        Napi::Array arr = args.Get("monuments").As<Napi::Array>();
+        for (uint32_t i = 0; i < arr.Length(); i++) {
+            Napi::Object m = arr.Get(i).As<Napi::Object>();
+            monuments.emplace_back(m.Get("x").As<Napi::Number>().Int32Value(),
+                                   m.Get("z").As<Napi::Number>().Int32Value());
+        }
+    }
+    auto list = loots::monumentSponge(mc, static_cast<uint64_t>(seed),
+                                      static_cast<uint32_t>(flags), monuments);
+    Napi::Env env = info.Env();
+    Napi::Array out = Napi::Array::New(env, list.size());
+    for (size_t i = 0; i < list.size(); i++) {
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("x", list[i].x);
+        obj.Set("z", list[i].z);
+        obj.Set("rooms", list[i].rooms);
+        obj.Set("spongeRooms", list[i].spongeRooms);
+        Napi::Array rooms = Napi::Array::New(env, list[i].sponges.size());
+        for (size_t j = 0; j < list[i].sponges.size(); j++) {
+            Napi::Object r = Napi::Object::New(env);
+            r.Set("x", list[i].sponges[j].minX);
+            r.Set("y", list[i].sponges[j].minY);
+            r.Set("z", list[i].sponges[j].minZ);
+            rooms.Set(j, r);
+        }
+        obj.Set("rooms3d", rooms);
+        out.Set(i, obj);
+    }
+    return out;
+}
+
+Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    int64_t seed = readSeed(args.Get("seed"), true);
+    // Each entry may carry its own structure type. Grouping by type avoids the
+    // old cross-product (evaluating a fortress position as a mansion, which
+    // yields bogus chests because every generator accepts an arbitrary point).
+    std::map<int, std::vector<std::pair<int, int>>> byType;
+    std::vector<std::pair<int, int>> untyped;
+    if (args.Has("structures") && args.Get("structures").IsArray()) {
+        Napi::Array arr = args.Get("structures").As<Napi::Array>();
+        for (uint32_t i = 0; i < arr.Length(); i++) {
+            Napi::Object s = arr.Get(i).As<Napi::Object>();
+            const std::pair<int, int> pos{s.Get("x").As<Napi::Number>().Int32Value(),
+                                         s.Get("z").As<Napi::Number>().Int32Value()};
+            if (s.Has("type")) {
+                byType[s.Get("type").As<Napi::Number>().Int32Value()].push_back(pos);
+            } else {
+                untyped.push_back(pos);
+            }
+        }
+    }
+    std::vector<int> types;
+    if (args.Has("types") && args.Get("types").IsArray()) {
+        Napi::Array arr = args.Get("types").As<Napi::Array>();
+        for (uint32_t i = 0; i < arr.Length(); i++)
+            types.push_back(arr.Get(i).As<Napi::Number>().Int32Value());
+    }
+    std::vector<LootChestInfo> list;
+    for (const auto &[type, positions] : byType) {
+        auto part = lootChests(mc, static_cast<uint64_t>(seed), positions, {type});
+        list.insert(list.end(), std::make_move_iterator(part.begin()),
+                    std::make_move_iterator(part.end()));
+    }
+    if (!untyped.empty()) {
+        auto part = lootChests(mc, static_cast<uint64_t>(seed), untyped, types);
+        list.insert(list.end(), std::make_move_iterator(part.begin()),
+                    std::make_move_iterator(part.end()));
+    }
+    Napi::Env env = info.Env();
+    Napi::Array out = Napi::Array::New(env, list.size());
+    for (size_t i = 0; i < list.size(); i++) {
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("type", list[i].type);
+        obj.Set("x", list[i].x);
+        obj.Set("z", list[i].z);
+        obj.Set("exists", list[i].exists);
+        obj.Set("pieces", list[i].pieces);
+        obj.Set("hasLoot", list[i].hasLoot);
+        obj.Set("hasAllay", list[i].hasAllay);
+        obj.Set("lootKind", list[i].lootKind);
+        obj.Set("hasTrim", list[i].hasTrim);
+        obj.Set("hasNetherite", list[i].hasNetherite);
+        obj.Set("hasSnifferEgg", list[i].hasSnifferEgg);
+        obj.Set("hasGoldenApple", list[i].hasGoldenApple);
+        obj.Set("trimKinds", list[i].trimKinds);
+        obj.Set("reliable", list[i].reliable);
+        obj.Set("note", list[i].note);
+        Napi::Array chests = Napi::Array::New(env, list[i].chests.size());
+        for (size_t c = 0; c < list[i].chests.size(); c++) {
+            Napi::Object co = Napi::Object::New(env);
+            co.Set("x", list[i].chests[c].x);
+            co.Set("y", list[i].chests[c].y);
+            co.Set("z", list[i].chests[c].z);
+            co.Set("trim", list[i].chests[c].trim);
+            co.Set("silence", list[i].chests[c].silence);
+            co.Set("ward", list[i].chests[c].ward);
+            co.Set("netheriteUpgrade", list[i].chests[c].netheriteUpgrade);
+            co.Set("goldenApples", list[i].chests[c].goldenApples);
+            co.Set("snifferEgg", list[i].chests[c].snifferEgg);
+            co.Set("trimKinds", list[i].chests[c].trimKinds);
+            Napi::Array levels =
+                Napi::Array::New(env, list[i].chests[c].swiftSneakLevels.size());
+            for (size_t k = 0; k < list[i].chests[c].swiftSneakLevels.size(); k++)
+                levels.Set(k, list[i].chests[c].swiftSneakLevels[k]);
+            co.Set("swiftSneakLevels", levels);
+            chests.Set(c, co);
+        }
+        obj.Set("chests", chests);
+        out.Set(i, obj);
+    }
+    return out;
+}
+
+/** 古城箱子详情（host 注入 geode 布局后求值）。 */
+Napi::Value AncientCityChests(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    int mc = args.Get("mc").As<Napi::Number>().Int32Value();
+    bool large = readBool(args, "largeBiomes");
+    int64_t seed = readSeed(args.Get("seed"), true);
+    std::vector<std::pair<int, int>> cities;
+    if (args.Has("cities") && args.Get("cities").IsArray()) {
+        Napi::Array arr = args.Get("cities").As<Napi::Array>();
+        cities.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); i++) {
+            Napi::Object city = arr.Get(i).As<Napi::Object>();
+            cities.emplace_back(city.Get("x").As<Napi::Number>().Int32Value(),
+                                city.Get("z").As<Napi::Number>().Int32Value());
+        }
+    }
+    ensureLootProviders();
+    auto list = ancientCityChests(mc, static_cast<uint64_t>(seed), mapFlags(large), cities);
+    Napi::Env outEnv = info.Env();
+    Napi::Array out = Napi::Array::New(outEnv, list.size());
+    for (size_t i = 0; i < list.size(); i++) {
+        const CityChestInfo &item = list[i];
+        Napi::Object obj = Napi::Object::New(outEnv);
+        obj.Set("x", item.x);
+        obj.Set("z", item.z);
+        obj.Set("chunkX", item.chunkX);
+        obj.Set("chunkZ", item.chunkZ);
+        obj.Set("exists", item.exists);
+        obj.Set("pieces", item.pieces);
+        obj.Set("bounds", BoxToObject(outEnv, item.bounds));
+        Napi::Array chests = Napi::Array::New(outEnv, item.chests.size());
+        for (size_t c = 0; c < item.chests.size(); c++) {
+            const CityChest &chest = item.chests[c];
+            Napi::Object cobj = Napi::Object::New(outEnv);
+            cobj.Set("x", chest.x);
+            cobj.Set("y", chest.y);
+            cobj.Set("z", chest.z);
+            cobj.Set("kind", chest.kind);
+            cobj.Set("silence", chest.silence != 0);
+            cobj.Set("ward", chest.ward != 0);
+            cobj.Set("goldenApples", chest.enchantedGoldenApples);
+            cobj.Set("lootSeed", Napi::BigInt::New(outEnv, chest.lootSeed));
+            Napi::Array levels = Napi::Array::New(outEnv, chest.swiftSneakLevels.size());
+            for (size_t k = 0; k < chest.swiftSneakLevels.size(); k++)
+                levels.Set(k, chest.swiftSneakLevels[k]);
+            cobj.Set("swiftSneakLevels", levels);
+            chests.Set(c, cobj);
+        }
+        obj.Set("chests", chests);
+        out.Set(i, obj);
     }
     return out;
 }
@@ -1363,6 +1571,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set("versions", Napi::Function::New(env, Versions));
     exports.Set("features", Napi::Function::New(env, Features));
+    exports.Set("overlayCapability", Napi::Function::New(env, OverlayCapabilityOp));
+    exports.Set("ancientCityChests", Napi::Function::New(env, AncientCityChests));
+    exports.Set("lootChests", Napi::Function::New(env, LootChestsOp));
+    exports.Set("monumentSponge", Napi::Function::New(env, MonumentSpongeOp));
     exports.Set("renderTile", Napi::Function::New(env, RenderTile));
     exports.Set("renderTiles", Napi::Function::New(env, RenderTiles));
     exports.Set("slimeMask", Napi::Function::New(env, SlimeMask));

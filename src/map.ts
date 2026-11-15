@@ -5,7 +5,11 @@ import {
   type Bounds3,
   type FeatureInfo,
   type GeodeChunkInfo,
+  type LootChest,
+  type LootChestInfo,
   type McVersion,
+  type MonumentSpongeInfo,
+  type OverlayCapability,
   type Placed,
   type StrongholdPortalInfo,
   type StructureBoundsData,
@@ -77,6 +81,10 @@ const COLORS: Record<string, string> = {
   ruined_portal_n: '#c45ad0',
   end_city: '#d7d2a4',
   end_gateway: '#7fd0c8',
+  // 一期叠加层（古城箱子三类产物）
+  ancient_city_silence: '#c8a2ff',
+  ancient_city_swift_sneak: '#7fe0b0',
+  ancient_city_golden_apple: '#f5c542',
 };
 
 const TILE_CELLS = 128;
@@ -122,12 +130,98 @@ const TRIAL_CAGE_MIN_PPB = 1;
 /** Geodes generate roughly once per 43 chunks; below 1:1 their icons overlap into noise. */
 const GEODE_ICON_MIN_PPB = 1;
 /**
+ * 一期叠加层 → overlayCapability() 返回的能力字段。
+ * 版本不支持时勾选框禁用（例如 1.19 没有纹饰系统，幽静模板在该版本不存在）。
+ */
+const OVERLAY_CAPABILITY: Record<string, keyof OverlayCapability> = {
+  ancient_city_silence: 'citySilence',
+  ancient_city_swift_sneak: 'citySwiftSneak',
+  ancient_city_golden_apple: 'cityGoldenApple',
+  ore_diamond: 'oreDiamond',
+  ore_lapis: 'oreLapis',
+  nether_debris: 'netherDebris',
+};
+/**
  * Desert wells: getStructurePos yields ~1/1000 candidates but only ~2% land in a
  * desert, so the effective density is ~1/45,700 chunks. They are drawn only at
  * 1:32 or closer (cubiomes-viewer uses the same per-structure scale of 32) and at
  * half the normal icon size.
  */
 const DESERT_WELL_MIN_PPB = 1 / 32;
+
+/**
+ * 外框半边长（方块）。以结构起点为中心画正方形，打开结构开关就展示，
+ * 与「展示战利品」无关。
+ *   古城 116  = ancient_city.json 的 max_distance_from_center
+ *   府邸  56  = 11x11 网格 x 8 方块 + 16x16 房间外扩（见 docs/hardcoded-structure-chests.md）
+ *   堡垒  80  = JigsawStructure 默认 MaxDistance(80)
+ */
+const STRUCTURE_FRAME_HALF: Record<string, number> = {
+  ancient_city: 116,
+  mansion: 56,
+};
+/** 外框样式：虚线 + 半透明蓝灰，与战利品标记区分。 */
+const STRUCTURE_FRAME_STROKE = 'rgba(74, 107, 138, 0.6)';
+
+/** 「展示战利品」总开关（native 的 kFeatures 里 id 110，dim -1 = 所有维度）。 */
+const LOOT_MARKERS_ID = 110;
+/**
+ * 战利品图层覆盖的结构（cubiomes StructureType）：
+ *   1 沙漠神殿 / 2 丛林神殿 / 6 海底遗迹 / 7 沉船 / 9 林地府邸 / 10 前哨站 /
+ *   13 远古城市 / 18 下界要塞 / 19 堡垒遗迹 / 21 末地城 / 24 古迹废墟 / 27 要塞
+ */
+const LOOT_STRUCTURE_TYPES: number[] = [
+  1,  // desert pyramid
+  2,  // jungle temple
+  6,  // ocean ruin
+  7,  // shipwreck
+  9,  // woodland mansion
+  10, // pillager outpost
+  13, // ancient city
+  18, // nether fortress
+  19, // bastion
+  21, // end city
+  24, // trail ruins
+  27, // stronghold (library eye trim)
+];
+/** 仅提示型：不给箱子/方块坐标；图标用原图 + 角落叠加（海底遗迹已改为精确坐标型）。 */
+const LOOT_STRUCTURE_ONLY_TYPES = [1, 2, 7, 10];
+/**
+ * 箱子/方块标记的配色。只画**真正带目标战利品**的位置：既没有纹饰 / 下界合金，
+ * 也没有附魔金苹果 / 嗅探兽蛋的位置一律不画，否则整张图都是无意义的点。
+ */
+const LOOT_CHEST_COLOR = {
+  trim: '#c8a2ff',
+  netherite: '#f2d16b',
+  snifferEgg: '#8fd18f',
+  goldenApples: '#f5c542',
+};
+/**
+ * loots::TrimKind 的位序号 → 语言键 / 颜色。位掩码 = 1 << kind。
+ * 0 = none，1 = ward，2 = silence，……，16 = eye。
+ */
+const TRIM_KIND: Record<number, { name: string; color: string }> = {
+  1: { name: 'ward', color: '#c8a2ff' },
+  2: { name: 'silence', color: '#ffffff' },
+  3: { name: 'vex', color: '#d9c2a0' },
+  4: { name: 'dune', color: '#e0c15a' },
+  5: { name: 'wild', color: '#7fc07f' },
+  6: { name: 'rib', color: '#e06a4a' },
+  7: { name: 'spire', color: '#d7d2a4' },
+  8: { name: 'snout', color: '#f2a65a' },
+  9: { name: 'coast', color: '#6fb5c9' },
+  10: { name: 'sentry', color: '#b7b7b7' },
+  11: { name: 'wayfinder', color: '#9ad0c2' },
+  12: { name: 'raiser', color: '#8fd18f' },
+  13: { name: 'shaper', color: '#b7d88f' },
+  14: { name: 'host', color: '#d0b7e8' },
+  16: { name: 'eye', color: '#7fd0c8' },
+  15: { name: 'other', color: '#c8a2ff' },
+};
+/** 精确坐标型战利品标记：与试炼密室笼子同风格的小圆环。 */
+const LOOT_MARKER_RADIUS = 3.2;
+const LOOT_MARKER_HIT_PX = 7;
+const LOOT_MARKER_EDGE = 'rgba(20, 20, 20, 0.85)';
 const TRIAL_DETAIL_BATCH = 8;
 const TRIAL_DETAIL_MARGIN = 128;
 const TRIAL_DETAIL_DEBOUNCE = 150;
@@ -251,6 +345,8 @@ interface SelectedStructure {
   variant: number;
   large?: Bounds3;
   details: DetailState;
+  /** Ocean monument: sponge-room count from the room-graph port. */
+  spongeRooms?: number | null;
   /** Set when the user clicked a trial cage column instead of the chamber icon. */
   cage?: TrialCageColumn;
   /** Geode icon: generate that chunk and show its budding-amethyst counts. */
@@ -385,6 +481,11 @@ const ICONS: Record<string, string> = {
   end_gateway: 'gateway',
 };
 
+/**
+ * 仅提示型结构只保留 allay / dune / coast / sentry / wild 五个源图标。
+ * 地图在原结构图标上运行时叠加角标，底图尺寸和位置不变。
+ */
+
 export class MapView {
   readonly root: HTMLElement;
   private canvas: HTMLCanvasElement;
@@ -395,6 +496,7 @@ export class MapView {
   private infoCoords: HTMLElement;
   private infoDetails: HTMLElement;
   private featureBox: HTMLElement;
+  private lootRowBox: HTMLElement;
   private version: HTMLSelectElement;
   private seed: HTMLInputElement;
   private dimension: HTMLSelectElement;
@@ -405,6 +507,8 @@ export class MapView {
   private large: HTMLInputElement;
   private versions: McVersion[] = [];
   private features: FeatureInfo[] = [];
+  /** 一期叠加层的版本能力；null = 尚未取到（此时不禁用任何勾选框）。 */
+  private overlayCap: OverlayCapability | null = null;
   private enabled = new Set<number>();
   private cx = 0;
   private cz = 0;
@@ -423,6 +527,20 @@ export class MapView {
   private flushRunning = false;
   private generation = 0;
   private placed: Placed[] = [];
+  /** lootChests RPC 的结果缓存（按结构实例）。 */
+  private lootChests: LootChestInfo[] = [];
+  private lootGen = 0;
+  /** 最近点击的精确战利品圆环（用于古迹废墟显示该方块的具体模板）。 */
+  private selectedLootChest: {
+    type: number;
+    x: number;
+    z: number;
+    chestX: number;
+    chestZ: number;
+  } | null = null;
+  /** monumentSponge RPC：神殿起点 → 海绵房数量（仅提示，不画房间坐标）。 */
+  private monumentSponge = new Map<string, MonumentSpongeInfo>();
+  private spongeGen = 0;
   private featureTimer = 0;
   private featureGen = 0;
   private biomeTimer = 0;
@@ -494,8 +612,9 @@ export class MapView {
       <div class="row" id="map-terrain-row">
         <label class="check-row"><input id="map-terrain" type="checkbox" /><span data-i18n="common.map.terrain"></span></label>
       </div>
+      <div class="row" id="map-loot-row"></div>
       <div id="map-layer-hint" class="hint" hidden></div>
-      <div id="map-features" class="features"></div>
+      <div id="map-features" class="feature-groups"></div>
     `;
     this.version = this.root.querySelector('#map-version')!;
     this.seed = this.root.querySelector('#map-seed')!;
@@ -505,6 +624,7 @@ export class MapView {
     this.yMenu = this.root.querySelector('#map-y-menu')!;
     this.large = this.root.querySelector('#map-large')!;
     this.featureBox = this.root.querySelector('#map-features')!;
+    this.lootRowBox = this.root.querySelector('#map-loot-row')!;
     this.grid = this.root.querySelector('#map-grid')!;
     this.terrain = this.root.querySelector('#map-terrain')!;
     this.terrainRow = this.root.querySelector('#map-terrain-row')!;
@@ -575,6 +695,8 @@ export class MapView {
     for (const feature of features) {
       if (enabledKeys.has(feature.key)) this.enabled.add(feature.id);
     }
+    // 版本已选定，再按能力禁用不支持的叠加层（例如 1.19 的幽静模板）。
+    await this.refreshOverlayCap();
     this.renderFeatures();
     this.syncLayerControls();
     this.schedule(true);
@@ -889,11 +1011,13 @@ export class MapView {
    */
   private syncLayerControls(): void {
     const overworld = Number(this.dimension.value) === 0;
-    this.terrainRow.hidden = !overworld;
+    const scale = this.activeScale();
+    // Terrain is a 1:1-only overlay: keep the checkbox out of the UI at coarser
+    // zooms (and outside the overworld) instead of leaving a dead toggle visible.
+    this.terrainRow.hidden = !overworld || scale !== TERRAIN_SCALE;
     this.syncYPreset();
     this.terrain.title = t('common.map.terrainHint');
 
-    const scale = this.activeScale();
     const layer = this.terrainLayerFor(scale);
     const hint = layer > 0 ? t('common.map.terrainLegend') : '';
     this.layerHint.hidden = !hint;
@@ -921,7 +1045,11 @@ export class MapView {
       this.schedule(true);
       this.queueFeatures();
     };
-    this.version.addEventListener('change', worldChanged);
+    this.version.addEventListener('change', () => {
+      // 版本变化会改变叠加层的可用性（例如 1.19 没有纹饰系统）。
+      void this.refreshOverlayCap();
+      worldChanged();
+    });
     this.dimension.addEventListener('change', () => {
       this.y.value = String(defaultYForDim(Number(this.dimension.value)));
       this.renderFeatures();
@@ -1099,28 +1227,79 @@ export class MapView {
     };
   }
 
-  private visibleFeatures(): FeatureInfo[] {
-    const dim = Number(this.dimension.value);
-    return this.features.filter((feature) => feature.dim === dim);
+  /**
+   * 拉取一期叠加层的版本能力（勾选框禁用依据）。失败时保持 null，
+   * 此时不做禁用（宁可显示也不要因为一次失败把整列灰掉）。
+   */
+  private async refreshOverlayCap(): Promise<void> {
+    try {
+      this.overlayCap = await call<OverlayCapability>('overlayCapability', {
+        mc: Number(this.version.value),
+      });
+    } catch {
+      this.overlayCap = null;
+    }
+    for (const [key, field] of Object.entries(OVERLAY_CAPABILITY)) {
+      if (this.overlayCap && !this.overlayCap[field]) {
+        const id = this.features.find((feature) => feature.key === key)?.id;
+        if (id !== undefined) this.enabled.delete(id);
+      }
+    }
+    this.renderFeatures();
+  }
+
+  /** 勾选框禁用时的 tooltip：1.19 的幽静模板要单独解释。 */
+  private overlayBlockedHint(key: string): string {
+    if (key === 'ancient_city_silence' && this.overlayCap?.cityTier === 1) {
+      return t('common.map.silenceUnavailable119');
+    }
+    return t('common.map.overlayUnsupported');
   }
 
   private renderFeatures(): void {
-    const items = this.visibleFeatures();
-    this.featureBox.innerHTML = items
-      .map((feature) => {
-        const icon = ICONS[feature.key];
-        const mark = icon
-          ? `<img class="icon" src="/icons/${icon}.png" alt="" />`
-          : `<span class="swatch" style="background:${COLORS[feature.key] || '#ddd'}"></span>`;
-        return `
-      <label class="check-row">
-        <input type="checkbox" data-id="${feature.id}" ${this.enabled.has(feature.id) ? 'checked' : ''} />
+    const renderRow = (feature: FeatureInfo, showMark: boolean): string => {
+      const icon = showMark ? ICONS[feature.key] : '';
+      const mark = icon
+        ? `<img class="icon" src="/icons/${icon}.png" alt="" />`
+        : showMark
+          ? `<span class="swatch" style="background:${COLORS[feature.key] || '#ddd'}"></span>`
+          : '';
+      // 一期叠加层按版本能力禁用（例如 1.19 没有纹饰系统 → 幽静模板不可用）。
+      const capKey = OVERLAY_CAPABILITY[feature.key];
+      const blocked = capKey ? this.overlayCap !== null && !this.overlayCap[capKey] : false;
+      const hintText = blocked ? this.overlayBlockedHint(feature.key) : '';
+      return `
+      <label class="check-row"${blocked ? ` title="${hintText}"` : ''}>
+        <input type="checkbox" data-id="${feature.id}"
+          ${blocked ? 'disabled' : ''}
+          ${this.enabled.has(feature.id) && !blocked ? 'checked' : ''} />
         ${mark}
         <span>${structureLabel(feature.key)}</span>
+        ${blocked ? `<span class="muted">${t('common.map.overlayUnsupportedShort')}</span>` : ''}
       </label>`;
+    };
+
+    // 三个维度始终在同一页展示；切换维度只影响地图，不改变这里的勾选项。
+    const loot = this.features.find((feature) => feature.key === 'loot_markers');
+    const lootRow = loot ? renderRow(loot, false) : '';
+    const groups = [
+      { dim: 0, label: 'common.map.overworldMarkers' },
+      { dim: -1, label: 'common.map.netherMarkers' },
+      { dim: 1, label: 'common.map.endMarkers' },
+    ]
+      .map(({ dim, label }) => {
+        const items = this.features.filter(
+          (feature) => feature.dim === dim && feature.key !== 'loot_markers',
+        );
+        if (!items.length) return '';
+        return `
+        <div class="feature-group-title">${escapeText(t(label))}</div>
+        <div class="features">${items.map((feature) => renderRow(feature, true)).join('')}</div>`;
       })
-      .join('');
-    this.featureBox.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
+      .filter(Boolean);
+    this.lootRowBox.innerHTML = lootRow;
+    this.featureBox.innerHTML = `<div class="feature-divider"></div>${groups.join('<div class="feature-divider"></div>')}`;
+    for (const root of [this.lootRowBox, this.featureBox]) root.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
       input.addEventListener('change', () => {
         const id = Number(input.dataset.id);
         if (input.checked) this.enabled.add(id);
@@ -1132,6 +1311,14 @@ export class MapView {
           if (this.selected?.type === id) this.clearSelection();
         }
         if (id === -2) this.slimeCanvas = null;
+        if (id === LOOT_MARKERS_ID) {
+          this.lootChests = [];
+          this.monumentSponge.clear();
+        } else if (this.enabled.has(LOOT_MARKERS_ID)) {
+          this.lootChests = this.lootChests.filter((info) => info.type !== id);
+          const monumentType = this.features.find((feature) => feature.key === 'monument')?.id;
+          if (id === monumentType) this.monumentSponge.clear();
+        }
         this.persistSession();
         this.queueDraw();
         this.queueFeatures();
@@ -1180,6 +1367,7 @@ export class MapView {
   private clearSelection(): void {
     this.selectGen += 1;
     this.selected = null;
+    this.selectedLootChest = null;
     this.info.hidden = true;
     this.queueDraw();
   }
@@ -1187,6 +1375,7 @@ export class MapView {
   private selectStructure(item: Placed, cage?: TrialCageColumn): void {
     const feature = this.features.find((entry) => entry.id === item.type);
     if (!feature) return;
+    this.selectedLootChest = null;
 
     const selected: SelectedStructure = {
       type: item.type,
@@ -1196,6 +1385,7 @@ export class MapView {
       variant: item.variant ?? 0,
       details: 'none',
       cage,
+      spongeRooms: null,
     };
     this.selected = selected;
     const token = ++this.selectGen;
@@ -1394,6 +1584,19 @@ export class MapView {
     } else if (selected.details === 'failed') {
       rows.push(`<div>${escapeText(t('common.map.boundsFailed'))}</div>`);
     }
+
+    // 战利品信息：只对当前勾选的「展示战利品」生效；结构图层仍需打开。
+    if (this.enabled.has(LOOT_MARKERS_ID)) {
+      rows.push(...this.lootInfoLines(selected));
+    }
+    if (selected.key === 'monument') {
+      const sponge = this.monumentSponge.get(this.trialKey(selected.x, selected.z));
+      if (sponge) {
+        rows.push(
+          `<div>${escapeText(t('common.map.spongeRooms', { count: sponge.spongeRooms }))}</div>`,
+        );
+      }
+    }
     this.infoDetails.innerHTML = rows.join('');
   }
 
@@ -1408,6 +1611,21 @@ export class MapView {
     const portal = this.findStrongholdPortal(screenX, screenY);
     if (portal) {
       this.selectStructure(portal.item);
+      return;
+    }
+    // Exact loot rings are clickable even when they are far from the structure
+    // icon (e.g. a bastion treasury chest).
+    const loot = this.findLootMarker(screenX, screenY);
+    if (loot) {
+      this.selectStructure(loot.item);
+      this.selectedLootChest = {
+        type: loot.item.type,
+        x: loot.item.x,
+        z: loot.item.z,
+        chestX: loot.chest.x,
+        chestZ: loot.chest.z,
+      };
+      this.renderSelectedInfo();
       return;
     }
     const radius = ICON_SIZE / 2 + 6;
@@ -2446,11 +2664,16 @@ export class MapView {
     return x + span > view.x0 && x < view.x1 && z + span > view.z0 && z < view.z1;
   }
 
+  private featuresForCurrentDimension(): FeatureInfo[] {
+    const dim = Number(this.dimension.value);
+    return this.features.filter((feature) => feature.dim === dim || feature.dim === -1);
+  }
+
   private async loadFeatures(): Promise<void> {
     if (!this.version.value) return;
     const view = this.viewBounds();
     const state = this.state();
-    const types = this.visibleFeatures()
+    const types = this.featuresForCurrentDimension()
       .filter((feature) => this.enabled.has(feature.id) && feature.id !== -2)
       .map((feature) => feature.id);
     if (!types.length) {
@@ -2472,12 +2695,313 @@ export class MapView {
       this.placed = placed;
       this.queueTrialDetails();
       this.queueStrongholdDetails();
+      void this.refreshLootChests();
+      void this.refreshMonumentSponge();
       this.queueDraw();
     } catch {
       if (token !== this.featureGen) return;
       this.placed = [];
       this.queueDraw();
     }
+  }
+
+  /**
+   * 「展示战利品」勾选时，为可见的要塞 / 末地城实例求箱子战利品。
+   * 未勾选时清空缓存，不额外发请求。
+   */
+  private async refreshLootChests(): Promise<void> {
+    const on = this.enabled.has(LOOT_MARKERS_ID);
+    const targets = this.placed.filter(
+      (item) => this.enabled.has(item.type) && LOOT_STRUCTURE_TYPES.includes(item.type),
+    );
+    if (!on || !targets.length) {
+      this.lootChests = [];
+      this.queueDraw();
+      return;
+    }
+    const token = ++this.lootGen;
+    try {
+      const result = await call<LootChestInfo[]>('lootChests', {
+        ...this.state(),
+        // 每个实例带上自己的类型，native 按类型分组求值，避免交叉误判。
+        structures: targets.map((item) => ({ x: item.x, z: item.z, type: item.type })),
+      });
+      if (token !== this.lootGen) return;
+      this.lootChests = result;
+      this.queueDraw();
+      this.renderSelectedInfo();
+    } catch {
+      if (token !== this.lootGen) return;
+      this.lootChests = [];
+      this.queueDraw();
+    }
+  }
+
+  /** 神殿海绵房：仅提示数量/有无，不显示房间坐标。 */
+  private async refreshMonumentSponge(): Promise<void> {
+    const on = this.enabled.has(LOOT_MARKERS_ID);
+    const typeId = this.features.find((feature) => feature.key === 'monument')?.id;
+    if (!on || typeId === undefined || !this.enabled.has(typeId)) {
+      this.monumentSponge.clear();
+      return;
+    }
+    const targets = this.placed.filter((item) => item.type === typeId);
+    if (!targets.length) {
+      this.monumentSponge.clear();
+      return;
+    }
+    const token = ++this.spongeGen;
+    try {
+      const result = await call<MonumentSpongeInfo[]>('monumentSponge', {
+        ...this.state(),
+        monuments: targets.map((item) => ({ x: item.x, z: item.z })),
+      });
+      if (token !== this.spongeGen) return;
+      this.monumentSponge.clear();
+      for (const info of result) {
+        if (info.spongeRooms > 0) this.monumentSponge.set(this.trialKey(info.x, info.z), info);
+      }
+      this.queueDraw();
+      this.renderSelectedInfo();
+    } catch {
+      if (token !== this.spongeGen) return;
+      this.monumentSponge.clear();
+    }
+  }
+
+  private lootInfoAt(item: { x: number; z: number; type: number }): LootChestInfo | undefined {
+    return this.lootChests.find(
+      (info) => info.type === item.type && info.x === item.x && info.z === item.z,
+    );
+  }
+
+  /** 把一个 lootChests 条目翻译成信息卡里的几行（命中内容 + 精确坐标）。 */
+  private lootInfoLines(item: { x: number; z: number; type: number }): string[] {
+    const info = this.lootInfoAt(item);
+    if (!info || !info.exists) return [];
+    const rows: string[] = [];
+
+    const kindNames = (kind: number): string => {
+      const meta = TRIM_KIND[kind];
+      return meta ? t(`common.map.trim_${meta.name}`) : t('common.map.trim_other');
+    };
+    // Trail ruins: clicking one suspicious-block ring should name that block's
+    // template instead of only listing the whole structure.
+    const picked = this.selectedLootChest;
+    if (
+      item.type === 24 &&
+      picked &&
+      picked.type === item.type &&
+      picked.x === item.x &&
+      picked.z === item.z
+    ) {
+      const chest = info.chests.find(
+        (entry) => entry.x === picked.chestX && entry.z === picked.chestZ,
+      );
+      if (chest) {
+        const templates: string[] = [];
+        for (const kind of Object.keys(TRIM_KIND).map(Number)) {
+          if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) {
+            templates.push(kindNames(kind));
+          }
+        }
+        if (templates.length) {
+          rows.push(
+            `<div>${escapeText(
+              t('common.map.lootTrailTemplateApproximate', { template: templates.join('、') }),
+            )}</div>`,
+          );
+        }
+      }
+    }
+    const chestLines: string[] = [];
+    for (const chest of info.chests) {
+      const hits: string[] = [];
+      if (chest.silence) hits.push(kindNames(2));
+      if (chest.ward) hits.push(kindNames(1));
+      if (!chest.silence && !chest.ward && chest.trim) {
+        for (const kind of Object.keys(TRIM_KIND).map(Number)) {
+          if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) hits.push(kindNames(kind));
+        }
+        if (!hits.length) hits.push(t('common.map.trim_other'));
+      }
+      if (chest.netheriteUpgrade) hits.push(t('common.map.lootNetherite'));
+      if (chest.snifferEgg) hits.push(t('common.map.lootSnifferEgg'));
+      if (chest.goldenApples > 0) hits.push(t('common.map.lootGoldenApple', { n: chest.goldenApples }));
+      for (const level of chest.swiftSneakLevels) hits.push(t('common.map.lootSwiftSneak', { level }));
+      if (!hits.length) continue;
+      const atKey =
+        item.type === 6 || item.type === 24
+          ? 'common.map.lootBlockAt'
+          : 'common.map.lootChestAt';
+      chestLines.push(t(atKey, { x: chest.x, z: chest.z, hits: hits.join('、') }));
+    }
+    if (chestLines.length) {
+      rows.push(`<div>${escapeText(t('common.map.lootChestsFound', { n: chestLines.length }))}</div>`);
+      for (const line of chestLines.slice(0, 12)) rows.push(`<div class="muted">${escapeText(line)}</div>`);
+      if (chestLines.length > 12) {
+        rows.push(`<div class="muted">${escapeText(t('common.map.lootChestsMore', { n: chestLines.length - 12 }))}</div>`);
+      }
+    } else if (info.hasLoot || info.hasAllay) {
+      const hits: string[] = [];
+      if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
+      if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
+      if (info.hasSnifferEgg) hits.push(t('common.map.lootSnifferEgg'));
+      if (info.hasGoldenApple) hits.push(t('common.map.lootGoldenApple', { n: 1 }));
+      if (hits.length) rows.push(`<div>${escapeText(t('common.map.lootHint', { hits: hits.join('、') }))}</div>`);
+    }
+
+    if (info.note) {
+      const noteKey =
+        info.note === 'ocean_ruin_sniffer_not_ported'
+          ? 'common.map.lootOceanRuinUnsupported'
+          : info.note === 'trail_ruins_no_surface_height'
+            ? 'common.map.lootTrailRuinsNoHeight'
+            : info.note === 'outpost_allay_approximate'
+              ? 'common.map.lootOutpostAllayApproximate'
+              : 'common.map.lootApproximate';
+      rows.push(`<div class="muted">${escapeText(t(noteKey))}</div>`);
+    }
+    return rows;
+  }
+
+  /**
+   * 精确坐标型战利品标记：小圆环，颜色由 trimKinds 决定（没有纹饰时用
+   * 下界合金/嗅探蛋/附魔金的颜色）。无目标内容的箱子不画。
+   */
+  private lootChestColor(chest: LootChest): string {
+    if (chest.silence) return '#ffffff';
+    for (const kind of Object.keys(TRIM_KIND).map(Number)) {
+      if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) return TRIM_KIND[kind].color;
+    }
+    if (chest.ward) return TRIM_KIND[1].color;
+    if (chest.trim) return LOOT_CHEST_COLOR.trim;
+    if (chest.netheriteUpgrade) return LOOT_CHEST_COLOR.netherite;
+    if (chest.snifferEgg) return LOOT_CHEST_COLOR.snifferEgg;
+    if (chest.goldenApples > 0) return LOOT_CHEST_COLOR.goldenApples;
+    if (chest.swiftSneakLevels.length) return LOOT_CHEST_COLOR.trim;
+    return '';
+  }
+
+  /**
+   * 在原始结构图标上叠角落图标；底图仍按 ICON_SIZE 原位置、原尺寸绘制，
+   * 因此加标记不会让原图标变小或偏移。
+   */
+  private drawLootBadges(
+    ctx: CanvasRenderingContext2D,
+    item: Placed,
+    point: { x: number; y: number },
+    size: number,
+  ): void {
+    const feature = this.features.find((entry) => entry.id === item.type);
+    if (!feature) return;
+    const badge = 9;
+    const left = point.x - size / 2;
+    const top = point.y - size / 2;
+    const right = point.x + size / 2;
+    const bottom = point.y + size / 2;
+    const draw = (name: string, corner: 'tl' | 'tr' | 'bl' | 'br') => {
+      const image = this.loadIcon(name);
+      if (!image.complete || image.naturalWidth === 0) return;
+      const x = corner === 'tl' || corner === 'bl' ? left : right - badge;
+      const y = corner === 'tl' || corner === 'tr' ? top : bottom - badge;
+      ctx.drawImage(image, x, y, badge, badge);
+    };
+
+    if (feature.key === 'monument') {
+      if (this.monumentSponge.has(this.trialKey(item.x, item.z))) draw('sponge', 'tr');
+      return;
+    }
+    if (!LOOT_STRUCTURE_ONLY_TYPES.includes(item.type)) return;
+    const info = this.lootInfoAt(item);
+    if (!info || !info.exists) return;
+    switch (feature.key) {
+      case 'outpost':
+        if (info.hasAllay) draw('allay_loot', 'tr');
+        if (info.hasTrim) draw('trim_sentry', 'br');
+        break;
+      case 'desert_pyramid':
+        if (info.hasTrim) draw('trim_dune', 'br');
+        break;
+      case 'jungle_temple':
+        if (info.hasTrim) draw('trim_wild', 'br');
+        break;
+      case 'shipwreck':
+        if (info.hasTrim) draw('trim_coast', 'br');
+        break;
+      default:
+        break;
+    }
+  }
+
+  private drawLootChests(ctx: CanvasRenderingContext2D): void {
+    if (!this.enabled.has(LOOT_MARKERS_ID)) return;
+    for (const info of this.lootChests) {
+      if (!info.exists || LOOT_STRUCTURE_ONLY_TYPES.includes(info.type)) continue;
+      for (const chest of info.chests) {
+        const color = this.lootChestColor(chest);
+        if (!color) continue;
+        const p = this.worldToScreen(chest.x + 0.5, chest.z + 0.5);
+        if (p.x < -8 || p.y < -8 || p.x > this.canvas.width + 8 || p.y > this.canvas.height + 8) continue;
+        if (chest.silence) {
+          // Silence has its own icon: draw it directly at the chest instead of
+          // a ring. Fall back to the white ring until the image loads.
+          const image = this.loadIcon('trim_silence');
+          if (image.complete && image.naturalWidth > 0) {
+            const s = 13;
+            ctx.drawImage(image, p.x - s / 2, p.y - s / 2, s, s);
+          } else {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS + 1.5, 0, Math.PI * 2);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          continue;
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS + 1, 0, Math.PI * 2);
+        ctx.strokeStyle = LOOT_MARKER_EDGE;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }
+
+  /** 精确坐标型标记的点击命中（打开所属结构的信息卡）。 */
+  private findLootMarker(
+    screenX: number,
+    screenY: number,
+  ): { item: Placed; chest: LootChest } | null {
+    if (!this.enabled.has(LOOT_MARKERS_ID)) return null;
+    let best: { item: Placed; chest: LootChest } | null = null;
+    let bestDistance = LOOT_MARKER_HIT_PX * LOOT_MARKER_HIT_PX;
+    for (const info of this.lootChests) {
+      if (!info.exists || LOOT_STRUCTURE_ONLY_TYPES.includes(info.type)) continue;
+      const item = this.placed.find(
+        (placed) => placed.type === info.type && placed.x === info.x && placed.z === info.z,
+      );
+      if (!item) continue;
+      for (const chest of info.chests) {
+        if (!this.lootChestColor(chest)) continue;
+        const point = this.worldToScreen(chest.x + 0.5, chest.z + 0.5);
+        const dx = point.x - screenX;
+        const dy = point.y - screenY;
+        const distance = dx * dx + dy * dy;
+        if (distance <= bestDistance) {
+          bestDistance = distance;
+          best = { item, chest };
+        }
+      }
+    }
+    return best;
   }
 
   private drawGrid(ctx: CanvasRenderingContext2D, scale: number): void {
@@ -2760,6 +3284,17 @@ export class MapView {
           item.large.maxZ,
           SWAMP_HUT_FRAME_COLOR,
         );
+      } else if (STRUCTURE_FRAME_HALF[feature.key]) {
+        // 古城 / 府邸：只要结构开关打开就画最外圈正方形外框。
+        const half = STRUCTURE_FRAME_HALF[feature.key];
+        this.drawWorldRect(
+          ctx,
+          item.x - half,
+          item.z - half,
+          item.x + half,
+          item.z + half,
+          STRUCTURE_FRAME_STROKE,
+        );
       } else if (feature.key === 'fortress' && item.large) {
         this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ, '#e06a4a');
         const pieces = item.pieces ?? [];
@@ -2941,7 +3476,11 @@ export class MapView {
         ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
         ctx.fill();
       }
+      if (feature && this.enabled.has(LOOT_MARKERS_ID)) {
+        this.drawLootBadges(ctx, item, point, size);
+      }
     }
+    this.drawLootChests(ctx);
   }
 
   /** Throttle the biome lookup: at most one request per BIOME_POLL_MS. */

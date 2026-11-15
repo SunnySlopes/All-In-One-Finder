@@ -6,6 +6,52 @@
 #include <utility>
 #include <vector>
 
+// ---------------------------------------------------------------------------
+// 结构内容求值全部搬到 tools/loots 子模块（独立仓库，见 tools/loots/README.md）。
+// 这里只做 using 导入，保持 addon.cpp / map_service.cpp 的调用点不变。
+// ---------------------------------------------------------------------------
+#include "loots/loots.h"
+#include "loots/structure_pieces.h"
+#include "loots/fixed_structures.h"
+#include "loots/shipwreck.h"
+#include "loots/outpost.h"
+#include "loots/bastion.h"
+
+using loots::Box3i;
+using loots::OverlayFeature;
+using loots::Overlay_Ore_Diamond;
+using loots::Overlay_Ore_Lapis;
+using loots::Overlay_City_Silence;
+using loots::Overlay_City_SwiftSneak;
+using loots::Overlay_Nether_Debris;
+using loots::Overlay_City_GoldenApple;
+using loots::AncientCityTier;
+using loots::CityTier_None;
+using loots::CityTier_119;
+using loots::CityTier_120_1;
+using loots::CityTier_120_2;
+using loots::CityTier_121_6;
+using loots::CityTier_26_1;
+using loots::OverlayCapability;
+using loots::CityChest;
+using loots::CityChestInfo;
+using loots::MonumentSponge;
+using loots::ancientCityTier;
+using loots::overlayCapability;
+using loots::overlaySupported;
+using loots::ancientCityChests;
+using loots::monumentSponge;
+using loots::StructureLoot;
+using loots::StructureChest;
+using loots::netherFortressLoot;
+using loots::endCityLoot;
+using loots::desertPyramidLoot;
+using loots::jungleTempleLoot;
+using loots::shipwreckLoot;
+using loots::pillagerOutpostLoot;
+using loots::bastionLoot;
+using loots::OutpostLoot;
+
 struct McVersion {
     int id;
     std::string name;
@@ -15,15 +61,6 @@ struct FeatureEntry {
     int id;
     std::string key;
     int dim;
-};
-
-struct Box3i {
-    int minX = 0;
-    int minY = 0;
-    int minZ = 0;
-    int maxX = 0;
-    int maxY = 0;
-    int maxZ = 0;
 };
 
 struct PlacedFeature {
@@ -60,6 +97,65 @@ struct TileImage {
     /** Highest fluid surface per 4x4 cell for layer 2 openings; no-fluid sentinel otherwise. */
     std::vector<int16_t> floodY;
 };
+
+/** 一个结构实例里所有箱子的战利品判定。 */
+struct LootChest {
+    int x = 0;
+    int y = 0;                     // 0 = 该版本/结构没有精确 Y
+    int z = 0;
+    bool trim = false;             // 该箱子开出了纹饰模板
+    bool silence = false;          // 纹饰是 Silence（地图最高亮）
+    bool ward = false;             // 纹饰是 Ward（古城）
+    bool netheriteUpgrade = false;
+    int goldenApples = 0;
+    bool snifferEgg = false;
+    /** 命中的纹饰种类，按 loots::TrimKind 的位掩码（0 = 无）。 */
+    unsigned trimKinds = 0;
+    /** 迅捷潜行附魔书的等级（每本一项，升序）。 */
+    std::vector<int> swiftSneakLevels;
+};
+
+struct LootChestInfo {
+    int type = 0;                  // cubiomes StructureType
+    int x = 0;
+    int z = 0;
+    bool exists = false;
+    int pieces = 0;
+    /**
+     * 该结构里是否存在目标战利品（任意箱子开出纹饰/下界合金/金苹果/嗅探蛋）。
+     * 沙漠神殿与丛林神殿只用这个字段：它们不给箱子坐标，也就不需要地形高度。
+     */
+    bool hasLoot = false;
+    /** Pillager outpost: a feature_cage_with_allays piece was placed (1.19+). */
+    bool hasAllay = false;
+    /** 命中的战利品种类（0 无, 1 纹饰, 2 下界合金, 3 嗅探蛋, 4 附魔金苹果）。 */
+    int lootKind = 0;
+    /** 仅提示型的命中明细（可与 lootKind 同时为真，例如沙丘 + 附魔金）。 */
+    bool hasTrim = false;
+    bool hasNetherite = false;
+    bool hasSnifferEgg = false;
+    bool hasGoldenApple = false;
+    /** 本结构所有目标箱的 trimKinds 并集（用于图标右下角的模板角标）。 */
+    unsigned trimKinds = 0;
+    /**
+     * 结果可信度：false 表示该结构的战利品坐标/判定仍是近似值
+     * （当前只有古迹废墟会因缺少实机校准而为 false）。
+     */
+    bool reliable = true;
+    /** 提示文本的补充原因（仅 reliable=false 时非空，前端直接展示）。 */
+    std::string note;
+    std::vector<LootChest> chests;
+};
+
+/** Install the host-provided loots inputs (ancient-city layout / surface height). */
+void ensureLootProviders();
+
+/**
+ * 按结构类型批量求箱子战利品。
+ */
+std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
+                                      const std::vector<std::pair<int, int>> &structures,
+                                      const std::vector<int> &types);
 
 bool parseSeedText(const std::string &text, uint64_t *out, bool allowTextHash);
 

@@ -35,9 +35,6 @@
 #include "engine_server.h"
 #include "version.h"
 
-// shell32: stable taskbar identity so the pinned/taskbar icon is ours, not a generic one.
-extern "C" HRESULT WINAPI SetCurrentProcessExplicitAppUserModelID(PCWSTR appId);
-
 namespace {
 
 constexpr wchar_t kWindowClass[] = L"AioHostWindow";

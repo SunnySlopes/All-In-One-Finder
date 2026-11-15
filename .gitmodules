@@ -43,3 +43,7 @@
 	path = tools/trial
 	url = https://github.com/SunnySlopes/trial-spawner-native
 	branch = main
+[submodule "tools/loots"]
+	path = tools/loots
+	url = https://github.com/SunnySlopes/LootsFinder
+	branch = main

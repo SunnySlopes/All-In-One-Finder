@@ -28,6 +28,20 @@ set(DOUBLE "${CMAKE_SOURCE_DIR}/../tools/doublemonument")
 set(FLOWER "${CMAKE_SOURCE_DIR}/../tools/flower")
 set(TRIAL "${CMAKE_SOURCE_DIR}/../tools/trial")
 set(GEODE "${CMAKE_SOURCE_DIR}/../tools/geode")
+# 结构内容求值（古城箱子 / 海绵房 / 战利品）：独立子模块；作为子项目时
+# 复用本仓的公共 cubiomes，不读取 tools/loots/cubiomes。
+set(LOOTS "${CMAKE_SOURCE_DIR}/../tools/loots")
+if (NOT EXISTS "${LOOTS}/include/loots/loots.h")
+  message(FATAL_ERROR "tools/loots is empty; run: git submodule update --init tools/loots")
+endif()
+# 与其他子模块一致：以库目标的方式复用，而不是把源文件编进 allinone。
+# 子模块的 CLI / selftest 由它自己的选项控制，作为子项目时默认关闭。
+# 打包时明确不使用 tools/loots/cubiomes 子模块：统一使用本仓的公共
+# tools/cubiomes（cubiomes_objs），避免把第二份 cubiomes 带进发行包。
+set(LOOTS_BUILD_CLI OFF CACHE BOOL "" FORCE)
+set(LOOTS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LOOTS_WITH_INTERNAL_CUBIOMES OFF CACHE BOOL "" FORCE)
+add_subdirectory("${LOOTS}" "${CMAKE_BINARY_DIR}/loots")
 # 要塞传送门/布局定位使用 geode 子模块内嵌的 1.18+ 模拟器
 # （tools/geode/src/stronghold_118）。它是 vanilla StrongholdPieces 的忠实移植，
 # 并且复现了 moveBelowSeaLevel 的竖直放置，所以能给出**精确世界 Y**。
@@ -409,7 +423,7 @@ set_source_files_properties("${LOWY}/GpuCoarse.cpp"
   PROPERTIES COMPILE_OPTIONS "-ffp-contract=off"
 )
 target_link_libraries(allinone PRIVATE
-  cubiomes_objs lysh_core
+  cubiomes_objs lysh_core loots
   -lwinpthread
 )
 target_link_options(allinone PRIVATE

@@ -4,9 +4,22 @@
 #include "cubiomes/biomenoise.h"
 #include "cubiomes/features/end_city.h"
 #include "cubiomes/features/fortress.h"
+#include "cubiomes/features/stronghold.h"
 #include "cubiomes/finders.h"
 #include "cubiomes/generator.h"
 #include "cubiomes/util.h"
+
+// 26.3 ancient-city / trail-ruins exact inputs are provided by the geode layout
+// and terrain engines that the host already links (no Java, no extra data).
+#include "structure_layout/layout.hpp"
+#include "terrain.hpp"
+
+#include "loots/bastion.h"
+#include "loots/outpost.h"
+#include "loots/shipwreck.h"
+#include "loots/trail_ruins.h"
+#include "loots/ocean_ruin.h"
+#include "loots/woodland_mansion.h"
 
 #include <algorithm>
 #include <atomic>
@@ -14,13 +27,21 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
 
-// lowyswamphut：小屋朝向（= footprint 7(x)×9(z) 还是 9(x)×7(z)）。与低 Y 女巫
-// 小屋搜索器共用同一份配方，地图上给每座可见小屋画结构范围边框。
+// lowyswamphut: hut orientation (footprint 7(x)x9(z) or 9(x)x7(z)). The low-Y
+// hut searcher shares this recipe; the map draws an oriented footprint frame.
 extern "C" int lysh_hut_orientation(uint64_t world_seed, int hut_x, int hut_z);
+
+// loots stores Minecraft version ids as plain integers (it has no cubiomes
+// headers). Assert them against cubiomes' enum here so a cubiomes update that
+// renumbers versions fails the build instead of silently mis-tiering.
+static_assert(MC_1_19_2 == 23 && MC_1_19_4 == 24 && MC_1_20_6 == 25 &&
+              MC_1_21_6 == 30 && MC_1_21_11 == 32 && MC_26_1 == 33,
+              "cubiomes MC_* ids changed - update tools/loots/src/version.cpp");
 
 namespace {
 
@@ -136,6 +157,9 @@ const FeatureDef kFeatures[] = {
     {Trial_Chambers, "trial_chambers", DIM_OVERWORLD},
     {Abandoned_Camp, "abandoned_camp", DIM_OVERWORLD},
     {Stronghold, "stronghold", DIM_OVERWORLD},
+    // Ancient-city ward/silence/swift-sneak/golden-apple are no longer separate
+    // checkboxes; they all live under the single "show loot" switch (dim = -1).
+    {110, "loot_markers", -1},
     {-2, "slime_chunk", DIM_OVERWORLD},
     {-1, "spawn", DIM_OVERWORLD},
     {Fortress, "fortress", DIM_NETHER},
@@ -144,6 +168,29 @@ const FeatureDef kFeatures[] = {
     {End_City, "end_city", DIM_END},
     {End_Gateway, "end_gateway", DIM_END},
 };
+
+/**
+ * Full-resolution biome check for structure types with a narrow biome set.
+ * cubiomes samples biomes at 1:4, which lets structures through at biome
+ * borders where the game refuses to place them (verified: desert pyramid
+ * (3872,-5808) of seed -5474371961803057987 is a river at 1:1 and does not
+ * generate in game or in cubiomes-viewer).
+ */
+static bool biomeAllowsStructure(int type, Generator *gen, int x, int z)
+{
+    const int id = getBiomeAt(gen, 1, x, 63, z);
+    if (id < 0) return true;
+    switch (type) {
+    case Desert_Pyramid:
+        return id == desert;
+    case Jungle_Temple:
+        return id == jungle || id == jungle_hills || id == jungle_edge ||
+               id == modified_jungle || id == bamboo_jungle ||
+               id == bamboo_jungle_hills || id == sparse_jungle;
+    default:
+        return true;
+    }
+}
 
 void ensureColors()
 {
@@ -325,6 +372,7 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
             if (pos.x < x0 || pos.x > x1 || pos.z < z0 || pos.z > z1) continue;
             int id = isViableStructurePos(type, &gGen, pos.x, pos.z, 0);
             if (!id) continue;
+            if (!biomeAllowsStructure(type, &gGen, pos.x, pos.z)) continue;
             int variant = 0;
             if (type == End_City) {
                 if (!endNoiseReady) {
@@ -354,18 +402,18 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
                     }
                 }
             } else if (type == Bastion) {
-                // 堡垒遗迹的 4 种起始池由结构 RNG 决定（cubiomes getVariant 已实现）：
-                //   start 0 = units/air_base          -> 住所型
-                //   start 1 = hoglin_stable/air_base  -> 兽栏型
-                //   start 2 = treasure/big_air_full   -> 宝藏型
-                //   start 3 = bridge/.../entrance_base-> 桥型
+                // Bastion remnants: four start pools selected by structure RNG
+                // (cubiomes getVariant):
+                //   start 0 = units/air_base          -> housing
+                //   start 1 = hoglin_stable/air_base  -> stables
+                //   start 2 = treasure/big_air_full   -> treasure
                 StructureVariant sv{};
                 getVariant(&sv, Bastion, mc, seed, pos.x, pos.z, -1);
                 variant = sv.start & 3;
             } else if (type == Igloo) {
-                // 带地下室的雪屋：cubiomes 的 StructureVariant.basement 由一次
-                // nextDouble() < 0.5 决定（finders.c getVariant），与方块无关，
-                // 所以每座雪屋都算一次，代价可忽略。
+                // Igloo basement: cubiomes' StructureVariant.basement is one
+                // nextDouble() < 0.5 draw (finders.c getVariant), independent of
+                // blocks, so evaluating it once per hut is cheap.
                 StructureVariant sv{};
                 getVariant(&sv, Igloo, mc, seed, pos.x, pos.z, id);
                 if (sv.basement) variant = 1;
@@ -377,13 +425,13 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
 
 void addEndGateways(std::vector<PlacedFeature> &out, int mc, uint64_t seed, int x0, int z0, int x1, int z1)
 {
-    // 三类标记（variant）：
-    //   0 = 普通主岛源门（第 2..20 次击杀末影龙出现）
-    //   1 = 首个折跃门（第 1 次击杀；getFixedEndGateways 按生成顺序写入，src[0] 即首个）
-    //   2 = 外岛落点（主岛源门在外岛的连通目的地）
-    // 只存在于末地，主世界不产生任何标记。
+    // Three marker variants:
+    //   0 = natural central-island source gate (2nd..20th dragon kill)
+    //   1 = first gateway (1st kill; getFixedEndGateways writes it first)
+    //   2 = outer-island landing (linked destination of a source gate)
+    // Only the End has these; the overworld produces no markers.
     if (mc <= MC_1_12) return;
-    // 与末地城同一可见范围（见 addGeneric 里的同一条注释）。
+    // Same visible range as end cities (see the matching note in addGeneric).
     if (x1 - x0 > 15680 || z1 - z0 > 15680) return;
     Pos fixed[20];
     getFixedEndGateways(mc, seed, fixed);
@@ -392,16 +440,182 @@ void addEndGateways(std::vector<PlacedFeature> &out, int mc, uint64_t seed, int 
     SurfaceNoise sn{};
     initSurfaceNoise(&sn, DIM_END, seed);
     for (int i = 0; i < 20; i++) {
-        // 只发出外岛落点（回程折跃门）。主岛中央那 20 个源门在图标地图上会挤成一团，
-        // 与 cubiomes-viewer 一致：中央门不单独成标记。
-        // variant：1 = 首个折跃门（i == 0，第一次击杀末影龙生成）对应的外岛落点，2 = 其余落点。
+        // Only emit outer-island landing points. The 20 central source gates
+        // collapse into one blob on the icon map, so (matching cubiomes-viewer)
+        // they are not separate markers. variant 1 = first gateway, 2 = rest.
         Pos dst = getLinkedGatewayPos(&en, &sn, seed, fixed[i]);
         if (dst.x < x0 || dst.x > x1 || dst.z < z0 || dst.z > z1) continue;
         out.push_back({End_Gateway, dst.x, dst.z, i == 0 ? 1 : 2});
     }
 }
 
+/* ------------------------------------------------------------------------- */
+/* Loot-layer backends                                                        */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The 26.3 layout engine owns the ancient-city piece graph; loots only needs
+ * the resulting (template, origin, rotation) list. The engine is the same one
+ * the geode finder links, so there is no second data set to keep in sync.
+ */
+bool ancientCityLayout(int mc, uint64_t seed, int x, int z,
+                       std::vector<loots::AncientCityPiece> &out)
+{
+    // Ancient-city piece pools and the structure salt are stable across the
+    // versions the map supports (verified: the 1.21.11 start position of the
+    // reference seed is identical to 26.3), so the same layout engine is used;
+    // only the loot-table band changes and that is handled by loots.
+    if (mc < MC_1_19_2) return false;
+
+    geode_layout::LayoutEngine engine(6, seed);
+    auto chamber = engine.generate(x >> 4, z >> 4);
+    if (!chamber.exists) return false;
+
+    static const struct {
+        int id;
+        const char *name;
+    } kPieces[] = {
+        {20, "ancient_city/structures/barracks"},
+        {21, "ancient_city/structures/chamber_1"},
+        {22, "ancient_city/structures/chamber_2"},
+        {23, "ancient_city/structures/chamber_3"},
+        {24, "ancient_city/structures/sauna_1"},
+        {27, "ancient_city/structures/tall_ruin_1"},
+        {28, "ancient_city/structures/tall_ruin_2"},
+        {29, "ancient_city/structures/tall_ruin_3"},
+        {30, "ancient_city/structures/tall_ruin_4"},
+        {42, "ancient_city/structures/ice_box_1"},
+    };
+
+    for (const auto &p : chamber.placed) {
+        const char *name = nullptr;
+        for (const auto &m : kPieces) {
+            if (m.id == p.id) {
+                name = m.name;
+                break;
+            }
+        }
+        if (!name) continue;
+        loots::AncientCityPiece piece;
+        piece.name = name;
+        piece.x = p.pos.x;
+        piece.y = p.pos.y;
+        piece.z = p.pos.z;
+        piece.rotation = p.rotation;
+        out.push_back(std::move(piece));
+    }
+    return !out.empty();
+}
+
+int trailSurfaceHeight(int mc, uint64_t seed, int x, int z);
+int oceanFloorHeight(int mc, uint64_t seed, int x, int z);
+int oceanSolid(int mc, uint64_t seed, int x, int y, int z);
+
+void installLootProviders()
+{
+    loots::ancientCitySetLayoutProvider(ancientCityLayout);
+    // Outpost feature-pool expansion and trail-ruins placement both need the
+    // exact WORLD_SURFACE_WG height; geode's terrain model is that source.
+    loots::outpostSetSurfaceHeightProvider(trailSurfaceHeight);
+    loots::trailRuinsSetSurfaceHeightProvider(trailSurfaceHeight);
+    // Ocean-ruin suspicious sand needs OCEAN_FLOOR_WG plus per-block solidity.
+    loots::oceanRuinSetTerrainProvider(oceanFloorHeight, oceanSolid);
+}
+
+/**
+ * Trail-ruins placement is anchored by the exact WORLD_SURFACE_WG height. The
+ * host already links geode's terrain model, which is the same height source the
+ * geode finder uses; the 1:4 cubiomes approximation is not enough for a
+ * positional RNG seed.
+ */
+std::mutex gTrailTerrainMu;
+std::unique_ptr<geode::Terrain> gTrailTerrain;
+uint64_t gTrailTerrainSeed = 0;
+
+int trailSurfaceHeight(int /*mc*/, uint64_t seed, int x, int z)
+{
+    std::lock_guard<std::mutex> lock(gTrailTerrainMu);
+    if (!gTrailTerrain || gTrailTerrainSeed != seed) {
+        gTrailTerrain = std::make_unique<geode::Terrain>(seed, 5);
+        gTrailTerrainSeed = seed;
+    }
+    return gTrailTerrain->height_world_surface(x, z);
+}
+
+int oceanFloorHeight(int /*mc*/, uint64_t seed, int x, int z)
+{
+    std::lock_guard<std::mutex> lock(gTrailTerrainMu);
+    if (!gTrailTerrain || gTrailTerrainSeed != seed) {
+        gTrailTerrain = std::make_unique<geode::Terrain>(seed, 5);
+        gTrailTerrainSeed = seed;
+    }
+    // Heightmap.OCEAN_FLOOR_WG is the first blocking block below the build
+    // limit. The geode `height_ocean_floor()` helper is a spline approximation
+    // (and for 26.3 is only a surface-level noise), so scan the exact density
+    // column. This is 384 cheap queries per column and only runs for ocean
+    // ruins when the loot layer is enabled.
+    // OCEAN_FLOOR_WG is primed from the noise column before carvers/structures,
+    // so use base_solid (no carvers, no structure beards) here. The local
+    // getHeight scan uses the real solid() state instead.
+    // Ocean ruins are placed in oceans, so the ocean floor is at or below sea
+    // level. Starting at sea level (63) avoids floating terrain/ice above the
+    // water column that is irrelevant to the submerged structure.
+    for (int y = 63; y >= -64; y--) {
+        // `solid()` includes structure beards, but OCEAN_FLOOR_WG is primed
+        // before structures are placed. Ignore bearded positions.
+        if (gTrailTerrain->beard(x, y, z) != 0.0) continue;
+        if (gTrailTerrain->solid(x, y, z)) return y + 1;
+    }
+    return -64;
+}
+
+int oceanSolid(int /*mc*/, uint64_t seed, int x, int y, int z)
+{
+    std::lock_guard<std::mutex> lock(gTrailTerrainMu);
+    if (!gTrailTerrain || gTrailTerrainSeed != seed) {
+        gTrailTerrain = std::make_unique<geode::Terrain>(seed, 5);
+        gTrailTerrainSeed = seed;
+    }
+    return gTrailTerrain->solid(x, y, z) ? 1 : 0;
+}
+
+/**
+ * Stronghold eye-trim chests: cubiomes reproduces the library / corridor piece
+ * graph and their LootTableSeed, loots evaluates `chests/stronghold_library`.
+ * Only chests that actually contain the eye trim are returned.
+ */
+void strongholdEyeChests(int mc, uint64_t seed, int startX, int startZ,
+                         std::vector<LootChest> &out)
+{
+    StructureSaltConfig ssconf{};
+    if (!getStructureSaltConfig(Stronghold, mc, plains, &ssconf)) return;
+
+    static thread_local Piece pieces[400];
+    const int n = getStrongholdLoot(pieces, 400, ssconf, mc, seed, startX >> 4, startZ >> 4);
+    for (int i = 0; i < n; i++) {
+        for (int c = 0; c < pieces[i].chestCount && c < 4; c++) {
+            const char *table = pieces[i].lootTables[c];
+            if (!table) continue;
+            const loots::ChestReward reward =
+                loots::evaluateChest(table, pieces[i].lootSeeds[c], mc);
+            if (!reward.evaluated || !reward.hasTrim(loots::TrimKind::eye)) continue;
+            LootChest chest;
+            chest.x = pieces[i].chestPoses[c].x;
+            chest.z = pieces[i].chestPoses[c].z;
+            chest.trim = true;
+            chest.trimKinds = reward.trimKinds;
+            out.push_back(chest);
+        }
+    }
+}
+
 } // namespace
+
+void ensureLootProviders()
+{
+    static std::once_flag once;
+    std::call_once(once, installLootProviders);
+}
 
 bool parseSeedText(const std::string &text, uint64_t *out, bool allowTextHash)
 {
@@ -422,8 +636,7 @@ bool parseSeedText(const std::string &text, uint64_t *out, bool allowTextHash)
 }
 
 std::vector<McVersion> listMcVersions()
-{
-    std::vector<McVersion> out;
+{    std::vector<McVersion> out;
     out.reserve(sizeof(kVersions) / sizeof(kVersions[0]));
     for (int id : kVersions) {
         const char *name = mc2str(id);
@@ -437,6 +650,205 @@ std::vector<FeatureEntry> listFeatures()
 {
     std::vector<FeatureEntry> out;
     for (const auto &item : kFeatures) out.push_back({item.id, item.key, item.dim});
+    return out;
+}
+
+std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
+                                      const std::vector<std::pair<int, int>> &structures,
+                                      const std::vector<int> &types)
+{
+    ensureLootProviders();
+
+    auto addChest = [](LootChestInfo &info, const loots::StructureChest &c) {
+        // Unknown loot table (evaluated=false): skip it rather than reporting
+        // "no loot".
+        if (!c.reward.evaluated) return;
+        LootChest chest;
+        chest.x = c.x;
+        chest.y = c.y;
+        chest.z = c.z;
+        chest.trim = c.reward.trim;
+        chest.silence = c.reward.hasTrim(loots::TrimKind::silence);
+        chest.ward = c.reward.hasTrim(loots::TrimKind::ward);
+        chest.netheriteUpgrade = c.reward.netheriteUpgrade;
+        chest.goldenApples = c.reward.goldenApples;
+        chest.snifferEgg = c.reward.snifferEgg;
+        chest.trimKinds = c.reward.trimKinds;
+        chest.swiftSneakLevels = c.reward.swiftSneakLevels;
+        info.chests.push_back(std::move(chest));
+    };
+
+    auto summarize = [](LootChestInfo &info) {
+        for (const auto &c : info.chests) {
+            const bool trim = c.trim || c.ward || c.silence;
+            if (trim) info.hasTrim = true;
+            info.trimKinds |= c.trimKinds;
+            if (c.netheriteUpgrade) info.hasNetherite = true;
+            if (c.snifferEgg) info.hasSnifferEgg = true;
+            if (c.goldenApples > 0) info.hasGoldenApple = true;
+        }
+        if (info.hasTrim) {
+            info.hasLoot = true;
+            info.lootKind = 1;
+        } else if (info.hasNetherite) {
+            info.hasLoot = true;
+            info.lootKind = 2;
+        } else if (info.hasSnifferEgg) {
+            info.hasLoot = true;
+            info.lootKind = 3;
+        } else if (info.hasGoldenApple) {
+            info.hasLoot = true;
+            info.lootKind = 4;
+        }
+    };
+
+    std::vector<LootChestInfo> out;
+    out.reserve(structures.size());
+    for (const auto &s : structures) {
+        for (int type : types) {
+            LootChestInfo info;
+            info.type = type;
+            info.x = s.first;
+            info.z = s.second;
+
+            // Outpost: not a cubiomes piece structure. Use jigsaw assembly
+            // (tower chest + allay cage); hint only, no chest coordinates.
+            if (type == Outpost) {
+                OutpostLoot ol{};
+                if (pillagerOutpostLoot(mc, seed, s.first, s.second, ol)) {
+                    info.exists = true;
+                    info.hasAllay = mc >= MC_1_19_2 && ol.hasAllay;
+                    info.pieces = 1;
+                    // Allay depends on exact feature-pool expansion; mark it
+                    // approximate until an in-game oracle confirms it.
+                    if (info.hasAllay) info.note = "outpost_allay_approximate";
+                    for (const auto &c : ol.chests) {
+                        StructureChest cc = c;
+                        cc.reward = loots::evaluateChest(cc.lootTable.c_str(), cc.lootSeed, mc);
+                        if (cc.reward.trim) {
+                            info.hasLoot = true;
+                            info.hasTrim = true;
+                            info.lootKind = 1;
+                            info.trimKinds |= cc.reward.trimKinds;
+                        }
+                    }
+                }
+                out.push_back(std::move(info));
+                continue;
+            }
+
+            if (type == Ancient_City) {
+                const auto cities = ancientCityChests(
+                    mc, seed, 0, {std::make_pair(s.first, s.second)});
+                if (!cities.empty()) {
+                    const auto &city = cities.front();
+                    info.exists = city.exists;
+                    info.pieces = city.pieces;
+                    for (const auto &c : city.chests) {
+                        if (c.silence == 0 && c.ward == 0 && c.swiftSneakLevels.empty() &&
+                            c.enchantedGoldenApples == 0)
+                            continue;
+                        LootChest chest;
+                        chest.x = c.x;
+                        chest.y = c.y;
+                        chest.z = c.z;
+                        chest.trim = c.silence != 0 || c.ward != 0;
+                        chest.silence = c.silence != 0;
+                        chest.ward = c.ward != 0;
+                        chest.goldenApples = c.enchantedGoldenApples;
+                        chest.swiftSneakLevels = c.swiftSneakLevels;
+                        if (chest.silence) chest.trimKinds |= 1u << static_cast<unsigned>(loots::TrimKind::silence);
+                        if (chest.ward) chest.trimKinds |= 1u << static_cast<unsigned>(loots::TrimKind::ward);
+                        info.chests.push_back(std::move(chest));
+                    }
+                    summarize(info);
+                }
+                out.push_back(std::move(info));
+                continue;
+            }
+
+            if (type == Stronghold) {
+                info.exists = true;
+                strongholdEyeChests(mc, seed, s.first, s.second, info.chests);
+                summarize(info);
+                out.push_back(std::move(info));
+                continue;
+            }
+
+            if (type == Ocean_Ruin) {
+                loots::StructureLoot sl;
+                if (mc >= MC_26_3 &&
+                    oceanRuinLoot(mc, seed, s.first, s.second, sl)) {
+                    sl.evaluate(mc);
+                    info.exists = sl.exists;
+                    info.pieces = sl.pieces;
+                    for (const auto &c : sl.suspicious) addChest(info, c);
+                    summarize(info);
+                } else {
+                    // The template block list / CappedProcessor data is 26.3.
+                    info.exists = true;
+                    info.reliable = false;
+                    info.note = "ocean_ruin_sniffer_not_ported";
+                }
+                out.push_back(std::move(info));
+                continue;
+            }
+
+            loots::StructureLoot sl;
+            bool ok = false;
+            if (type == Fortress) ok = netherFortressLoot(mc, seed, s.first, s.second, sl);
+            else if (type == End_City) ok = endCityLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Desert_Pyramid) ok = desertPyramidLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Jungle_Temple) ok = jungleTempleLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Shipwreck) ok = shipwreckLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Bastion) ok = bastionLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Mansion) ok = woodlandMansionLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Trail_Ruins) {
+                loots::trailRuinsSetSurfaceHeightProvider(trailSurfaceHeight);
+                const loots::TrailRuinsStatus status = loots::trailRuinsStatus();
+                ok = loots::trailRuinsLoot(mc, seed, s.first, s.second, sl);
+                info.reliable = false;
+                info.note = status.exactSurfaceHeight
+                    ? "trail_ruins_approximate"
+                    : "trail_ruins_no_surface_height";
+            }
+            if (!ok) {
+                // Structure missing or layer unsupported on this version: stay
+                // silent instead of writing an empty result.
+                if (type == Trail_Ruins || type == Mansion) continue;
+                out.push_back(std::move(info));
+                continue;
+            }
+
+            sl.evaluate(mc);
+            info.exists = sl.exists;
+            info.pieces = sl.pieces;
+            info.chests.reserve(sl.chests.size());
+            for (const auto &c : sl.chests) addChest(info, c);
+            for (const auto &c : sl.suspicious) addChest(info, c);
+            summarize(info);
+            // 1.19.2 has no armor-trim templates. Its mansion loot seed is
+            // also not supported, so suppress both template flags and chests.
+            if (type == Mansion && mc <= MC_1_19_2) {
+                info.chests.clear();
+                info.hasLoot = false;
+                info.hasTrim = false;
+                info.hasNetherite = false;
+                info.hasSnifferEgg = false;
+                info.hasGoldenApple = false;
+                info.trimKinds = 0;
+                info.reliable = true;
+                info.note.clear();
+            }
+
+            // Single-piece structures: presence only, no coordinates (Y depends
+            // on the surface height).
+            if (type == Desert_Pyramid || type == Jungle_Temple || type == Shipwreck) {
+                info.chests.clear();
+            }
+            out.push_back(std::move(info));
+        }
+    }
     return out;
 }
 
@@ -571,9 +983,10 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
 
     for (const auto &def : kFeatures) {
         if (def.dim != dim || !wanted(types, def.id)) continue;
-        // End_Gateway 走 addGeneric：它在本 cubiomes 里是逐区块的 decorator 特征
-        // （getStructurePos 的 rarity 分支，1/700，end_highlands），也就是末地里
-        // "全图分布"的自然折跃门；击杀末影龙产生的 20 个另由 addEndGateways 提供。
+        // End_Gateway uses addGeneric below: in this cubiomes it is a per-chunk
+        // decorator feature (getStructurePos rarity branch, 1/700, end_highlands),
+        // i.e. the End's natural gateway distribution; the 20 dragon-kill gates
+        // are emitted by addEndGateways instead.
         if (def.id == Stronghold || def.id == Mineshaft || def.id < 0) continue;
         addGeneric(out, def.id, mc, seed, dim, flags, x0, z0, x1, z1);
     }
@@ -611,7 +1024,13 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
         const int ch = std::max(1, (z1 - z0) / 16 + 2);
         std::vector<Pos> mines(static_cast<size_t>(cw * ch));
         int n = getMineshafts(mc, seed, cx, cz, cw, ch, mines.data(), cw * ch);
-        for (int i = 0; i < n; i++) out.push_back({Mineshaft, mines[i].x, mines[i].z, 0});
+        for (int i = 0; i < n; i++) {
+            // getMineshafts works per chunk and can report positions outside the
+            // requested area; keep only what belongs to this view.
+            const Pos &p = mines[i];
+            if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1) continue;
+            out.push_back({Mineshaft, p.x, p.z, 0});
+        }
     }
 
     if (dim == DIM_OVERWORLD && wanted(types, -2) && chunkArea > 0 && chunkArea <= 80 * 80) {
@@ -639,7 +1058,8 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
     }
 
     if (dim == DIM_OVERWORLD && wanted(types, Swamp_Hut)) {
-        // 小屋原点就是结构起点（chunkX*16, chunkZ*16），朝向决定 7×9 还是 9×7。
+        // The hut origin is the structure start (chunkX*16, chunkZ*16); the
+        // orientation decides whether the footprint is 7x9 or 9x7.
         for (PlacedFeature &item : out) {
             if (item.type != Swamp_Hut) continue;
             const int dir = lysh_hut_orientation(seed, item.x, item.z);

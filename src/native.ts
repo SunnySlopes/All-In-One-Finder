@@ -12,6 +12,45 @@ export interface FeatureInfo {
   dim: number;
 }
 
+/**
+ * 一期叠加层的版本能力（overlayCapability op）。
+ * cityTier: 0=不支持, 1=1.19, 2=1.20~1.20.1, 3=1.20.2~1.21.5, 4=1.21.6~1.21.11, 5=26.1+
+ */
+export interface OverlayCapability {
+  cityTier: number;
+  citySilence: boolean;
+  citySwiftSneak: boolean;
+  cityGoldenApple: boolean;
+  oreDiamond: boolean;
+  oreLapis: boolean;
+  netherDebris: boolean;
+  supported: boolean;
+}
+
+/** 一座古城的箱子求值结果（ancientCityChests op）。 */
+export interface CityChest {
+  x: number;
+  y: number;
+  z: number;
+  kind: number;
+  silence: boolean;
+  ward: boolean;
+  swiftSneakLevels: number[];
+  goldenApples: number;
+  lootSeed: string;
+}
+
+export interface CityChestInfo {
+  x: number;
+  z: number;
+  chunkX: number;
+  chunkZ: number;
+  exists: boolean;
+  pieces: number;
+  bounds: Bounds3;
+  chests: CityChest[];
+}
+
 export interface Placed {
   type: number;
   x: number;
@@ -571,4 +610,64 @@ export function call<T>(op: string, args?: unknown): Promise<T> {
       throw error;
     },
   );
+}
+
+/** lootChests op：一个结构实例里所有箱子的战利品判定。 */
+export interface LootChest {
+  x: number;
+  /** 0 = 该结构/版本没有精确 Y。 */
+  y: number;
+  z: number;
+  trim: boolean;
+  /** Silence armor trim, drawn with the highest highlight. */
+  silence: boolean;
+  /** Ward armor trim (ancient city). */
+  ward: boolean;
+  netheriteUpgrade: boolean;
+  goldenApples: number;
+  snifferEgg: boolean;
+  /** 纹饰位掩码，见 loots::TrimKind；0 = 无。 */
+  trimKinds: number;
+  /** 迅捷潜行等级，每本一项。 */
+  swiftSneakLevels: number[];
+}
+
+export interface MonumentSpongeRoom {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface MonumentSpongeInfo {
+  x: number;
+  z: number;
+  rooms: number;
+  spongeRooms: number;
+  rooms3d: MonumentSpongeRoom[];
+}
+
+export interface LootChestInfo {
+  type: number;
+  x: number;
+  z: number;
+  exists: boolean;
+  pieces: number;
+  /** 该结构是否有目标战利品（沙漠神殿/丛林神殿只用这个字段）。 */
+  hasLoot: boolean;
+  /** 前哨站是否放置了悦灵笼子（1.19+）。 */
+  hasAllay: boolean;
+  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 */
+  lootKind: number;
+  /** 仅提示型的命中明细（可与 lootKind 同时为真）。 */
+  hasTrim: boolean;
+  hasNetherite: boolean;
+  hasSnifferEgg: boolean;
+  hasGoldenApple: boolean;
+  /** 本结构所有目标箱的 trimKinds 并集（结构图标右下角的模板角标）。 */
+  trimKinds: number;
+  /** false = 该结构的结果仍是近似值（古迹废墟 / 海底遗迹）。 */
+  reliable: boolean;
+  /** 近似原因，前端按语言键翻译；空字符串表示没有额外说明。 */
+  note: string;
+  chests: LootChest[];
 }
