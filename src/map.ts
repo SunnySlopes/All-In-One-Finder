@@ -149,20 +149,6 @@ const OVERLAY_CAPABILITY: Record<string, keyof OverlayCapability> = {
  */
 const DESERT_WELL_MIN_PPB = 1 / 32;
 
-/**
- * 外框半边长（方块）。以结构起点为中心画正方形，打开结构开关就展示，
- * 与「展示战利品」无关。
- *   古城 116  = ancient_city.json 的 max_distance_from_center
- *   府邸  56  = 11x11 网格 x 8 方块 + 16x16 房间外扩（见 docs/hardcoded-structure-chests.md）
- *   堡垒  80  = JigsawStructure 默认 MaxDistance(80)
- */
-const STRUCTURE_FRAME_HALF: Record<string, number> = {
-  ancient_city: 116,
-  mansion: 56,
-};
-/** 外框样式：虚线 + 半透明蓝灰，与战利品标记区分。 */
-const STRUCTURE_FRAME_STROKE = 'rgba(74, 107, 138, 0.6)';
-
 /** 「展示战利品」总开关（native 的 kFeatures 里 id 110，dim -1 = 所有维度）。 */
 const LOOT_MARKERS_ID = 110;
 /**
@@ -1327,6 +1313,7 @@ export class MapView {
   }
 
   private structureIconName(key: string, variant = 0): string {
+    if (key === 'village' && variant === 1) return 'zombie';
     if (key === 'end_city' && variant === 1) return 'end_ship';
     if (key === 'abandoned_camp' && variant === 1) return 'camp_copper';
     // 带地下室的雪屋用独立图标（Ladder + 地下室），与普通雪屋区分。
@@ -1341,6 +1328,7 @@ export class MapView {
    *   igloo 1 = 带地下室；end_gateway 1 = 首个折跃门，2 = 外岛落点。
    */
   private structureVariantLabel(key: string, variant = 0): string {
+    if (key === 'village' && variant === 1) return t('common.map.villageZombie');
     if (key === 'abandoned_camp' && variant === 1) return t('common.map.campCopperChest');
     if (key === 'end_city' && variant === 1) return t('common.map.endCityShip');
     if (key === 'igloo' && variant === 1) return t('common.map.iglooBasement');
@@ -2785,34 +2773,12 @@ export class MapView {
       const meta = TRIM_KIND[kind];
       return meta ? t(`common.map.trim_${meta.name}`) : t('common.map.trim_other');
     };
-    // Trail ruins: clicking one suspicious-block ring should name that block's
-    // template instead of only listing the whole structure.
-    const picked = this.selectedLootChest;
-    if (
-      item.type === 24 &&
-      picked &&
-      picked.type === item.type &&
-      picked.x === item.x &&
-      picked.z === item.z
-    ) {
-      const chest = info.chests.find(
-        (entry) => entry.x === picked.chestX && entry.z === picked.chestZ,
+    // Trail ruins: one disclaimer for the whole structure, and no template
+    // names on individual rows. Every target block is still listed below.
+    if (item.type === 24) {
+      rows.push(
+        `<div>${escapeText(t('common.map.lootTrailTemplateApproximate'))}</div>`,
       );
-      if (chest) {
-        const templates: string[] = [];
-        for (const kind of Object.keys(TRIM_KIND).map(Number)) {
-          if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) {
-            templates.push(kindNames(kind));
-          }
-        }
-        if (templates.length) {
-          rows.push(
-            `<div>${escapeText(
-              t('common.map.lootTrailTemplateApproximate', { template: templates.join('、') }),
-            )}</div>`,
-          );
-        }
-      }
     }
     const chestLines: string[] = [];
     for (const chest of info.chests) {
@@ -2838,29 +2804,46 @@ export class MapView {
     }
     if (chestLines.length) {
       rows.push(`<div>${escapeText(t('common.map.lootChestsFound', { n: chestLines.length }))}</div>`);
-      for (const line of chestLines.slice(0, 12)) rows.push(`<div class="muted">${escapeText(line)}</div>`);
-      if (chestLines.length > 12) {
-        rows.push(`<div class="muted">${escapeText(t('common.map.lootChestsMore', { n: chestLines.length - 12 }))}</div>`);
+      const shown = item.type === 24 ? chestLines.length : Math.min(12, chestLines.length);
+      for (const line of chestLines.slice(0, shown)) {
+        rows.push(`<div class="muted">${escapeText(line)}</div>`);
+      }
+      if (chestLines.length > shown) {
+        rows.push(
+          `<div class="muted">${escapeText(t('common.map.lootChestsMore', { n: chestLines.length - shown }))}</div>`,
+        );
       }
     } else if (info.hasLoot || info.hasAllay) {
       const hits: string[] = [];
-      if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
-      if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
-      if (info.hasSnifferEgg) hits.push(t('common.map.lootSnifferEgg'));
-      if (info.hasGoldenApple) hits.push(t('common.map.lootGoldenApple', { n: 1 }));
-      if (hits.length) rows.push(`<div>${escapeText(t('common.map.lootHint', { hits: hits.join('、') }))}</div>`);
+      if (item.type === 10) {
+        // Outpost: presence-only wording; the cage count itself is not reliable.
+        if (info.hasAllay) hits.push(t('common.map.lootAllayUncertain'));
+        if (info.hasTrim) hits.push(t('common.map.lootSentryTrim'));
+      } else {
+        if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
+        if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
+        if (info.hasSnifferEgg) hits.push(t('common.map.lootSnifferEgg'));
+        if (info.hasGoldenApple) hits.push(t('common.map.lootGoldenApple', { n: 1 }));
+      }
+      if (hits.length) {
+        const key = item.type === 10 ? 'common.map.lootContains' : 'common.map.lootHint';
+        rows.push(`<div>${escapeText(t(key, { hits: hits.join('、') }))}</div>`);
+      }
     }
 
-    if (info.note) {
+    // Trail already has one generic line above; outpost carries its own marker.
+    if (item.type !== 24 && info.note &&
+        !(item.type === 10 && info.note === 'outpost_allay_approximate')) {
       const noteKey =
         info.note === 'ocean_ruin_sniffer_not_ported'
           ? 'common.map.lootOceanRuinUnsupported'
           : info.note === 'trail_ruins_no_surface_height'
             ? 'common.map.lootTrailRuinsNoHeight'
             : info.note === 'outpost_allay_approximate'
-              ? 'common.map.lootOutpostAllayApproximate'
+              ? 'common.map.lootAllayUncertain'
               : 'common.map.lootApproximate';
-      rows.push(`<div class="muted">${escapeText(t(noteKey))}</div>`);
+      const count = info.allayCages && info.allayCages > 0 ? info.allayCages : 1;
+      rows.push(`<div class="muted">${escapeText(t(noteKey, { count }))}</div>`);
     }
     return rows;
   }
@@ -3132,20 +3115,16 @@ export class MapView {
     if (!selected) return;
     // The cage ring only makes sense while cage points are actually drawn.
     const cage = selected.cage && this.trialSpawnersVisible() ? selected.cage : null;
-    // A stronghold with a located portal selects the portal, not the icon.
-    const portal =
-      selected.key === 'stronghold' && this.strongholdDetailAllowed()
-        ? this.strongholdDetailAt(selected.x, selected.z)
-        : undefined;
+    // Stronghold portal rooms are details of the stronghold; the selection ring
+    // always belongs on the stronghold icon, not on the portal.
     let point: { x: number; y: number };
     if (cage) point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
-    else if (portal?.ok) point = this.worldToScreen(portal.portalX + 0.5, portal.portalZ + 0.5);
     else point = this.worldToScreen(selected.x, selected.z);
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    const radius = cage ? 5 : portal?.ok ? 6 : ICON_SIZE / 2 + 5;
+    const radius = cage ? 5 : ICON_SIZE / 2 + 5;
     ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
@@ -3283,17 +3262,6 @@ export class MapView {
           item.large.maxX,
           item.large.maxZ,
           SWAMP_HUT_FRAME_COLOR,
-        );
-      } else if (STRUCTURE_FRAME_HALF[feature.key]) {
-        // 古城 / 府邸：只要结构开关打开就画最外圈正方形外框。
-        const half = STRUCTURE_FRAME_HALF[feature.key];
-        this.drawWorldRect(
-          ctx,
-          item.x - half,
-          item.z - half,
-          item.x + half,
-          item.z + half,
-          STRUCTURE_FRAME_STROKE,
         );
       } else if (feature.key === 'fortress' && item.large) {
         this.drawWorldRect(ctx, item.large.minX, item.large.minZ, item.large.maxX, item.large.maxZ, '#e06a4a');

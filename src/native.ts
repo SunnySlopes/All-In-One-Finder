@@ -656,6 +656,8 @@ export interface LootChestInfo {
   hasLoot: boolean;
   /** 前哨站是否放置了悦灵笼子（1.19+）。 */
   hasAllay: boolean;
+  /** Number of allay cage feature pieces, when detection was evaluated. */
+  allayCages: number;
   /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 */
   lootKind: number;
   /** 仅提示型的命中明细（可与 lootKind 同时为真）。 */

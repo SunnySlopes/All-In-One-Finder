@@ -8,9 +8,9 @@
 /**
  * Portal / layout details for one stronghold, as consumed by the map overlay.
  *
- * Backed by geode's embedded 1.18+ stronghold simulator
- * (tools/geode/src/stronghold_118), which ports vanilla's StrongholdPieces and
- * reproduces the vertical placement (`moveBelowSeaLevel`).
+ * Backed by loots' 1.18+ stronghold simulator (include/loots/stronghold.h),
+ * which ports vanilla's StrongholdPieces and reproduces the vertical placement
+ * (`moveBelowSeaLevel`).
  *
  * Y is EXACT. Vanilla's `moveBelowSeaLevel(seaLevel=63, minY=-64, random, 10)`
  * runs unconditionally after layout and depends only on those constants plus

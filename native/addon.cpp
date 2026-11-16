@@ -195,6 +195,7 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
         obj.Set("pieces", list[i].pieces);
         obj.Set("hasLoot", list[i].hasLoot);
         obj.Set("hasAllay", list[i].hasAllay);
+        obj.Set("allayCages", list[i].allayCages);
         obj.Set("lootKind", list[i].lootKind);
         obj.Set("hasTrim", list[i].hasTrim);
         obj.Set("hasNetherite", list[i].hasNetherite);
@@ -246,7 +247,6 @@ Napi::Value AncientCityChests(const Napi::CallbackInfo &info)
                                 city.Get("z").As<Napi::Number>().Int32Value());
         }
     }
-    ensureLootProviders();
     auto list = ancientCityChests(mc, static_cast<uint64_t>(seed), mapFlags(large), cities);
     Napi::Env outEnv = info.Env();
     Napi::Array out = Napi::Array::New(outEnv, list.size());

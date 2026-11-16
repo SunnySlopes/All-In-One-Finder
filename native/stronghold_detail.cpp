@@ -3,7 +3,7 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "sh1_18.h"
+#include "loots/stronghold.h"
 
 namespace {
 
@@ -21,9 +21,6 @@ uint64_t gCacheSeed = 0;
 /** ~128 strongholds per seed; keep a little slack for a few seeds of panning. */
 constexpr size_t kMaxCached = 512;
 
-/** Reused piece buffer; the layout is sensitive to the cap, so keep it fixed. */
-Sh118Piece gPieces[SH118_PIECE_CAPACITY];
-
 uint64_t cacheKey(int chunkX, int chunkZ)
 {
     return (static_cast<uint64_t>(static_cast<uint32_t>(chunkX)) << 32)
@@ -38,18 +35,16 @@ StrongholdPortalInfo computeOne(int mc, uint64_t seed, int chunkX, int chunkZ)
     info.x = (chunkX << 4) + 4;
     info.z = (chunkZ << 4) + 4;
 
-    Sh118Stronghold p;
-    const int generated = sh118_compute(&p, gPieces, SH118_PIECE_CAPACITY,
-                                       mc, seed, chunkX, chunkZ);
-    if (generated <= 0) return info;
+    loots::StrongholdPortal p;
+    if (!loots::strongholdPortalAt(mc, seed, chunkX, chunkZ, p)) return info;
 
     info.pieces = p.pieces;
-    info.truncated = p.truncated != 0;
-    info.ok = p.ok != 0;
+    info.truncated = p.truncated;
+    info.ok = p.ok;
     // Prefer the library's authoritative start point when it produced one.
-    if (p.startX != 0 || p.startZ != 0) {
-        info.x = p.startX;
-        info.z = p.startZ;
+    if (p.x != 0 || p.z != 0) {
+        info.x = p.x;
+        info.z = p.z;
     }
     if (!info.ok) return info;
 
@@ -66,15 +61,10 @@ StrongholdPortalInfo computeOne(int mc, uint64_t seed, int chunkX, int chunkZ)
     info.footprintMaxZ = p.footprintMaxZ;
     info.footprintArea = p.footprintArea;
 
-    // Portal room vertical bounds in real world Y (module already applied dy).
-    info.roomMinY = p.roomNominalMinY;
-    info.roomMaxY = p.roomNominalMaxY;
-
-    // The 3x3 portal frame sits on the room floor: vanilla's portal room has
-    // the frame bottom one block above the room's lowest layer, so the portal
-    // blocks themselves occupy that plane.
-    info.portalY = p.roomNominalMinY + 1;
-    info.yExact = p.dyExact != 0;
+    info.roomMinY = p.roomMinY;
+    info.roomMaxY = p.roomMaxY;
+    info.portalY = p.portalY;
+    info.yExact = p.yExact;
 
     return info;
 }
@@ -87,7 +77,7 @@ std::vector<StrongholdPortalInfo> strongholdPortals(
     std::vector<StrongholdPortalInfo> out;
     out.reserve(starts.size());
     if (starts.empty()) return out;
-    if (!sh118_versionSupported(mc)) return out;
+    if (!loots::strongholdVersionSupported(mc)) return out;
 
     std::lock_guard<std::mutex> lock(gMu);
     if (gCacheMc != mc || gCacheSeed != seed) {

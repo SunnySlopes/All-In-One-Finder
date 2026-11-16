@@ -9,11 +9,6 @@
 #include "cubiomes/generator.h"
 #include "cubiomes/util.h"
 
-// 26.3 ancient-city / trail-ruins exact inputs are provided by the geode layout
-// and terrain engines that the host already links (no Java, no extra data).
-#include "structure_layout/layout.hpp"
-#include "terrain.hpp"
-
 #include "loots/bastion.h"
 #include "loots/outpost.h"
 #include "loots/shipwreck.h"
@@ -374,7 +369,11 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
             if (!id) continue;
             if (!biomeAllowsStructure(type, &gGen, pos.x, pos.z)) continue;
             int variant = 0;
-            if (type == End_City) {
+            if (type == Village) {
+                StructureVariant sv{};
+                getVariant(&sv, Village, mc, seed, pos.x, pos.z, id);
+                if (sv.abandoned) variant = 1;
+            } else if (type == End_City) {
                 if (!endNoiseReady) {
                     initSurfaceNoise(&endNoise, DIM_END, seed);
                     endNoiseReady = true;
@@ -454,132 +453,6 @@ void addEndGateways(std::vector<PlacedFeature> &out, int mc, uint64_t seed, int 
 /* ------------------------------------------------------------------------- */
 
 /**
- * The 26.3 layout engine owns the ancient-city piece graph; loots only needs
- * the resulting (template, origin, rotation) list. The engine is the same one
- * the geode finder links, so there is no second data set to keep in sync.
- */
-bool ancientCityLayout(int mc, uint64_t seed, int x, int z,
-                       std::vector<loots::AncientCityPiece> &out)
-{
-    // Ancient-city piece pools and the structure salt are stable across the
-    // versions the map supports (verified: the 1.21.11 start position of the
-    // reference seed is identical to 26.3), so the same layout engine is used;
-    // only the loot-table band changes and that is handled by loots.
-    if (mc < MC_1_19_2) return false;
-
-    geode_layout::LayoutEngine engine(6, seed);
-    auto chamber = engine.generate(x >> 4, z >> 4);
-    if (!chamber.exists) return false;
-
-    static const struct {
-        int id;
-        const char *name;
-    } kPieces[] = {
-        {20, "ancient_city/structures/barracks"},
-        {21, "ancient_city/structures/chamber_1"},
-        {22, "ancient_city/structures/chamber_2"},
-        {23, "ancient_city/structures/chamber_3"},
-        {24, "ancient_city/structures/sauna_1"},
-        {27, "ancient_city/structures/tall_ruin_1"},
-        {28, "ancient_city/structures/tall_ruin_2"},
-        {29, "ancient_city/structures/tall_ruin_3"},
-        {30, "ancient_city/structures/tall_ruin_4"},
-        {42, "ancient_city/structures/ice_box_1"},
-    };
-
-    for (const auto &p : chamber.placed) {
-        const char *name = nullptr;
-        for (const auto &m : kPieces) {
-            if (m.id == p.id) {
-                name = m.name;
-                break;
-            }
-        }
-        if (!name) continue;
-        loots::AncientCityPiece piece;
-        piece.name = name;
-        piece.x = p.pos.x;
-        piece.y = p.pos.y;
-        piece.z = p.pos.z;
-        piece.rotation = p.rotation;
-        out.push_back(std::move(piece));
-    }
-    return !out.empty();
-}
-
-int trailSurfaceHeight(int mc, uint64_t seed, int x, int z);
-int oceanFloorHeight(int mc, uint64_t seed, int x, int z);
-int oceanSolid(int mc, uint64_t seed, int x, int y, int z);
-
-void installLootProviders()
-{
-    loots::ancientCitySetLayoutProvider(ancientCityLayout);
-    // Outpost feature-pool expansion and trail-ruins placement both need the
-    // exact WORLD_SURFACE_WG height; geode's terrain model is that source.
-    loots::outpostSetSurfaceHeightProvider(trailSurfaceHeight);
-    loots::trailRuinsSetSurfaceHeightProvider(trailSurfaceHeight);
-    // Ocean-ruin suspicious sand needs OCEAN_FLOOR_WG plus per-block solidity.
-    loots::oceanRuinSetTerrainProvider(oceanFloorHeight, oceanSolid);
-}
-
-/**
- * Trail-ruins placement is anchored by the exact WORLD_SURFACE_WG height. The
- * host already links geode's terrain model, which is the same height source the
- * geode finder uses; the 1:4 cubiomes approximation is not enough for a
- * positional RNG seed.
- */
-std::mutex gTrailTerrainMu;
-std::unique_ptr<geode::Terrain> gTrailTerrain;
-uint64_t gTrailTerrainSeed = 0;
-
-int trailSurfaceHeight(int /*mc*/, uint64_t seed, int x, int z)
-{
-    std::lock_guard<std::mutex> lock(gTrailTerrainMu);
-    if (!gTrailTerrain || gTrailTerrainSeed != seed) {
-        gTrailTerrain = std::make_unique<geode::Terrain>(seed, 5);
-        gTrailTerrainSeed = seed;
-    }
-    return gTrailTerrain->height_world_surface(x, z);
-}
-
-int oceanFloorHeight(int /*mc*/, uint64_t seed, int x, int z)
-{
-    std::lock_guard<std::mutex> lock(gTrailTerrainMu);
-    if (!gTrailTerrain || gTrailTerrainSeed != seed) {
-        gTrailTerrain = std::make_unique<geode::Terrain>(seed, 5);
-        gTrailTerrainSeed = seed;
-    }
-    // Heightmap.OCEAN_FLOOR_WG is the first blocking block below the build
-    // limit. The geode `height_ocean_floor()` helper is a spline approximation
-    // (and for 26.3 is only a surface-level noise), so scan the exact density
-    // column. This is 384 cheap queries per column and only runs for ocean
-    // ruins when the loot layer is enabled.
-    // OCEAN_FLOOR_WG is primed from the noise column before carvers/structures,
-    // so use base_solid (no carvers, no structure beards) here. The local
-    // getHeight scan uses the real solid() state instead.
-    // Ocean ruins are placed in oceans, so the ocean floor is at or below sea
-    // level. Starting at sea level (63) avoids floating terrain/ice above the
-    // water column that is irrelevant to the submerged structure.
-    for (int y = 63; y >= -64; y--) {
-        // `solid()` includes structure beards, but OCEAN_FLOOR_WG is primed
-        // before structures are placed. Ignore bearded positions.
-        if (gTrailTerrain->beard(x, y, z) != 0.0) continue;
-        if (gTrailTerrain->solid(x, y, z)) return y + 1;
-    }
-    return -64;
-}
-
-int oceanSolid(int /*mc*/, uint64_t seed, int x, int y, int z)
-{
-    std::lock_guard<std::mutex> lock(gTrailTerrainMu);
-    if (!gTrailTerrain || gTrailTerrainSeed != seed) {
-        gTrailTerrain = std::make_unique<geode::Terrain>(seed, 5);
-        gTrailTerrainSeed = seed;
-    }
-    return gTrailTerrain->solid(x, y, z) ? 1 : 0;
-}
-
-/**
  * Stronghold eye-trim chests: cubiomes reproduces the library / corridor piece
  * graph and their LootTableSeed, loots evaluates `chests/stronghold_library`.
  * Only chests that actually contain the eye trim are returned.
@@ -610,12 +483,6 @@ void strongholdEyeChests(int mc, uint64_t seed, int startX, int startZ,
 }
 
 } // namespace
-
-void ensureLootProviders()
-{
-    static std::once_flag once;
-    std::call_once(once, installLootProviders);
-}
 
 bool parseSeedText(const std::string &text, uint64_t *out, bool allowTextHash)
 {
@@ -657,8 +524,6 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                                       const std::vector<std::pair<int, int>> &structures,
                                       const std::vector<int> &types)
 {
-    ensureLootProviders();
-
     auto addChest = [](LootChestInfo &info, const loots::StructureChest &c) {
         // Unknown loot table (evaluated=false): skip it rather than reporting
         // "no loot".
@@ -717,7 +582,8 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                 OutpostLoot ol{};
                 if (pillagerOutpostLoot(mc, seed, s.first, s.second, ol)) {
                     info.exists = true;
-                    info.hasAllay = mc >= MC_1_19_2 && ol.hasAllay;
+                    info.hasAllay = ol.allayEvaluated && ol.hasAllay;
+                    info.allayCages = ol.allayEvaluated ? ol.allayCages : 0;
                     info.pieces = 1;
                     // Allay depends on exact feature-pool expansion; mark it
                     // approximate until an in-game oracle confirms it.
@@ -804,13 +670,9 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             else if (type == Bastion) ok = bastionLoot(mc, seed, s.first, s.second, sl);
             else if (type == Mansion) ok = woodlandMansionLoot(mc, seed, s.first, s.second, sl);
             else if (type == Trail_Ruins) {
-                loots::trailRuinsSetSurfaceHeightProvider(trailSurfaceHeight);
-                const loots::TrailRuinsStatus status = loots::trailRuinsStatus();
                 ok = loots::trailRuinsLoot(mc, seed, s.first, s.second, sl);
                 info.reliable = false;
-                info.note = status.exactSurfaceHeight
-                    ? "trail_ruins_approximate"
-                    : "trail_ruins_no_surface_height";
+                info.note = "trail_ruins_approximate";
             }
             if (!ok) {
                 // Structure missing or layer unsupported on this version: stay
@@ -1016,14 +878,23 @@ std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32
             out.push_back({-1, gSpawn.x, gSpawn.z, 0});
     }
 
-    const int chunkArea = ((x1 - x0) / 16 + 2) * ((z1 - z0) / 16 + 2);
-    if (dim == DIM_OVERWORLD && wanted(types, Mineshaft) && chunkArea > 0 && chunkArea <= 96 * 96) {
+    const long long chunkArea =
+        (long long)((x1 - x0) / 16 + 2) * (long long)((z1 - z0) / 16 + 2);
+    // Mineshafts are chunk decorators and must be scanned chunk by chunk. The
+    // old 96x96 cap hid them at every zoom except the closest one; 640x640 still
+    // bounds the scan while covering normal 1:4 and 1:8 viewports.
+    if (dim == DIM_OVERWORLD && wanted(types, Mineshaft) && chunkArea > 0 &&
+        chunkArea <= 640LL * 640LL) {
         const int cx = (int)std::floor(x0 / 16.0);
         const int cz = (int)std::floor(z0 / 16.0);
         const int cw = std::max(1, (x1 - x0) / 16 + 2);
         const int ch = std::max(1, (z1 - z0) / 16 + 2);
         std::vector<Pos> mines(static_cast<size_t>(cw * ch));
-        int n = getMineshafts(mc, seed, cx, cz, cw, ch, mines.data(), cw * ch);
+        // Cubiomes' getMineshafts takes an inclusive chunk rectangle
+        // (x0,z0,x1,z1), not a width/height pair. Passing cw/ch here made the
+        // scan empty whenever the view was east/south of the origin.
+        int n = getMineshafts(mc, seed, cx, cz, cx + cw - 1, cz + ch - 1,
+                              mines.data(), cw * ch);
         for (int i = 0; i < n; i++) {
             // getMineshafts works per chunk and can report positions outside the
             // requested area; keep only what belongs to this view.

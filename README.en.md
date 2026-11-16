@@ -42,6 +42,41 @@ The Low-Y Dripstone Cave page lets you set the precise sample Y window (default 
 
 Map and structure locating rely on [cubiomes](https://github.com/xpple/cubiomes) (`tools/cubiomes`).
 
+### Loot Layers (`tools/loots`)
+
+The map page has a **Show loot** switch below **Show terrain**. When enabled, it evaluates target loot for the structures currently visible and marks hits on the map; when disabled, no loot requests or markers are made.
+
+- **Coordinate layers**: ancient city, woodland mansion, nether fortress, bastion remnant, end city, stronghold, ocean ruin, trail ruins.
+  - Chests/blocks with target content become clickable rings; the ring colour comes from the trim kind. Chests/blocks without target content are not marked.
+  - Clicking a ring opens the structure card with coordinates and hit details.
+  - Ocean-ruin and trail-ruins hits are **blocks** (suspicious sand/gravel), not chests; the card labels them as blocks.
+  - Silence chests use a dedicated icon instead of a ring.
+  - Trail ruins list every block that has a template, with no 12-line cap. Blocks without a template are omitted. The card shows one generic notice, **"Trail-ruins template loot may be inaccurate"**, and each row identifies the block's template.
+- **Hint-only layers**: ocean monument, desert pyramid, jungle temple, pillager outpost, shipwreck.
+  - No chest/block coordinates are shown; the corresponding icon is overlaid in the corner of the original structure icon.
+  - An outpost with an allay cage gets the allay overlay, and a sentry template adds the sentry overlay; both can appear together. The card shows `Contains: allay cage (calculation may be inaccurate)` and/or `sentry armor trim`.
+  - Desert pyramids / jungle temples / shipwrecks add dune / wild / coast trim overlays.
+  - An ocean monument with sponge rooms adds the sponge overlay at the top-right.
+  - Only `allay_loot`, `trim_dune`, `trim_coast`, `trim_sentry`, and `trim_wild` are overlay sources; silence and sponge keep their existing dedicated icons. The base icon position and size are unchanged.
+- Overworld, Nether, and End structure toggles are shown together; changing dimension only changes the map content, not the icon categories.
+- Ancient cities, woodland mansions, and bastion remnants no longer draw an outer frame.
+
+Technical details:
+
+- The code lives in the `tools/loots` submodule and is linked as `libloots`. Structure positions come from `tools/cubiomes`; loots' built-in worldgen provides exact terrain, ancient-city layout, and stronghold End-portal rooms.
+- Loot tables, templates, jigsaw data, and chest-layout headers are committed, so a fresh clone builds without a Minecraft jar.
+- The 26.3 Java query is only an oracle and is not shipped.
+- Stronghold End-portal room coordinates come from loots' `stronghold.h` API; the map no longer depends on geode's stronghold simulator.
+- `tools/loots/tests/` and `tools/loots/tools/` are development/test helpers excluded by the loots submodule `.gitignore`; they are not part of the app package.
+
+Current accuracy notes:
+
+- 26.3 ancient city, woodland mansion, nether fortress, bastion, end city, and stronghold were checked item by item; ancient-city and mansion layouts/chest coordinates were compared across 1.19.2-26.3. 1.19.2 mansions have no armor-trim templates, so neither templates nor chests are shown.
+- Ocean-ruin sniffer eggs are a 26.3 reconstruction. Multi-piece ocean ruins use loots' exact built-in OCEAN_FLOOR_WG/solid queries; terrain updates and overlapping structures may still affect the final world state.
+- Outpost allay is still labelled **calculation may be inaccurate** because feature-pool expansion is approximate. Trail ruins are affected by processors/terrain updates and show a single generic inaccuracy notice.
+
+Module build instructions, CLI, directory layout, and data generation are documented in [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md).
+
 ## Technical Overview
 
 | Layer         | Technology                                                                                      |
@@ -63,7 +98,7 @@ git submodule update --init
 npm install
 
 npm run build       # frontend -> dist/
-npm run engine      # C engine -> native/build-engine/allinone.dll
+npm run engine      # C/C++ engine -> native/build-engine/allinone.dll
 npm run host        # host -> native/host/build/aio-host.exe (with icon and version resources)
 npm run package     # assemble stage + NSIS -> release/All-In-One Finder <version>.exe
 ```

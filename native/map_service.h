@@ -128,6 +128,8 @@ struct LootChestInfo {
     bool hasLoot = false;
     /** Pillager outpost: a feature_cage_with_allays piece was placed (1.19+). */
     bool hasAllay = false;
+    /** Number of allay cage feature pieces, when allay detection was evaluated. */
+    int allayCages = 0;
     /** 命中的战利品种类（0 无, 1 纹饰, 2 下界合金, 3 嗅探蛋, 4 附魔金苹果）。 */
     int lootKind = 0;
     /** 仅提示型的命中明细（可与 lootKind 同时为真，例如沙丘 + 附魔金）。 */
@@ -148,8 +150,6 @@ struct LootChestInfo {
 };
 
 /** Install the host-provided loots inputs (ancient-city layout / surface height). */
-void ensureLootProviders();
-
 /**
  * 按结构类型批量求箱子战利品。
  */

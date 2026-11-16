@@ -42,10 +42,8 @@ set(LOOTS_BUILD_CLI OFF CACHE BOOL "" FORCE)
 set(LOOTS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LOOTS_WITH_INTERNAL_CUBIOMES OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LOOTS}" "${CMAKE_BINARY_DIR}/loots")
-# 要塞传送门/布局定位使用 geode 子模块内嵌的 1.18+ 模拟器
-# （tools/geode/src/stronghold_118）。它是 vanilla StrongholdPieces 的忠实移植，
-# 并且复现了 moveBelowSeaLevel 的竖直放置，所以能给出**精确世界 Y**。
-# 因此这里直接链接 geode 的 geode_stronghold_118。
+# geode 自己的结构覆盖/搜索仍使用其 1.18+ stronghold 模拟器；
+# 地图末地门坐标已经改由 loots 的公开 stronghold API 提供。
 if (EXISTS "${FLOWER}/cubiomes/biomes.h")
   message(WARNING
     "tools/flower/cubiomes is populated; FlowerFarmSearch.cpp may include that copy instead of the shared tools/cubiomes. "
