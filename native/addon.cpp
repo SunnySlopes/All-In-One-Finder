@@ -201,6 +201,7 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
         obj.Set("hasNetherite", list[i].hasNetherite);
         obj.Set("hasSnifferEgg", list[i].hasSnifferEgg);
         obj.Set("hasGoldenApple", list[i].hasGoldenApple);
+        obj.Set("hasPiglinBanner", list[i].hasPiglinBanner);
         obj.Set("trimKinds", list[i].trimKinds);
         obj.Set("reliable", list[i].reliable);
         obj.Set("note", list[i].note);
@@ -216,6 +217,7 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
             co.Set("netheriteUpgrade", list[i].chests[c].netheriteUpgrade);
             co.Set("goldenApples", list[i].chests[c].goldenApples);
             co.Set("snifferEgg", list[i].chests[c].snifferEgg);
+            co.Set("piglinBanner", list[i].chests[c].piglinBanner);
             co.Set("trimKinds", list[i].chests[c].trimKinds);
             Napi::Array levels =
                 Napi::Array::New(env, list[i].chests[c].swiftSneakLevels.size());

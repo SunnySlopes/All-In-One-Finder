@@ -89,7 +89,6 @@ checkpoints/
 coverage/
 .nyc_output/
 *.lcov
-test-results/
 playwright-report/
 
 # OS / editor junk

@@ -51,10 +51,11 @@ The map page has a **Show loot** switch below **Show terrain**. When enabled, it
   - Clicking a ring opens the structure card with coordinates and hit details.
   - Ocean-ruin and trail-ruins hits are **blocks** (suspicious sand/gravel), not chests; the card labels them as blocks.
   - Silence chests use a dedicated icon instead of a ring.
-  - Trail ruins list every block that has a template, with no 12-line cap. Blocks without a template are omitted. The card shows one generic notice, **"Trail-ruins template loot may be inaccurate"**, and each row identifies the block's template.
+  - Bastion piglin banner pattern (`piglin_banner_pattern`) chests use a pink ring; when the same chest also has a trim, the trim colour wins.
+  - Trail ruins list every block that has a template, with no 12-line cap. Blocks without a template are omitted, and each row identifies the block's template.
 - **Hint-only layers**: ocean monument, desert pyramid, jungle temple, pillager outpost, shipwreck.
   - No chest/block coordinates are shown; the corresponding icon is overlaid in the corner of the original structure icon.
-  - An outpost with an allay cage gets the allay overlay, and a sentry template adds the sentry overlay; both can appear together. The card shows `Contains: allay cage (calculation may be inaccurate)` and/or `sentry armor trim`.
+  - An outpost with an allay cage gets the allay overlay, and a sentry template adds the sentry overlay; both can appear together. The card shows `Contains: allay cage xN` and/or `sentry armor trim`; the cage count comes from the exact jigsaw placement.
   - Desert pyramids / jungle temples / shipwrecks add dune / wild / coast trim overlays.
   - An ocean monument with sponge rooms adds the sponge overlay at the top-right.
   - Only `allay_loot`, `trim_dune`, `trim_coast`, `trim_sentry`, and `trim_wild` are overlay sources; silence and sponge keep their existing dedicated icons. The base icon position and size are unchanged.
@@ -71,9 +72,11 @@ Technical details:
 
 Current accuracy notes:
 
-- 26.3 ancient city, woodland mansion, nether fortress, bastion, end city, and stronghold were checked item by item; ancient-city and mansion layouts/chest coordinates were compared across 1.19.2-26.3. 1.19.2 mansions have no armor-trim templates, so neither templates nor chests are shown.
+- 26.3 ancient city, woodland mansion, end city, and stronghold were checked item by item; ancient-city and mansion layouts/chest coordinates were compared across 1.19.2-26.3. 1.19.2 mansions have no armor-trim templates, so neither templates nor chests are shown.
+- Bastion remnants, trail ruins, and pillager-outpost allay cages now use loots' single shared exact JigsawPlacement port (26.3). Bastion piece expansion, chest X/Y/Z, loot seeds, treasure chests, and piglin banner patterns match the 26.3 oracle item by item; the test set covers 15 bastion starts (13 treasure variants).
+- Trail ruins use the exact `WORLD_SURFACE_WG` height plus the RuleProcessor/CappedProcessor/AppendLoot chain; 6 starts match the 26.3 oracle for every suspicious block, table, seed, and trim result. Outposts use the exact height, feature pool, and `outpost_rot` survival; 14 starts (with and without allays) match piece graphs, chests, seeds, and allay cage counts.
+- With the correct start coordinate, cubiomes' nether-fortress X/Z piece graph matches 26.3. loots now applies the `moveInsideHeights` Y correction and recomputes chests from Java's corner-piece local coordinates. Chest positions, Y and loot seeds for `16080,24544` and `15360,26640` match the 26.3 oracle. Source checks across 1.20.1/1.21.5/1.21.11 show unchanged placement data for outpost and bastion; fortress uses the same 1.20+ path.
 - Ocean-ruin sniffer eggs are a 26.3 reconstruction. Multi-piece ocean ruins use loots' exact built-in OCEAN_FLOOR_WG/solid queries; terrain updates and overlapping structures may still affect the final world state.
-- Outpost allay is still labelled **calculation may be inaccurate** because feature-pool expansion is approximate. Trail ruins are affected by processors/terrain updates and show a single generic inaccuracy notice.
 
 Module build instructions, CLI, directory layout, and data generation are documented in [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md).
 
@@ -134,6 +137,12 @@ Notes:
 - The river kernel (DrownedCombinedFinder) keeps the historical path `tools/river`; its contents are now this engine rather than the old RiverFinder JNI. Upstream names the repository `river-native`, but this repository's directory, `.gitmodules` and `native/CMakeLists.txt` all use `tools/river`.
 - The repository root only holds sources and configuration: native build output lives under `native/build*` (ignored), frontend output in `dist/`, packaged output in `release/`.
 - WebView2 requires an Evergreen Runtime from 2021 or later (`ICoreWebView2_3`); if it is missing, a dialog prompts you to install it.
+
+## TODO
+
+1. Add No Slime Chunks searcher
+2. Add display for the 7 non-renewable music discs in the loots submodule
+3. Add display for the 23 pottery sherds in the loots submodule
 
 ## License
 

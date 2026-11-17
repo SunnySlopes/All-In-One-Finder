@@ -626,6 +626,8 @@ export interface LootChest {
   netheriteUpgrade: boolean;
   goldenApples: number;
   snifferEgg: boolean;
+  /** Piglin banner pattern ("snout" shape) found in this chest. */
+  piglinBanner: boolean;
   /** 纹饰位掩码，见 loots::TrimKind；0 = 无。 */
   trimKinds: number;
   /** 迅捷潜行等级，每本一项。 */
@@ -658,18 +660,20 @@ export interface LootChestInfo {
   hasAllay: boolean;
   /** Number of allay cage feature pieces, when detection was evaluated. */
   allayCages: number;
-  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 */
+  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 / 5 旗帜图案 */
   lootKind: number;
   /** 仅提示型的命中明细（可与 lootKind 同时为真）。 */
   hasTrim: boolean;
   hasNetherite: boolean;
   hasSnifferEgg: boolean;
   hasGoldenApple: boolean;
+  /** Piglin banner pattern found in any evaluated chest of this structure. */
+  hasPiglinBanner: boolean;
   /** 本结构所有目标箱的 trimKinds 并集（结构图标右下角的模板角标）。 */
   trimKinds: number;
-  /** false = 该结构的结果仍是近似值（古迹废墟 / 海底遗迹）。 */
+  /** false = 该结构的结果仍是近似值（当前仅旧版本海底遗迹）。 */
   reliable: boolean;
-  /** 近似原因，前端按语言键翻译；空字符串表示没有额外说明。 */
+  /** 补充原因，前端按语言键翻译；空字符串表示没有额外说明。 */
   note: string;
   chests: LootChest[];
 }

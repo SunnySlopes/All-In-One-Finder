@@ -181,6 +181,7 @@ const LOOT_CHEST_COLOR = {
   netherite: '#f2d16b',
   snifferEgg: '#8fd18f',
   goldenApples: '#f5c542',
+  piglinBanner: '#d98cb3',
 };
 /**
  * loots::TrimKind 的位序号 → 语言键 / 颜色。位掩码 = 1 << kind。
@@ -2773,13 +2774,6 @@ export class MapView {
       const meta = TRIM_KIND[kind];
       return meta ? t(`common.map.trim_${meta.name}`) : t('common.map.trim_other');
     };
-    // Trail ruins: one disclaimer for the whole structure, and no template
-    // names on individual rows. Every target block is still listed below.
-    if (item.type === 24) {
-      rows.push(
-        `<div>${escapeText(t('common.map.lootTrailTemplateApproximate'))}</div>`,
-      );
-    }
     const chestLines: string[] = [];
     for (const chest of info.chests) {
       const hits: string[] = [];
@@ -2793,6 +2787,7 @@ export class MapView {
       }
       if (chest.netheriteUpgrade) hits.push(t('common.map.lootNetherite'));
       if (chest.snifferEgg) hits.push(t('common.map.lootSnifferEgg'));
+      if (chest.piglinBanner) hits.push(t('common.map.lootPiglinBanner'));
       if (chest.goldenApples > 0) hits.push(t('common.map.lootGoldenApple', { n: chest.goldenApples }));
       for (const level of chest.swiftSneakLevels) hits.push(t('common.map.lootSwiftSneak', { level }));
       if (!hits.length) continue;
@@ -2816,14 +2811,17 @@ export class MapView {
     } else if (info.hasLoot || info.hasAllay) {
       const hits: string[] = [];
       if (item.type === 10) {
-        // Outpost: presence-only wording; the cage count itself is not reliable.
-        if (info.hasAllay) hits.push(t('common.map.lootAllayUncertain'));
+        // Outpost: shared exact jigsaw assembly gives the cage count.
+        if (info.hasAllay) {
+          hits.push(t('common.map.lootAllayCages', { count: info.allayCages || 1 }));
+        }
         if (info.hasTrim) hits.push(t('common.map.lootSentryTrim'));
       } else {
         if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
         if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
         if (info.hasSnifferEgg) hits.push(t('common.map.lootSnifferEgg'));
         if (info.hasGoldenApple) hits.push(t('common.map.lootGoldenApple', { n: 1 }));
+        if (info.hasPiglinBanner) hits.push(t('common.map.lootPiglinBanner'));
       }
       if (hits.length) {
         const key = item.type === 10 ? 'common.map.lootContains' : 'common.map.lootHint';
@@ -2831,17 +2829,11 @@ export class MapView {
       }
     }
 
-    // Trail already has one generic line above; outpost carries its own marker.
-    if (item.type !== 24 && info.note &&
-        !(item.type === 10 && info.note === 'outpost_allay_approximate')) {
+    if (info.note) {
       const noteKey =
         info.note === 'ocean_ruin_sniffer_not_ported'
           ? 'common.map.lootOceanRuinUnsupported'
-          : info.note === 'trail_ruins_no_surface_height'
-            ? 'common.map.lootTrailRuinsNoHeight'
-            : info.note === 'outpost_allay_approximate'
-              ? 'common.map.lootAllayUncertain'
-              : 'common.map.lootApproximate';
+          : 'common.map.lootApproximate';
       const count = info.allayCages && info.allayCages > 0 ? info.allayCages : 1;
       rows.push(`<div class="muted">${escapeText(t(noteKey, { count }))}</div>`);
     }
@@ -2859,6 +2851,7 @@ export class MapView {
     }
     if (chest.ward) return TRIM_KIND[1].color;
     if (chest.trim) return LOOT_CHEST_COLOR.trim;
+    if (chest.piglinBanner) return LOOT_CHEST_COLOR.piglinBanner;
     if (chest.netheriteUpgrade) return LOOT_CHEST_COLOR.netherite;
     if (chest.snifferEgg) return LOOT_CHEST_COLOR.snifferEgg;
     if (chest.goldenApples > 0) return LOOT_CHEST_COLOR.goldenApples;

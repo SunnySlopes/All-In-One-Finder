@@ -109,6 +109,8 @@ struct LootChest {
     bool netheriteUpgrade = false;
     int goldenApples = 0;
     bool snifferEgg = false;
+    /** Snout banner pattern found in this chest. */
+    bool piglinBanner = false;
     /** 命中的纹饰种类，按 loots::TrimKind 的位掩码（0 = 无）。 */
     unsigned trimKinds = 0;
     /** 迅捷潜行附魔书的等级（每本一项，升序）。 */
@@ -130,18 +132,20 @@ struct LootChestInfo {
     bool hasAllay = false;
     /** Number of allay cage feature pieces, when allay detection was evaluated. */
     int allayCages = 0;
-    /** 命中的战利品种类（0 无, 1 纹饰, 2 下界合金, 3 嗅探蛋, 4 附魔金苹果）。 */
+    /** 命中的战利品种类（0 无, 1 纹饰, 2 下界合金, 3 嗅探蛋, 4 附魔金苹果, 5 旗帜图案）。 */
     int lootKind = 0;
     /** 仅提示型的命中明细（可与 lootKind 同时为真，例如沙丘 + 附魔金）。 */
     bool hasTrim = false;
     bool hasNetherite = false;
     bool hasSnifferEgg = false;
     bool hasGoldenApple = false;
+    /** Piglin banner pattern found in any evaluated chest of this structure. */
+    bool hasPiglinBanner = false;
     /** 本结构所有目标箱的 trimKinds 并集（用于图标右下角的模板角标）。 */
     unsigned trimKinds = 0;
     /**
      * 结果可信度：false 表示该结构的战利品坐标/判定仍是近似值
-     * （当前只有古迹废墟会因缺少实机校准而为 false）。
+     * （当前只有 26.3 之前的海底遗迹嗅探蛋为 false）。
      */
     bool reliable = true;
     /** 提示文本的补充原因（仅 reliable=false 时非空，前端直接展示）。 */

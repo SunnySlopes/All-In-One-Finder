@@ -538,6 +538,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         chest.netheriteUpgrade = c.reward.netheriteUpgrade;
         chest.goldenApples = c.reward.goldenApples;
         chest.snifferEgg = c.reward.snifferEgg;
+        chest.piglinBanner = c.reward.hasItem(loots::LootItem_PiglinBanner);
         chest.trimKinds = c.reward.trimKinds;
         chest.swiftSneakLevels = c.reward.swiftSneakLevels;
         info.chests.push_back(std::move(chest));
@@ -551,6 +552,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             if (c.netheriteUpgrade) info.hasNetherite = true;
             if (c.snifferEgg) info.hasSnifferEgg = true;
             if (c.goldenApples > 0) info.hasGoldenApple = true;
+            if (c.piglinBanner) info.hasPiglinBanner = true;
         }
         if (info.hasTrim) {
             info.hasLoot = true;
@@ -564,6 +566,9 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         } else if (info.hasGoldenApple) {
             info.hasLoot = true;
             info.lootKind = 4;
+        } else if (info.hasPiglinBanner) {
+            info.hasLoot = true;
+            info.lootKind = 5;
         }
     };
 
@@ -576,18 +581,15 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             info.x = s.first;
             info.z = s.second;
 
-            // Outpost: not a cubiomes piece structure. Use jigsaw assembly
-            // (tower chest + allay cage); hint only, no chest coordinates.
+            // Outpost: exact shared jigsaw assembly (tower chest + allay cage);
+            // hint only, no chest coordinates.
             if (type == Outpost) {
                 OutpostLoot ol{};
                 if (pillagerOutpostLoot(mc, seed, s.first, s.second, ol)) {
                     info.exists = true;
                     info.hasAllay = ol.allayEvaluated && ol.hasAllay;
                     info.allayCages = ol.allayEvaluated ? ol.allayCages : 0;
-                    info.pieces = 1;
-                    // Allay depends on exact feature-pool expansion; mark it
-                    // approximate until an in-game oracle confirms it.
-                    if (info.hasAllay) info.note = "outpost_allay_approximate";
+                    info.pieces = ol.pieces;
                     for (const auto &c : ol.chests) {
                         StructureChest cc = c;
                         cc.reward = loots::evaluateChest(cc.lootTable.c_str(), cc.lootSeed, mc);
@@ -671,8 +673,6 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             else if (type == Mansion) ok = woodlandMansionLoot(mc, seed, s.first, s.second, sl);
             else if (type == Trail_Ruins) {
                 ok = loots::trailRuinsLoot(mc, seed, s.first, s.second, sl);
-                info.reliable = false;
-                info.note = "trail_ruins_approximate";
             }
             if (!ok) {
                 // Structure missing or layer unsupported on this version: stay
