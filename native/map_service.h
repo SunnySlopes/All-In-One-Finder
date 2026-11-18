@@ -145,7 +145,7 @@ struct LootChestInfo {
     unsigned trimKinds = 0;
     /**
      * 结果可信度：false 表示该结构的战利品坐标/判定仍是近似值
-     * （当前只有 26.3 之前的海底遗迹嗅探蛋为 false）。
+     * （当前只有 1.20 之前的海底遗迹嗅探蛋为 false）。
      */
     bool reliable = true;
     /** 提示文本的补充原因（仅 reliable=false 时非空，前端直接展示）。 */

@@ -67,16 +67,16 @@ Technical details:
 - The code lives in the `tools/loots` submodule and is linked as `libloots`. Structure positions come from `tools/cubiomes`; loots' built-in worldgen provides exact terrain, ancient-city layout, and stronghold End-portal rooms.
 - Loot tables, templates, jigsaw data, and chest-layout headers are committed, so a fresh clone builds without a Minecraft jar.
 - The 26.3 Java query is only an oracle and is not shipped.
-- Stronghold End-portal room coordinates come from loots' `stronghold.h` API; the map no longer depends on geode's stronghold simulator.
+- Stronghold End-portal room coordinates come from loots' `stronghold.h` API; the map no longer depends on geode's stronghold simulator. Stronghold library eye-trim chests use per-version library tables for 1.20.1-26.3; the 1.18-26.3 portal/eye-frame path is shared.
 - `tools/loots/tests/` and `tools/loots/tools/` are development/test helpers excluded by the loots submodule `.gitignore`; they are not part of the app package.
 
 Current accuracy notes:
 
 - 26.3 ancient city, woodland mansion, end city, and stronghold were checked item by item; ancient-city and mansion layouts/chest coordinates were compared across 1.19.2-26.3. 1.19.2 mansions have no armor-trim templates, so neither templates nor chests are shown.
-- Bastion remnants, trail ruins, and pillager-outpost allay cages now use loots' single shared exact JigsawPlacement port (26.3). Bastion piece expansion, chest X/Y/Z, loot seeds, treasure chests, and piglin banner patterns match the 26.3 oracle item by item; the test set covers 15 bastion starts (13 treasure variants).
-- Trail ruins use the exact `WORLD_SURFACE_WG` height plus the RuleProcessor/CappedProcessor/AppendLoot chain; 6 starts match the 26.3 oracle for every suspicious block, table, seed, and trim result. Outposts use the exact height, feature pool, and `outpost_rot` survival; 14 starts (with and without allays) match piece graphs, chests, seeds, and allay cage counts.
+- Bastion remnants, trail ruins, and pillager-outpost allay cages use loots' single shared exact JigsawPlacement port for **1.20.1 through 26.3**; pillager-outpost allay cages also cover **1.19.2** (same outpost templates/pools/config, generation profile -3). The 1.20.1+ jars carry identical bastion/trail-ruins/outpost jigsaw data; only the terrain height profile changes by version group. Bastion piece expansion, chest X/Y/Z, loot seeds, treasure chests, and piglin banner patterns are version-independent; the test set covers 15 bastion starts (13 treasure variants).
+- Trail ruins use the version-aware `WORLD_SURFACE_WG` height plus the RuleProcessor/CappedProcessor/AppendLoot chain; the real-jar fixtures for 1.20.1/1.21.10/1.21.11 match every suspicious block, table, seed, and trim result on 1.20.1-26.2. Outposts use the same data with the version-aware height and `outpost_rot` survival; their piece graphs, chests, seeds, and allay cage counts match the jar fixtures.
 - With the correct start coordinate, cubiomes' nether-fortress X/Z piece graph matches 26.3. loots now applies the `moveInsideHeights` Y correction and recomputes chests from Java's corner-piece local coordinates. Chest positions, Y and loot seeds for `16080,24544` and `15360,26640` match the 26.3 oracle. Source checks across 1.20.1/1.21.5/1.21.11 show unchanged placement data for outpost and bastion; fortress uses the same 1.20+ path.
-- Ocean-ruin sniffer eggs are a 26.3 reconstruction. Multi-piece ocean ruins use loots' exact built-in OCEAN_FLOOR_WG/solid queries; terrain updates and overlapping structures may still affect the final world state.
+- Ocean-ruin sniffer eggs/suspicious sand use loots' shared 1.20.1-26.3 templates, chest tables, and processor data; warm suspicious-sand coordinates match the 26.3 oracle, and 1.20+ uses the matching version terrain profile. Terrain updates and overlapping structures may still affect the final world state.
 
 Module build instructions, CLI, directory layout, and data generation are documented in [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md).
 

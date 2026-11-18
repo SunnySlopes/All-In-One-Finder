@@ -146,7 +146,7 @@
       "lootSwiftSneak": "迅捷潜行 {level}",
       "spongeRooms": "海绵房：{count} 间",
       "lootApproximate": "该图层的坐标为近似值",
-      "lootOceanRuinUnsupported": "海底遗迹的嗅探兽蛋仅在 26.3 求值（旧版本未求值）",
+      "lootOceanRuinUnsupported": "海底遗迹的嗅探兽蛋仅在 1.20 及以上求值（更低版本未求值）",
       "trim_ward": "监守纹饰",
       "trim_silence": "幽静纹饰",
       "trim_vex": "恼鬼纹饰",

@@ -67,16 +67,16 @@
 - 代码位于 `tools/loots` 子模块，主程序通过 `libloots` 链接；结构位置由 `tools/cubiomes` 提供，战利品所需的精确地形、古城布局和末地门房间由 loots 内置 worldgen/stronghold 提供。
 - 战利品表、模板、jigsaw 和箱子布局等生成数据头已提交，克隆后无需 Minecraft jar 即可构建。
 - 26.3 Java 查询只作为对照 oracle，不进入发行包。
-- 要塞末地门房间坐标由 loots 的 `stronghold.h` API 提供，地图不再依赖 geode 的要塞模拟器。
+- 要塞末地门房间坐标由 loots 的 `stronghold.h` API 提供，地图不再依赖 geode 的要塞模拟器。要塞图书馆眼眸纹饰在 1.20.1–26.3 使用按版本提取的图书馆战利品表；1.18–26.3 的 portal/eye 框架路径共用。
 - `tools/loots/tests/`、`tools/loots/tools/` 是开发数据/测试工具，已由 loots 子模块的 `.gitignore` 排除，不参与主程序打包。
 
 当前精度说明：
 
 - 26.3 的远古城市、林地府邸、末地城、要塞已逐项核对；古城和府邸的布局/箱子坐标在 1.19.2–26.3 已与 26.3 对照。1.19.2 的府邸没有盔甲纹饰模板，不显示模板和箱子。
-- 堡垒遗迹、古迹废墟、掠夺者前哨站悦灵笼已统一到 loots 的共享精确 JigsawPlacement（26.3）。堡垒遗迹的 piece 展开、箱子 X/Y/Z、lootSeed、宝藏箱子和猪灵旗帜图案均与 26.3 oracle 逐项一致；测试覆盖 15 个堡垒起点（13 个 treasure 变体）。
-- 古迹废墟使用精确 `WORLD_SURFACE_WG` 高度和 RuleProcessor/CappedProcessor/AppendLoot 链，6 个起点逐考古方块、表、seed 和纹饰结果与 26.3 oracle 一致。前哨站使用精确高度、feature 池和 `outpost_rot` 存活判定，14 个起点（覆盖有悦灵/无悦灵）的 piece、箱子、seed 和悦灵笼数量一致。
+- 堡垒遗迹、古迹废墟、掠夺者前哨站悦灵笼统一使用 loots 的共享精确 JigsawPlacement，覆盖 **1.20.1–26.3**；前哨站悦灵额外覆盖 **1.19.2**（模板/pool/配置相同，地形 profile -3）。1.20.1+ 这些版本的 jigsaw 数据完全一致，只有地形高度按版本组不同。堡垒遗迹的 piece 展开、箱子 X/Y/Z、lootSeed、宝藏箱子和猪灵旗帜图案与版本无关；测试覆盖 15 个堡垒起点（13 个 treasure 变体）。
+- 古迹废墟使用版本化 `WORLD_SURFACE_WG` 高度和 RuleProcessor/CappedProcessor/AppendLoot 链；1.20.1/1.21.10/1.21.11 的真实 jar 对照样本在 1.20.1–26.2 上逐考古方块、表、seed 和纹饰结果一致。前哨站使用同一份数据和版本化高度、`outpost_rot` 存活判定，piece、箱子、seed 和悦灵笼数量与 jar 对照样本一致。
 - 下界要塞在正确起始坐标下 cubiomes 的 X/Z piece 图与 26.3 一致；loots 已补上 `moveInsideHeights` 的 Y 修正，并按 Java 的转弯走廊局部坐标重算箱子。`16080,24544` 和 `15360,26640` 的箱子坐标、Y、lootSeed 与 26.3 oracle 一致。1.20+ 共用该 Y/箱子模拟路径；1.16/1.17 不应用 1.18+ 的 Y 整体偏移。已用 1.20.1/1.21.5/1.21.11 源码核对，前哨站与堡垒遗迹的 placement 数据在 1.20.1–26.3 未变化。
-- 海底遗迹嗅探兽蛋为 26.3 复刻；大型多 piece 海底遗迹的各列使用 loots 内置精确 OCEAN_FLOOR_WG/solid 查询，地形更新和结构重叠仍可能影响最终世界状态。
+- 海底遗迹嗅探兽蛋/可疑沙使用 loots 共享的 1.20.1–26.3 模板、箱子表和处理器数据；暖水可疑沙坐标与 26.3 oracle 一致，1.20+ 使用对应版本地形。地形更新和结构重叠仍可能影响最终世界状态。
 
 模块的构建方式、CLI、目录结构和数据生成说明见 [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md)。
 

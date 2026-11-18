@@ -645,7 +645,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
 
             if (type == Ocean_Ruin) {
                 loots::StructureLoot sl;
-                if (mc >= MC_26_3 &&
+                if (mc >= MC_1_20 &&
                     oceanRuinLoot(mc, seed, s.first, s.second, sl)) {
                     sl.evaluate(mc);
                     info.exists = sl.exists;
@@ -653,7 +653,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                     for (const auto &c : sl.suspicious) addChest(info, c);
                     summarize(info);
                 } else {
-                    // The template block list / CappedProcessor data is 26.3.
+                    // Archaeology / suspicious-block generation starts in 1.20.
                     info.exists = true;
                     info.reliable = false;
                     info.note = "ocean_ruin_sniffer_not_ported";

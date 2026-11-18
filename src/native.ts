@@ -671,7 +671,7 @@ export interface LootChestInfo {
   hasPiglinBanner: boolean;
   /** 本结构所有目标箱的 trimKinds 并集（结构图标右下角的模板角标）。 */
   trimKinds: number;
-  /** false = 该结构的结果仍是近似值（当前仅旧版本海底遗迹）。 */
+  /** false = 该结构的结果仍是近似值（当前仅 1.20 之前的海底遗迹）。 */
   reliable: boolean;
   /** 补充原因，前端按语言键翻译；空字符串表示没有额外说明。 */
   note: string;
