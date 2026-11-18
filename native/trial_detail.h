@@ -22,6 +22,14 @@ struct TrialSpawner {
     bool slow = false;
 };
 
+/** One decorated pot that actually contains the Creator music box. */
+struct TrialCreatorPot {
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    uint64_t lootSeed = 0;
+};
+
 /**
  * Per-chamber map overlay data. `x`/`z` echo the requested block position (a
  * chunk corner from `featuresInView`), while the cache is keyed by `chunkX`/`chunkZ`.
@@ -38,6 +46,8 @@ struct TrialChamberInfo {
     /** Only host rooms with cages, horizontally padded by one block. */
     std::vector<TrialFrame> frames;
     std::vector<TrialSpawner> spawners;
+    /** Decorated pots in `pots/trial_chambers/corridor` that hold Creator. */
+    std::vector<TrialCreatorPot> pots;
 };
 
 /** cubiomes MC version id → trial generation (1/2/3), or 0 when trial chambers do not exist. */

@@ -14,6 +14,7 @@ import {
   type StrongholdPortalInfo,
   type StructureBoundsData,
   type TrialChamberInfo,
+  type TrialCreatorPot,
   type TrialFrame,
   type TrialSpawner,
 } from './native';
@@ -127,6 +128,9 @@ const SWAMP_HUT_FRAME_COLOR = '#9acd5a';
  */
 const TRIAL_FRAME_MIN_PPB = 0.25;
 const TRIAL_CAGE_MIN_PPB = 1;
+/** Creator pots are exact 1x1 containers; draw them at 1:1 like cages. */
+const TRIAL_POT_MIN_PPB = 1;
+const TRIAL_POT_ICON_SIZE = 12;
 /** Geodes generate roughly once per 43 chunks; below 1:1 their icons overlap into noise. */
 const GEODE_ICON_MIN_PPB = 1;
 /**
@@ -154,7 +158,8 @@ const LOOT_MARKERS_ID = 110;
 /**
  * 战利品图层覆盖的结构（cubiomes StructureType）：
  *   1 沙漠神殿 / 2 丛林神殿 / 6 海底遗迹 / 7 沉船 / 9 林地府邸 / 10 前哨站 /
- *   13 远古城市 / 18 下界要塞 / 19 堡垒遗迹 / 21 末地城 / 24 古迹废墟 / 27 要塞
+ *   13 远古城市 / 15 废弃矿井 / 18 下界要塞 / 19 堡垒遗迹 / 21 末地城 /
+ *   24 古迹废墟 / 27 要塞
  */
 const LOOT_STRUCTURE_TYPES: number[] = [
   1,  // desert pyramid
@@ -164,6 +169,7 @@ const LOOT_STRUCTURE_TYPES: number[] = [
   9,  // woodland mansion
   10, // pillager outpost
   13, // ancient city
+  15, // abandoned mineshaft (Bounce; approximate)
   18, // nether fortress
   19, // bastion
   21, // end city
@@ -182,7 +188,22 @@ const LOOT_CHEST_COLOR = {
   snifferEgg: '#8fd18f',
   goldenApples: '#f5c542',
   piglinBanner: '#d98cb3',
+  swiftSneak: '#7fe0b0',
+  /** All music discs share one color (plan §5.4). */
+  disc: '#79d6e6',
 };
+/** loots::LootDiscBits 位序号 → 语言键 / 图标。 */
+const LOOT_DISC: Record<number, { name: string; icon?: string }> = {
+  0: { name: 'pigstep' },
+  1: { name: 'otherside' },
+  2: { name: 'relic' },
+  3: { name: 'creator', icon: 'disc_creator' },
+  4: { name: 'bounce', icon: 'disc_bounce' },
+  5: { name: 'fragment5' },
+};
+/** UI 类别位（与 native 的 categoryMask 一致）。 */
+const LOOT_CATEGORY = { misc: 1, template: 2, disc: 4 } as const;
+type LootCategoryKey = keyof typeof LOOT_CATEGORY;
 /**
  * loots::TrimKind 的位序号 → 语言键 / 颜色。位掩码 = 1 << kind。
  * 0 = none，1 = ward，2 = silence，……，16 = eye。
@@ -209,6 +230,12 @@ const TRIM_KIND: Record<number, { name: string; color: string }> = {
 const LOOT_MARKER_RADIUS = 3.2;
 const LOOT_MARKER_HIT_PX = 7;
 const LOOT_MARKER_EDGE = 'rgba(20, 20, 20, 0.85)';
+/**
+ * Mineshafts are extremely common and each evaluation walks ~200 pieces; only
+ * request their chests at 1:4 or closer.
+ */
+const MINESHAFT_LOOT_MIN_PPB = 1 / 4;
+const MINESHAFT_LOOT_TARGETS = 24;
 const TRIAL_DETAIL_BATCH = 8;
 const TRIAL_DETAIL_MARGIN = 128;
 const TRIAL_DETAIL_DEBOUNCE = 150;
@@ -221,7 +248,7 @@ const TRIAL_CAGE_RADIUS = 2.5;
 const TRIAL_FRAME_STROKE = 'rgba(208, 162, 74, 0.9)';
 const TRIAL_FRAME_FILL = 'rgba(208, 162, 74, 0.06)';
 const TRIAL_CAGE_FAST = '#ffd166';
-const TRIAL_CAGE_SLOW = '#7fd0c8';
+const TRIAL_CAGE_SLOW = '#5aa9ff';
 /**
  * Poll interval for the biome under the pointer. The coordinates and terrain Y
  * update synchronously on every pointer move; biomeAt is a native round trip,
@@ -296,6 +323,7 @@ interface MapSession {
   grid: boolean;
   terrain: boolean;
   features: string[];
+  lootFilters?: { misc: boolean; template: boolean; disc: boolean };
   searchers?: Record<string, unknown>;
 }
 
@@ -378,6 +406,8 @@ interface TrialChamberDetail {
   pieces: number;
   frames: TrialFrame[];
   spawners: TrialSpawner[];
+  /** Decorated pots containing a Creator music box. */
+  pots: TrialCreatorPot[];
   /** Cages aggregated by XZ for drawing and hit-testing. */
   cages: TrialCageColumn[];
   /** Frames union, computed once for whole-chamber culling. */
@@ -517,6 +547,8 @@ export class MapView {
   /** lootChests RPC 的结果缓存（按结构实例）。 */
   private lootChests: LootChestInfo[] = [];
   private lootGen = 0;
+  /** 战利品类别筛选；只影响绘制/信息卡，不改变 native 求值内容。 */
+  private lootFilters = { misc: true, template: true, disc: true };
   /** 最近点击的精确战利品圆环（用于古迹废墟显示该方块的具体模板）。 */
   private selectedLootChest: {
     type: number;
@@ -893,6 +925,7 @@ export class MapView {
       grid: this.grid.checked,
       terrain: this.terrain.checked,
       features: this.features.filter((feature) => this.enabled.has(feature.id)).map((feature) => feature.key),
+      lootFilters: { ...this.lootFilters },
       searchers: this.collectSearchers ? this.collectSearchers() : undefined,
     };
   }
@@ -916,6 +949,11 @@ export class MapView {
         if (data.features.includes(feature.key)) this.enabled.add(feature.id);
       }
     }
+    this.lootFilters = {
+      misc: data.lootFilters?.misc !== false,
+      template: data.lootFilters?.template !== false,
+      disc: data.lootFilters?.disc !== false,
+    };
     this.renderFeatures();
     this.persistSession();
     this.syncLayerControls();
@@ -1285,9 +1323,37 @@ export class MapView {
       })
       .filter(Boolean);
     this.lootRowBox.innerHTML = lootRow;
+    if (loot && this.enabled.has(LOOT_MARKERS_ID)) {
+      this.lootRowBox.innerHTML += `
+        <div class="loot-filters">
+          <label class="check-row"><input id="map-loot-misc" type="checkbox" ${this.lootFilters.misc ? 'checked' : ''} /><span>${t('common.map.lootFilterMisc')}</span></label>
+          <label class="check-row"><input id="map-loot-template" type="checkbox" ${this.lootFilters.template ? 'checked' : ''} /><span>${t('common.map.lootFilterTemplate')}</span></label>
+          <label class="check-row"><input id="map-loot-disc" type="checkbox" ${this.lootFilters.disc ? 'checked' : ''} /><span>${t('common.map.lootFilterDisc')}</span></label>
+        </div>
+        <div id="map-loot-disc-hints" ${this.lootFilters.disc ? '' : 'hidden'}>
+          <div class="muted loot-hint">${t('common.map.lootOthersideDungeonUnsupported')}</div>
+          <div class="muted loot-hint">${t('common.map.lootBounceInaccurate')}</div>
+        </div>`;
+      const bindFilter = (id: string, key: LootCategoryKey) => {
+        const input = this.lootRowBox.querySelector<HTMLInputElement>(`#${id}`);
+        if (!input) return;
+        input.addEventListener('change', () => {
+          this.lootFilters[key] = input.checked;
+          const hint = this.lootRowBox.querySelector<HTMLElement>('#map-loot-disc-hints');
+          if (hint) hint.hidden = !this.lootFilters.disc;
+          this.persistSession();
+          this.queueDraw();
+          this.renderSelectedInfo();
+        });
+      };
+      bindFilter('map-loot-misc', 'misc');
+      bindFilter('map-loot-template', 'template');
+      bindFilter('map-loot-disc', 'disc');
+    }
     this.featureBox.innerHTML = `<div class="feature-divider"></div>${groups.join('<div class="feature-divider"></div>')}`;
     for (const root of [this.lootRowBox, this.featureBox]) root.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
       input.addEventListener('change', () => {
+        if (!input.dataset.id) return;
         const id = Number(input.dataset.id);
         if (input.checked) this.enabled.add(id);
         else {
@@ -1301,6 +1367,7 @@ export class MapView {
         if (id === LOOT_MARKERS_ID) {
           this.lootChests = [];
           this.monumentSponge.clear();
+          this.renderFeatures();
         } else if (this.enabled.has(LOOT_MARKERS_ID)) {
           this.lootChests = this.lootChests.filter((info) => info.type !== id);
           const monumentType = this.features.find((feature) => feature.key === 'monument')?.id;
@@ -1530,6 +1597,22 @@ export class MapView {
                 rows.push(`<div>${escapeText(line)}</div>`);
               }
             }
+            if (
+              this.enabled.has(LOOT_MARKERS_ID) &&
+              this.lootFilters.disc &&
+              detail.pots.length
+            ) {
+              rows.push(
+                `<div>${escapeText(t('common.map.trialCreatorPots', { n: detail.pots.length }))}</div>`,
+              );
+              for (const pot of detail.pots.slice(0, 12)) {
+                rows.push(
+                  `<div class="muted">${escapeText(
+                    t('common.map.trialCreatorPotAt', { x: pot.x, y: pot.y, z: pot.z }),
+                  )}</div>`,
+                );
+              }
+            }
           }
         }
       }
@@ -1578,7 +1661,7 @@ export class MapView {
     if (this.enabled.has(LOOT_MARKERS_ID)) {
       rows.push(...this.lootInfoLines(selected));
     }
-    if (selected.key === 'monument') {
+    if (selected.key === 'monument' && this.lootFilters.misc) {
       const sponge = this.monumentSponge.get(this.trialKey(selected.x, selected.z));
       if (sponge) {
         rows.push(
@@ -1593,6 +1676,11 @@ export class MapView {
     const cage = this.findTrialCage(screenX, screenY, TRIAL_CAGE_HIT_PX);
     if (cage) {
       this.selectStructure(cage.item, cage.cage);
+      return;
+    }
+    const pot = this.findTrialPot(screenX, screenY);
+    if (pot) {
+      this.selectStructure(pot.item);
       return;
     }
     // A visible portal wins over the icon underneath it: it is drawn on top, so
@@ -1793,6 +1881,15 @@ export class MapView {
     return this.trialDetailAllowed() && this.pixelsPerBlock >= TRIAL_CAGE_MIN_PPB;
   }
 
+  private trialPotsVisible(): boolean {
+    return (
+      this.trialDetailAllowed() &&
+      this.enabled.has(LOOT_MARKERS_ID) &&
+      this.lootFilters.disc &&
+      this.pixelsPerBlock >= TRIAL_POT_MIN_PPB
+    );
+  }
+
   private queueTrialDetails(): void {
     window.clearTimeout(this.trialTimer);
     if (!this.trialFramesVisible()) return;
@@ -1894,6 +1991,7 @@ export class MapView {
       pieces: info.pieces,
       frames: info.frames,
       spawners: info.spawners,
+      pots: info.pots ?? [],
       cages,
       extent,
     };
@@ -2192,6 +2290,7 @@ export class MapView {
       this.drawStructureFrames(ctx);
       this.drawTrialFrames(ctx);
       this.drawTrialSpawners(ctx);
+      this.drawTrialPots(ctx);
       // Portals are drawn after the icons so a portal that overlaps its icon
       // is still visible (and clickable) — see the plan's hit-test priority.
       this.drawPlaced(ctx);
@@ -2700,9 +2799,24 @@ export class MapView {
    */
   private async refreshLootChests(): Promise<void> {
     const on = this.enabled.has(LOOT_MARKERS_ID);
-    const targets = this.placed.filter(
-      (item) => this.enabled.has(item.type) && LOOT_STRUCTURE_TYPES.includes(item.type),
-    );
+    const mineshaftId = this.features.find((feature) => feature.key === 'mineshaft')?.id;
+    const mineshaftAllowed =
+      mineshaftId === undefined || this.pixelsPerBlock >= MINESHAFT_LOOT_MIN_PPB;
+    let mineshafts = 0;
+    const targets = this.placed
+      .filter((item) => this.enabled.has(item.type) && LOOT_STRUCTURE_TYPES.includes(item.type))
+      .filter((item) => mineshaftAllowed || item.type !== mineshaftId)
+      .sort((a, b) => {
+        const da = (a.x - this.cx) ** 2 + (a.z - this.cz) ** 2;
+        const db = (b.x - this.cx) ** 2 + (b.z - this.cz) ** 2;
+        return da - db;
+      })
+      .filter((item) => {
+        if (item.type !== mineshaftId) return true;
+        if (mineshafts >= MINESHAFT_LOOT_TARGETS) return false;
+        mineshafts++;
+        return true;
+      });
     if (!on || !targets.length) {
       this.lootChests = [];
       this.queueDraw();
@@ -2764,6 +2878,68 @@ export class MapView {
     );
   }
 
+  /** 战利品类别筛选：未选中的类别不参与绘制/信息卡。 */
+  private lootCategoryEnabled(mask: number): boolean {
+    let enabled = 0;
+    if (this.lootFilters.misc) enabled |= LOOT_CATEGORY.misc;
+    if (this.lootFilters.template) enabled |= LOOT_CATEGORY.template;
+    if (this.lootFilters.disc) enabled |= LOOT_CATEGORY.disc;
+    return (mask & enabled) !== 0;
+  }
+
+  private lootChestMask(chest: LootChest): number {
+    let mask = 0;
+    if (chest.trim || chest.ward || chest.silence || chest.netheriteUpgrade || chest.trimKinds)
+      mask |= LOOT_CATEGORY.template;
+    if (
+      chest.miscKinds ||
+      chest.piglinBanner ||
+      chest.snifferEgg ||
+      chest.goldenApples > 0 ||
+      chest.swiftSneakLevels.length > 0
+    )
+      mask |= LOOT_CATEGORY.misc;
+    if (chest.discKinds || chest.discFragments > 0) mask |= LOOT_CATEGORY.disc;
+    return mask;
+  }
+
+  private lootInfoMask(info: LootChestInfo): number {
+    if (info.categoryMask) return info.categoryMask;
+    let mask = 0;
+    if (info.hasTrim || info.hasNetherite) mask |= LOOT_CATEGORY.template;
+    if (info.hasSnifferEgg || info.hasGoldenApple || info.hasPiglinBanner) mask |= LOOT_CATEGORY.misc;
+    if (info.discKinds || info.discFragments > 0) mask |= LOOT_CATEGORY.disc;
+    return mask;
+  }
+
+  /** 一个箱子里命中、且当前类别已勾选的唱片名称。 */
+  private lootDiscNames(chest: LootChest): string[] {
+    const hits: string[] = [];
+    for (const [bit, meta] of Object.entries(LOOT_DISC)) {
+      const index = Number(bit);
+      if (index === 5) continue; // count is rendered below
+      if (!(chest.discKinds & (1 << index))) continue;
+      const key = `common.map.lootDisc_${meta.name}`;
+      hits.push(t(key));
+    }
+    if (chest.discFragments > 0) {
+      hits.push(t('common.map.lootDiscFragment5', { n: chest.discFragments }));
+    }
+    return hits;
+  }
+
+  private lootDiscIcon(chest: LootChest): string {
+    // Bounce/Creator use their own icon and override the ring (plan §5.4).
+    if (chest.discKinds & (1 << 3)) return LOOT_DISC[3].icon || '';
+    if (chest.discKinds & (1 << 4)) return LOOT_DISC[4].icon || '';
+    return '';
+  }
+
+  /** 一个箱子是否包含当前选中的类别。 */
+  private lootChestVisible(chest: LootChest): boolean {
+    return this.lootCategoryEnabled(this.lootChestMask(chest));
+  }
+
   /** 把一个 lootChests 条目翻译成信息卡里的几行（命中内容 + 精确坐标）。 */
   private lootInfoLines(item: { x: number; z: number; type: number }): string[] {
     const info = this.lootInfoAt(item);
@@ -2776,26 +2952,37 @@ export class MapView {
     };
     const chestLines: string[] = [];
     for (const chest of info.chests) {
+      if (!this.lootChestVisible(chest)) continue;
       const hits: string[] = [];
-      if (chest.silence) hits.push(kindNames(2));
-      if (chest.ward) hits.push(kindNames(1));
-      if (!chest.silence && !chest.ward && chest.trim) {
-        for (const kind of Object.keys(TRIM_KIND).map(Number)) {
-          if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) hits.push(kindNames(kind));
+      if (this.lootFilters.template) {
+        if (chest.silence) hits.push(kindNames(2));
+        if (chest.ward) hits.push(kindNames(1));
+        if (!chest.silence && !chest.ward && chest.trim) {
+          for (const kind of Object.keys(TRIM_KIND).map(Number)) {
+            if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) hits.push(kindNames(kind));
+          }
+          if (!hits.length) hits.push(t('common.map.trim_other'));
         }
-        if (!hits.length) hits.push(t('common.map.trim_other'));
+        if (chest.netheriteUpgrade) hits.push(t('common.map.lootNetherite'));
       }
-      if (chest.netheriteUpgrade) hits.push(t('common.map.lootNetherite'));
-      if (chest.snifferEgg) hits.push(t('common.map.lootSnifferEgg'));
-      if (chest.piglinBanner) hits.push(t('common.map.lootPiglinBanner'));
-      if (chest.goldenApples > 0) hits.push(t('common.map.lootGoldenApple', { n: chest.goldenApples }));
-      for (const level of chest.swiftSneakLevels) hits.push(t('common.map.lootSwiftSneak', { level }));
+      if (this.lootFilters.misc) {
+        if (chest.snifferEgg) hits.push(t('common.map.lootSnifferEgg'));
+        if (chest.piglinBanner) hits.push(t('common.map.lootPiglinBanner'));
+        for (const level of chest.swiftSneakLevels) hits.push(t('common.map.lootSwiftSneak', { level }));
+        if (chest.goldenApples > 0) hits.push(t('common.map.lootGoldenApple', { n: chest.goldenApples }));
+      }
+      if (this.lootFilters.disc) hits.push(...this.lootDiscNames(chest));
       if (!hits.length) continue;
+      // Mineshaft chests are approximate: mark every hit in the detail card.
+      const shownHits =
+        item.type === 15
+          ? hits.map((hit) => t('common.map.lootApproximateName', { name: hit }))
+          : hits;
       const atKey =
         item.type === 6 || item.type === 24
           ? 'common.map.lootBlockAt'
           : 'common.map.lootChestAt';
-      chestLines.push(t(atKey, { x: chest.x, z: chest.z, hits: hits.join('、') }));
+      chestLines.push(t(atKey, { x: chest.x, z: chest.z, hits: shownHits.join('、') }));
     }
     if (chestLines.length) {
       rows.push(`<div>${escapeText(t('common.map.lootChestsFound', { n: chestLines.length }))}</div>`);
@@ -2810,18 +2997,28 @@ export class MapView {
       }
     } else if (info.hasLoot || info.hasAllay) {
       const hits: string[] = [];
+      const mask = this.lootInfoMask(info);
       if (item.type === 10) {
         // Outpost: shared exact jigsaw assembly gives the cage count.
-        if (info.hasAllay) {
+        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.misc) && info.hasAllay) {
           hits.push(t('common.map.lootAllayCages', { count: info.allayCages || 1 }));
         }
-        if (info.hasTrim) hits.push(t('common.map.lootSentryTrim'));
+        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.template) && info.hasTrim)
+          hits.push(t('common.map.lootSentryTrim'));
       } else {
-        if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
-        if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
-        if (info.hasSnifferEgg) hits.push(t('common.map.lootSnifferEgg'));
-        if (info.hasGoldenApple) hits.push(t('common.map.lootGoldenApple', { n: 1 }));
-        if (info.hasPiglinBanner) hits.push(t('common.map.lootPiglinBanner'));
+        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.template)) {
+          if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
+          if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
+        }
+        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.misc)) {
+          if (info.hasSnifferEgg) hits.push(t('common.map.lootSnifferEgg'));
+          if (info.hasGoldenApple) hits.push(t('common.map.lootGoldenApple', { n: 1 }));
+          if (info.hasPiglinBanner) hits.push(t('common.map.lootPiglinBanner'));
+        }
+        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.disc)) {
+          if (info.discFragments > 0) hits.push(t('common.map.lootDiscFragment5', { n: info.discFragments }));
+          else if (info.discKinds) hits.push(t('common.map.lootAnyDisc'));
+        }
       }
       if (hits.length) {
         const key = item.type === 10 ? 'common.map.lootContains' : 'common.map.lootHint';
@@ -2829,7 +3026,10 @@ export class MapView {
       }
     }
 
-    if (info.note) {
+    // Mineshaft chests are drawn with the approximate ring, but the detail
+    // card intentionally does not repeat that warning.
+    if (info.note && info.note !== 'mineshaft_approximate' &&
+        this.lootCategoryEnabled(LOOT_CATEGORY.misc)) {
       const noteKey =
         info.note === 'ocean_ruin_sniffer_not_ported'
           ? 'common.map.lootOceanRuinUnsupported'
@@ -2837,6 +3037,8 @@ export class MapView {
       const count = info.allayCages && info.allayCages > 0 ? info.allayCages : 1;
       rows.push(`<div class="muted">${escapeText(t(noteKey, { count }))}</div>`);
     }
+    // The "dungeons are not supported" note is intentionally only shown
+    // under the music-disc filter, not in the info card.
     return rows;
   }
 
@@ -2845,17 +3047,30 @@ export class MapView {
    * 下界合金/嗅探蛋/附魔金的颜色）。无目标内容的箱子不画。
    */
   private lootChestColor(chest: LootChest): string {
+    if (!this.lootChestVisible(chest)) return '';
     if (chest.silence) return '#ffffff';
-    for (const kind of Object.keys(TRIM_KIND).map(Number)) {
-      if (kind !== 1 && kind !== 2 && chest.trimKinds & (1 << kind)) return TRIM_KIND[kind].color;
+    // 杂项高项（旗帜/嗅探蛋/迅捷潜行）优先于模板/唱片；附魔金最后。
+    if (this.lootFilters.misc) {
+      if (chest.piglinBanner) return LOOT_CHEST_COLOR.piglinBanner;
+      if (chest.snifferEgg) return LOOT_CHEST_COLOR.snifferEgg;
+      if (chest.swiftSneakLevels.length) return LOOT_CHEST_COLOR.swiftSneak;
     }
-    if (chest.ward) return TRIM_KIND[1].color;
-    if (chest.trim) return LOOT_CHEST_COLOR.trim;
-    if (chest.piglinBanner) return LOOT_CHEST_COLOR.piglinBanner;
-    if (chest.netheriteUpgrade) return LOOT_CHEST_COLOR.netherite;
-    if (chest.snifferEgg) return LOOT_CHEST_COLOR.snifferEgg;
-    if (chest.goldenApples > 0) return LOOT_CHEST_COLOR.goldenApples;
-    if (chest.swiftSneakLevels.length) return LOOT_CHEST_COLOR.trim;
+    if (this.lootFilters.template) {
+      for (const kind of Object.keys(TRIM_KIND).map(Number)) {
+        if (kind === 1 || kind === 2) continue;
+        if (chest.trimKinds & (1 << kind)) {
+          // 古迹废墟的 4 种模板统一使用通用模板色。
+          if (kind >= 11 && kind <= 14) return LOOT_CHEST_COLOR.trim;
+          return TRIM_KIND[kind].color;
+        }
+      }
+      if (chest.ward) return TRIM_KIND[1].color;
+      if (chest.trim) return LOOT_CHEST_COLOR.trim;
+      if (chest.netheriteUpgrade) return LOOT_CHEST_COLOR.netherite;
+    }
+    if (this.lootFilters.disc && (chest.discKinds || chest.discFragments > 0))
+      return LOOT_CHEST_COLOR.disc;
+    if (this.lootFilters.misc && chest.goldenApples > 0) return LOOT_CHEST_COLOR.goldenApples;
     return '';
   }
 
@@ -2885,7 +3100,8 @@ export class MapView {
     };
 
     if (feature.key === 'monument') {
-      if (this.monumentSponge.has(this.trialKey(item.x, item.z))) draw('sponge', 'tr');
+      if (this.lootFilters.misc && this.monumentSponge.has(this.trialKey(item.x, item.z)))
+        draw('sponge', 'tr');
       return;
     }
     if (!LOOT_STRUCTURE_ONLY_TYPES.includes(item.type)) return;
@@ -2893,17 +3109,17 @@ export class MapView {
     if (!info || !info.exists) return;
     switch (feature.key) {
       case 'outpost':
-        if (info.hasAllay) draw('allay_loot', 'tr');
-        if (info.hasTrim) draw('trim_sentry', 'br');
+        if (this.lootFilters.misc && info.hasAllay) draw('allay_loot', 'tr');
+        if (this.lootFilters.template && info.hasTrim) draw('trim_sentry', 'br');
         break;
       case 'desert_pyramid':
-        if (info.hasTrim) draw('trim_dune', 'br');
+        if (this.lootFilters.template && info.hasTrim) draw('trim_dune', 'br');
         break;
       case 'jungle_temple':
-        if (info.hasTrim) draw('trim_wild', 'br');
+        if (this.lootFilters.template && info.hasTrim) draw('trim_wild', 'br');
         break;
       case 'shipwreck':
-        if (info.hasTrim) draw('trim_coast', 'br');
+        if (this.lootFilters.template && info.hasTrim) draw('trim_coast', 'br');
         break;
       default:
         break;
@@ -2915,6 +3131,7 @@ export class MapView {
     for (const info of this.lootChests) {
       if (!info.exists || LOOT_STRUCTURE_ONLY_TYPES.includes(info.type)) continue;
       for (const chest of info.chests) {
+        if (!this.lootChestVisible(chest)) continue;
         const color = this.lootChestColor(chest);
         if (!color) continue;
         const p = this.worldToScreen(chest.x + 0.5, chest.z + 0.5);
@@ -2935,6 +3152,32 @@ export class MapView {
           }
           continue;
         }
+        const discIcon = this.lootFilters.disc ? this.lootDiscIcon(chest) : '';
+        if (discIcon) {
+          const image = this.loadIcon(discIcon);
+          if (image.complete && image.naturalWidth > 0) {
+            const s = 13;
+            ctx.drawImage(image, p.x - s / 2, p.y - s / 2, s, s);
+          } else {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS, 0, Math.PI * 2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          if (chest.approximate) {
+            // 近似位置：在图标外画虚线圈，提醒不是精确方块。
+            ctx.save();
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS + 4, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255, 220, 120, 0.95)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
+          }
+          continue;
+        }
         ctx.beginPath();
         ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
@@ -2947,6 +3190,16 @@ export class MapView {
         ctx.strokeStyle = LOOT_MARKER_EDGE;
         ctx.lineWidth = 1;
         ctx.stroke();
+        if (chest.approximate) {
+          ctx.save();
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, LOOT_MARKER_RADIUS + 3, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 220, 120, 0.95)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        }
       }
     }
   }
@@ -3155,39 +3408,22 @@ export class MapView {
     ctx.restore();
   }
 
-  /** Cage columns at 1:1: slow as hollow rings, fast as filled dots, one point per XZ. */
+  /** Cage columns at 1:1: every cage is a dot; slow is blue, fast is yellow. */
   private drawTrialSpawners(ctx: CanvasRenderingContext2D): void {
     if (!this.trialSpawnersVisible()) return;
     const chambers = this.visibleTrialChambers();
     ctx.save();
-    // Slow rings first so a fast dot never hides a slow one.
-    ctx.strokeStyle = TRIAL_CAGE_SLOW;
-    ctx.lineWidth = 1.5;
-    for (const item of chambers) {
-      const detail = this.trialDetailAt(item.x, item.z);
-      if (!detail) continue;
-      for (const cage of detail.cages) {
-        if (!cage.slow && !cage.mixed) continue;
-        const point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
-        if (!this.cageOnScreen(point)) continue;
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, TRIAL_CAGE_RADIUS, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-    // Fast discs (on a mixed column the dot sits inside the ring).
-    ctx.fillStyle = TRIAL_CAGE_FAST;
     ctx.strokeStyle = TRIAL_CAGE_EDGE;
     ctx.lineWidth = 1;
     for (const item of chambers) {
       const detail = this.trialDetailAt(item.x, item.z);
       if (!detail) continue;
       for (const cage of detail.cages) {
-        if (cage.slow && !cage.mixed) continue;
         const point = this.worldToScreen(cage.x + 0.5, cage.z + 0.5);
         if (!this.cageOnScreen(point)) continue;
         ctx.beginPath();
         ctx.arc(point.x, point.y, TRIAL_CAGE_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = cage.slow || cage.mixed ? TRIAL_CAGE_SLOW : TRIAL_CAGE_FAST;
         ctx.fill();
         ctx.stroke();
       }
@@ -3223,6 +3459,62 @@ export class MapView {
 
   private cageOnScreen(point: { x: number; y: number }): boolean {
     return point.x >= -12 && point.y >= -12 && point.x <= this.canvas.width + 12 && point.y <= this.canvas.height + 12;
+  }
+
+  /** Creator pots are exact 1x1 decorated pots; draw the Creator disc icon. */
+  private drawTrialPots(ctx: CanvasRenderingContext2D): void {
+    if (!this.trialPotsVisible()) return;
+    const image = this.loadIcon('disc_creator');
+    const chambers = this.visibleTrialChambers();
+    ctx.save();
+    for (const item of chambers) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail) continue;
+      for (const pot of detail.pots) {
+        const point = this.worldToScreen(pot.x + 0.5, pot.z + 0.5);
+        if (!this.cageOnScreen(point)) continue;
+        if (image.complete && image.naturalWidth > 0) {
+          const s = TRIAL_POT_ICON_SIZE;
+          ctx.drawImage(image, point.x - s / 2, point.y - s / 2, s, s);
+        } else {
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+          ctx.fillStyle = LOOT_CHEST_COLOR.disc;
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, TRIAL_POT_ICON_SIZE / 2 + 1.5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(20, 20, 20, 0.85)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Click/hover hit test for Creator pot markers. */
+  private findTrialPot(
+    screenX: number,
+    screenY: number,
+  ): { item: Placed; pot: TrialCreatorPot } | null {
+    if (!this.trialPotsVisible()) return null;
+    let best: { item: Placed; pot: TrialCreatorPot } | null = null;
+    let bestDistance = TRIAL_CAGE_HIT_PX * TRIAL_CAGE_HIT_PX;
+    for (const item of this.visibleTrialChambers()) {
+      const detail = this.trialDetailAt(item.x, item.z);
+      if (!detail) continue;
+      for (const pot of detail.pots) {
+        const point = this.worldToScreen(pot.x + 0.5, pot.z + 0.5);
+        const dx = point.x - screenX;
+        const dy = point.y - screenY;
+        const distance = dx * dx + dy * dy;
+        if (distance <= bestDistance) {
+          bestDistance = distance;
+          best = { item, pot };
+        }
+      }
+    }
+    return best;
   }
 
   /**

@@ -453,12 +453,12 @@ void addEndGateways(std::vector<PlacedFeature> &out, int mc, uint64_t seed, int 
 /* ------------------------------------------------------------------------- */
 
 /**
- * Stronghold eye-trim chests: cubiomes reproduces the library / corridor piece
- * graph and their LootTableSeed, loots evaluates `chests/stronghold_library`.
- * Only chests that actually contain the eye trim are returned.
+ * Stronghold library/corridor chests: cubiomes reproduces the piece graph and
+ * their LootTableSeed. Keep chests with the eye trim or any music disc
+ * (Otherside lives in `chests/stronghold_corridor`).
  */
-void strongholdEyeChests(int mc, uint64_t seed, int startX, int startZ,
-                         std::vector<LootChest> &out)
+void strongholdLootChests(int mc, uint64_t seed, int startX, int startZ,
+                          std::vector<LootChest> &out)
 {
     StructureSaltConfig ssconf{};
     if (!getStructureSaltConfig(Stronghold, mc, plains, &ssconf)) return;
@@ -471,12 +471,17 @@ void strongholdEyeChests(int mc, uint64_t seed, int startX, int startZ,
             if (!table) continue;
             const loots::ChestReward reward =
                 loots::evaluateChest(table, pieces[i].lootSeeds[c], mc);
-            if (!reward.evaluated || !reward.hasTrim(loots::TrimKind::eye)) continue;
+            if (!reward.evaluated) continue;
+            const bool eye = reward.hasTrim(loots::TrimKind::eye);
+            if (!eye && reward.discKinds == 0) continue;
             LootChest chest;
             chest.x = pieces[i].chestPoses[c].x;
             chest.z = pieces[i].chestPoses[c].z;
-            chest.trim = true;
+            chest.trim = eye;
             chest.trimKinds = reward.trimKinds;
+            chest.discKinds = reward.discKinds;
+            chest.discFragments = reward.discFragments;
+            chest.miscKinds = reward.miscKinds;
             out.push_back(chest);
         }
     }
@@ -540,20 +545,53 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         chest.snifferEgg = c.reward.snifferEgg;
         chest.piglinBanner = c.reward.hasItem(loots::LootItem_PiglinBanner);
         chest.trimKinds = c.reward.trimKinds;
+        chest.discKinds = c.reward.discKinds;
+        chest.miscKinds = c.reward.miscKinds;
+        chest.discFragments = c.reward.discFragments;
+        chest.container = static_cast<int>(c.container);
+        chest.approximate = c.approximate;
         chest.swiftSneakLevels = c.reward.swiftSneakLevels;
         info.chests.push_back(std::move(chest));
     };
 
     auto summarize = [](LootChestInfo &info) {
+        bool misc = false;
+        bool templ = false;
+        bool disc = false;
         for (const auto &c : info.chests) {
             const bool trim = c.trim || c.ward || c.silence;
-            if (trim) info.hasTrim = true;
+            if (trim) {
+                info.hasTrim = true;
+                templ = true;
+            }
             info.trimKinds |= c.trimKinds;
-            if (c.netheriteUpgrade) info.hasNetherite = true;
-            if (c.snifferEgg) info.hasSnifferEgg = true;
-            if (c.goldenApples > 0) info.hasGoldenApple = true;
-            if (c.piglinBanner) info.hasPiglinBanner = true;
+            info.discKinds |= c.discKinds;
+            info.miscKinds |= c.miscKinds;
+            if (c.discFragments > 0) info.discFragments += c.discFragments;
+            if (c.netheriteUpgrade) {
+                info.hasNetherite = true;
+                templ = true;
+            }
+            if (c.snifferEgg) {
+                info.hasSnifferEgg = true;
+                misc = true;
+            }
+            if (c.goldenApples > 0) {
+                info.hasGoldenApple = true;
+                misc = true;
+            }
+            if (c.piglinBanner) {
+                info.hasPiglinBanner = true;
+                misc = true;
+            }
+            if (!c.swiftSneakLevels.empty()) misc = true;
+            if (c.discKinds != 0 || c.discFragments > 0) disc = true;
+            if (c.approximate) info.approximate = true;
         }
+        info.categoryMask =
+            (misc ? loots::LootCategory_Misc : 0u) |
+            (templ ? loots::LootCategory_Template : 0u) |
+            (disc ? loots::LootCategory_Disc : 0u);
         if (info.hasTrim) {
             info.hasLoot = true;
             info.lootKind = 1;
@@ -569,6 +607,9 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         } else if (info.hasPiglinBanner) {
             info.hasLoot = true;
             info.lootKind = 5;
+        } else if (disc) {
+            info.hasLoot = true;
+            info.lootKind = 6;
         }
     };
 
@@ -600,6 +641,8 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                             info.trimKinds |= cc.reward.trimKinds;
                         }
                     }
+                    info.categoryMask = (info.hasAllay ? loots::LootCategory_Misc : 0u) |
+                                        (info.hasTrim ? loots::LootCategory_Template : 0u);
                 }
                 out.push_back(std::move(info));
                 continue;
@@ -614,7 +657,8 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                     info.pieces = city.pieces;
                     for (const auto &c : city.chests) {
                         if (c.silence == 0 && c.ward == 0 && c.swiftSneakLevels.empty() &&
-                            c.enchantedGoldenApples == 0)
+                            c.enchantedGoldenApples == 0 && c.discKinds == 0 &&
+                            c.discFragments == 0)
                             continue;
                         LootChest chest;
                         chest.x = c.x;
@@ -625,6 +669,10 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                         chest.ward = c.ward != 0;
                         chest.goldenApples = c.enchantedGoldenApples;
                         chest.swiftSneakLevels = c.swiftSneakLevels;
+                        chest.discKinds = c.discKinds;
+                        chest.miscKinds = c.miscKinds;
+                        chest.discFragments = c.discFragments;
+                        chest.container = 0;
                         if (chest.silence) chest.trimKinds |= 1u << static_cast<unsigned>(loots::TrimKind::silence);
                         if (chest.ward) chest.trimKinds |= 1u << static_cast<unsigned>(loots::TrimKind::ward);
                         info.chests.push_back(std::move(chest));
@@ -637,7 +685,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
 
             if (type == Stronghold) {
                 info.exists = true;
-                strongholdEyeChests(mc, seed, s.first, s.second, info.chests);
+                strongholdLootChests(mc, seed, s.first, s.second, info.chests);
                 summarize(info);
                 out.push_back(std::move(info));
                 continue;
@@ -671,6 +719,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             else if (type == Shipwreck) ok = shipwreckLoot(mc, seed, s.first, s.second, sl);
             else if (type == Bastion) ok = bastionLoot(mc, seed, s.first, s.second, sl);
             else if (type == Mansion) ok = woodlandMansionLoot(mc, seed, s.first, s.second, sl);
+            else if (type == Mineshaft) ok = loots::mineshaftLoot(mc, seed, s.first, s.second, sl);
             else if (type == Trail_Ruins) {
                 ok = loots::trailRuinsLoot(mc, seed, s.first, s.second, sl);
             }
@@ -689,6 +738,13 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             for (const auto &c : sl.chests) addChest(info, c);
             for (const auto &c : sl.suspicious) addChest(info, c);
             summarize(info);
+            if (type == Mineshaft && info.hasLoot) {
+                // geode's exact piece graph is now used, but the corridor
+                // block-state RNG replay still matches 4/6 oracle chests.
+                info.reliable = false;
+                info.approximate = true;
+                info.note = "mineshaft_approximate";
+            }
             // 1.19.2 has no armor-trim templates. Its mansion loot seed is
             // also not supported, so suppress both template flags and chests.
             if (type == Mansion && mc <= MC_1_19_2) {

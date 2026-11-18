@@ -37,6 +37,11 @@ export interface CityChest {
   ward: boolean;
   swiftSneakLevels: number[];
   goldenApples: number;
+  /** Music disc/fragment bits, see `LOOT_DISC` in map.ts. */
+  discKinds: number;
+  /** Banner/egg/golden-apple bits, see `LOOT_MISC` in map.ts. */
+  miscKinds: number;
+  discFragments: number;
   lootSeed: string;
 }
 
@@ -271,6 +276,14 @@ export interface StrongholdPortalInfo {
   eyes?: number | null;
 }
 
+/** One decorated pot that holds a Creator music box. */
+export interface TrialCreatorPot {
+  x: number;
+  y: number;
+  z: number;
+  lootSeed: string;
+}
+
 /** Per-chamber map overlay data returned by the `trialChambers` op. */
 export interface TrialChamberInfo {
   x: number;
@@ -283,6 +296,8 @@ export interface TrialChamberInfo {
   bounds: Bounds3;
   frames: TrialFrame[];
   spawners: TrialSpawner[];
+  /** Decorated pots whose loot roll yields `music_disc_creator_music_box`. */
+  pots: TrialCreatorPot[];
 }
 
 export interface TrialStatus {  running: boolean;
@@ -630,6 +645,15 @@ export interface LootChest {
   piglinBanner: boolean;
   /** 纹饰位掩码，见 loots::TrimKind；0 = 无。 */
   trimKinds: number;
+  /** 唱片/碎片位掩码，见 `LOOT_DISC`。 */
+  discKinds: number;
+  /** 杂项位掩码，见 `LOOT_MISC`。 */
+  miscKinds: number;
+  discFragments: number;
+  /** 0 = chest, 1 = barrel, 2 = decorated pot, 3 = suspicious block. */
+  container: number;
+  /** 箱子矿车等近似坐标（废弃矿井）。 */
+  approximate: boolean;
   /** 迅捷潜行等级，每本一项。 */
   swiftSneakLevels: number[];
 }
@@ -660,7 +684,7 @@ export interface LootChestInfo {
   hasAllay: boolean;
   /** Number of allay cage feature pieces, when detection was evaluated. */
   allayCages: number;
-  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 / 5 旗帜图案 */
+  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 / 5 旗帜图案 / 6 唱片 */
   lootKind: number;
   /** 仅提示型的命中明细（可与 lootKind 同时为真）。 */
   hasTrim: boolean;
@@ -671,7 +695,17 @@ export interface LootChestInfo {
   hasPiglinBanner: boolean;
   /** 本结构所有目标箱的 trimKinds 并集（结构图标右下角的模板角标）。 */
   trimKinds: number;
-  /** false = 该结构的结果仍是近似值（当前仅 1.20 之前的海底遗迹）。 */
+  /** 本结构所有目标箱的唱片/碎片并集。 */
+  discKinds: number;
+  /** 本结构所有目标箱的杂项并集。 */
+  miscKinds: number;
+  /** 本结构所有目标箱的 disc_fragment_5 总数。 */
+  discFragments: number;
+  /** 1 杂项 / 2 模板 / 4 唱片（loots::LootCategoryBits）。 */
+  categoryMask: number;
+  /** 该结构的箱子坐标/判定是近似值（废弃矿井）。 */
+  approximate: boolean;
+  /** false = 该结构的结果仍是近似值（海底遗迹嗅探蛋、废弃矿井）。 */
   reliable: boolean;
   /** 补充原因，前端按语言键翻译；空字符串表示没有额外说明。 */
   note: string;

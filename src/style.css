@@ -770,6 +770,9 @@ input.invalid {
 }
 .feature-divider { height: 1px; background: var(--line); margin: 4px 0; }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 12px; }
+.loot-filters { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 4px 0 2px 2px; font-size: 11px; }
+.loot-hint { font-size: 10.5px; line-height: 1.35; margin: 2px 0 0 2px; }
+.loot-hint[hidden] { display: none; }
 .feature { display: flex; gap: 6px; align-items: center; }
 /* Disabled layer checkbox: the label text dims with its input. */
 .feature input:disabled + span { opacity: 0.45; }

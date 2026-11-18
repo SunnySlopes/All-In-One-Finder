@@ -203,6 +203,11 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
         obj.Set("hasGoldenApple", list[i].hasGoldenApple);
         obj.Set("hasPiglinBanner", list[i].hasPiglinBanner);
         obj.Set("trimKinds", list[i].trimKinds);
+        obj.Set("discKinds", list[i].discKinds);
+        obj.Set("miscKinds", list[i].miscKinds);
+        obj.Set("discFragments", list[i].discFragments);
+        obj.Set("categoryMask", list[i].categoryMask);
+        obj.Set("approximate", list[i].approximate);
         obj.Set("reliable", list[i].reliable);
         obj.Set("note", list[i].note);
         Napi::Array chests = Napi::Array::New(env, list[i].chests.size());
@@ -219,6 +224,11 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
             co.Set("snifferEgg", list[i].chests[c].snifferEgg);
             co.Set("piglinBanner", list[i].chests[c].piglinBanner);
             co.Set("trimKinds", list[i].chests[c].trimKinds);
+            co.Set("discKinds", list[i].chests[c].discKinds);
+            co.Set("miscKinds", list[i].chests[c].miscKinds);
+            co.Set("discFragments", list[i].chests[c].discFragments);
+            co.Set("container", list[i].chests[c].container);
+            co.Set("approximate", list[i].chests[c].approximate);
             Napi::Array levels =
                 Napi::Array::New(env, list[i].chests[c].swiftSneakLevels.size());
             for (size_t k = 0; k < list[i].chests[c].swiftSneakLevels.size(); k++)
@@ -273,6 +283,9 @@ Napi::Value AncientCityChests(const Napi::CallbackInfo &info)
             cobj.Set("silence", chest.silence != 0);
             cobj.Set("ward", chest.ward != 0);
             cobj.Set("goldenApples", chest.enchantedGoldenApples);
+            cobj.Set("discKinds", chest.discKinds);
+            cobj.Set("miscKinds", chest.miscKinds);
+            cobj.Set("discFragments", chest.discFragments);
             cobj.Set("lootSeed", Napi::BigInt::New(outEnv, chest.lootSeed));
             Napi::Array levels = Napi::Array::New(outEnv, chest.swiftSneakLevels.size());
             for (size_t k = 0; k < chest.swiftSneakLevels.size(); k++)
@@ -1037,6 +1050,16 @@ Napi::Value TrialChambers(const Napi::CallbackInfo &info)
             spawners.Set(c, spawner);
         }
         item.Set("spawners", spawners);
+        Napi::Array pots = Napi::Array::New(env, detail.pots.size());
+        for (size_t p = 0; p < detail.pots.size(); p++) {
+            Napi::Object pot = Napi::Object::New(env);
+            pot.Set("x", detail.pots[p].x);
+            pot.Set("y", detail.pots[p].y);
+            pot.Set("z", detail.pots[p].z);
+            pot.Set("lootSeed", Napi::BigInt::New(env, detail.pots[p].lootSeed));
+            pots.Set(p, pot);
+        }
+        item.Set("pots", pots);
         out.Set(i, item);
     }
     return out;

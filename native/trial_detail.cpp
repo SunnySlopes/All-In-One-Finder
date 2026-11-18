@@ -3,6 +3,8 @@
 #include "cubiomes/biomes.h"
 
 #include "layout.hpp"
+#include "loots/loot.h"
+#include "loots/trial_chambers.h"
 
 #include <algorithm>
 #include <memory>
@@ -31,7 +33,7 @@ uint64_t cacheKey(int chunkX, int chunkZ)
         | static_cast<uint32_t>(chunkZ);
 }
 
-TrialChamberInfo computeChamber(int chunkX, int chunkZ)
+TrialChamberInfo computeChamber(int mc, uint64_t seed, int chunkX, int chunkZ)
 {
     TrialChamberInfo detail;
     detail.chunkX = chunkX;
@@ -80,6 +82,21 @@ TrialChamberInfo computeChamber(int chunkX, int chunkZ)
         const bool slow = std::binary_search(chamber.slow_spawners.begin(), chamber.slow_spawners.end(), p);
         detail.spawners.push_back({p.x, p.y, p.z, slow});
     }
+
+    // Creator music boxes: only decorated pots whose `pots/trial_chambers/corridor`
+    // roll yields `music_disc_creator_music_box`. Positions and LootTableSeeds are
+    // replayed exactly by loots (verified against the 26.3 server oracle).
+    std::vector<loots::TrialPot> pots;
+    if (loots::trialChamberPots(mc, seed, chunkX, chunkZ, pots)) {
+        for (const loots::TrialPot &pot : pots) {
+            const loots::ChestReward reward =
+                loots::evaluateChest(pot.lootTable.c_str(), pot.lootSeed, mc);
+            if (!reward.evaluated ||
+                !reward.hasDisc(loots::LootDisc_CreatorMusicBox))
+                continue;
+            detail.pots.push_back({pot.x, pot.y, pot.z, pot.lootSeed});
+        }
+    }
     return detail;
 }
 
@@ -125,7 +142,7 @@ std::vector<TrialChamberInfo> trialChambers(int mc, uint64_t seed,
         auto found = gCache.find(key);
         if (found == gCache.end()) {
             if (gCache.size() >= kMaxCachedChambers) gCache.clear();
-            found = gCache.emplace(key, computeChamber(chunkX, chunkZ)).first;
+            found = gCache.emplace(key, computeChamber(mc, seed, chunkX, chunkZ)).first;
         }
         TrialChamberInfo detail = found->second;
         detail.x = position.first;

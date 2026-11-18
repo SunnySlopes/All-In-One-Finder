@@ -46,13 +46,16 @@ Map and structure locating rely on [cubiomes](https://github.com/xpple/cubiomes)
 
 The map page has a **Show loot** switch below **Show terrain**. When enabled, it evaluates target loot for the structures currently visible and marks hits on the map; when disabled, no loot requests or markers are made.
 
-- **Coordinate layers**: ancient city, woodland mansion, nether fortress, bastion remnant, end city, stronghold, ocean ruin, trail ruins.
+- **Coordinate layers**: ancient city, woodland mansion, nether fortress, bastion remnant, end city, stronghold, ocean ruin, trail ruins, abandoned mineshaft, trial chamber (Creator pots).
   - Chests/blocks with target content become clickable rings; the ring colour comes from the trim kind. Chests/blocks without target content are not marked.
   - Clicking a ring opens the structure card with coordinates and hit details.
   - Ocean-ruin and trail-ruins hits are **blocks** (suspicious sand/gravel), not chests; the card labels them as blocks.
   - Silence chests use a dedicated icon instead of a ring.
   - Bastion piglin banner pattern (`piglin_banner_pattern`) chests use a pink ring; when the same chest also has a trim, the trim colour wins.
   - Trail ruins list every block that has a template, with no 12-line cap. Blocks without a template are omitted, and each row identifies the block's template.
+  - **Music discs**: Pigstep, Otherside, Relic, Bounce, Creator (music box), and disc fragment 5 share one disc colour. Bounce/Creator use dedicated icons and override other categories (silence still wins). Fragment chests list their count per chest; there is no "9 fragments craft a disc" summary. Abandoned-mineshaft chest minecarts are approximate: Bounce is suffixed "(approximate)", the ring gets a dashed outer circle, and the card explains the limitation.
+  - **Trial chambers**: only decorated pots that actually roll Creator (music box) are marked; positions and loot seeds match the 26.3 server oracle.
+- **Loot category filters**: with Show loot enabled, three checkboxes (Misc / Templates / Music discs) appear, all on by default. They only filter drawing and the info card, never the native evaluation. Unchecked categories draw no rings/badges and are omitted from the card; selecting Music discs also shows the "dungeons are not supported" note.
 - **Hint-only layers**: ocean monument, desert pyramid, jungle temple, pillager outpost, shipwreck.
   - No chest/block coordinates are shown; the corresponding icon is overlaid in the corner of the original structure icon.
   - An outpost with an allay cage gets the allay overlay, and a sentry template adds the sentry overlay; both can appear together. The card shows `Contains: allay cage xN` and/or `sentry armor trim`; the cage count comes from the exact jigsaw placement.
@@ -77,6 +80,8 @@ Current accuracy notes:
 - Trail ruins use the version-aware `WORLD_SURFACE_WG` height plus the RuleProcessor/CappedProcessor/AppendLoot chain; the real-jar fixtures for 1.20.1/1.21.10/1.21.11 match every suspicious block, table, seed, and trim result on 1.20.1-26.2. Outposts use the same data with the version-aware height and `outpost_rot` survival; their piece graphs, chests, seeds, and allay cage counts match the jar fixtures.
 - With the correct start coordinate, cubiomes' nether-fortress X/Z piece graph matches 26.3. loots now applies the `moveInsideHeights` Y correction and recomputes chests from Java's corner-piece local coordinates. Chest positions, Y and loot seeds for `16080,24544` and `15360,26640` match the 26.3 oracle. Source checks across 1.20.1/1.21.5/1.21.11 show unchanged placement data for outpost and bastion; fortress uses the same 1.20+ path.
 - Ocean-ruin sniffer eggs/suspicious sand use loots' shared 1.20.1-26.3 templates, chest tables, and processor data; warm suspicious-sand coordinates match the 26.3 oracle, and 1.20+ uses the matching version terrain profile. Terrain updates and overlapping structures may still affect the final world state.
+- Trial-chamber pots use loots' own layout + post-process RNG replay. For seed 0 at structure `-800,-1008`, all 47 pot positions, templates, and loot seeds match the 26.3 server exactly.
+- **Abandoned mineshafts**: geode's 1:1 generator is now ported into loots (`src/mineshaft/mineshaft_gen.*`); pieces, orientation, section, real `dy`, and the 26.3 piece graph match the server. Chest RNG is replayed in `MineshaftCorridor.generate` order. For seed 0 at `-4080,848`, 4 of the 6 server chests match exactly in X/Z/Y and loot seed; 2 are still missing and 2 are extra, so Bounce/EGA on mineshafts stay marked approximate.
 
 Module build instructions, CLI, directory layout, and data generation are documented in [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md).
 
@@ -141,7 +146,7 @@ Notes:
 ## TODO
 
 1. Add No Slime Chunks searcher
-2. Add display for the 7 non-renewable music discs in the loots submodule
+2. Finish the mineshaft `MineshaftCorridor.generate` block-state/RNG replay to lift the 4/6 oracle result to 6/6
 3. Add display for the 23 pottery sherds in the loots submodule
 
 ## License

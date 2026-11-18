@@ -21,6 +21,10 @@ export interface MapSessionData {
    */
   terrain?: boolean;
   features: string[];
+  /**
+   * 战利品类别筛选（杂项/模板/唱片）。旧 session 缺省为三类全开。
+   */
+  lootFilters?: { misc: boolean; template: boolean; disc: boolean };
   /** 每个搜索器当前填写的条件（form + 面板私有状态）。 */
   searchers?: Record<string, unknown>;
   /**
@@ -68,6 +72,16 @@ export function parseSessionFile(text: string): MapSessionData | null {
   });
 }
 
+function normalizeLootFilters(
+  value: Partial<Record<'misc' | 'template' | 'disc', boolean>> | undefined,
+): { misc: boolean; template: boolean; disc: boolean } {
+  return {
+    misc: value?.misc !== false,
+    template: value?.template !== false,
+    disc: value?.disc !== false,
+  };
+}
+
 function normalize(data: Partial<MapSessionData> & { version?: number | string }): MapSessionData | null {
   const seed = typeof data.seed === 'string' ? data.seed.trim() : '';
   if (!seed) return null;
@@ -93,6 +107,7 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
     features: Array.isArray(data.features)
       ? data.features.filter((item): item is string => typeof item === 'string')
       : [],
+    lootFilters: normalizeLootFilters(data.lootFilters),
     searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
     theme: data.theme === 'dark' || data.theme === 'light' ? data.theme : undefined,
   };
