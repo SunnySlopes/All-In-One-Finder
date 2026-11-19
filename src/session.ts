@@ -22,9 +22,9 @@ export interface MapSessionData {
   terrain?: boolean;
   features: string[];
   /**
-   * 战利品类别筛选（杂项/模板/唱片）。旧 session 缺省为三类全开。
+   * 战利品类别筛选（杂项/模板/唱片/陶片）。旧 session 缺省为四类全开。
    */
-  lootFilters?: { misc: boolean; template: boolean; disc: boolean };
+  lootFilters?: { misc: boolean; template: boolean; disc: boolean; sherd: boolean };
   /** 每个搜索器当前填写的条件（form + 面板私有状态）。 */
   searchers?: Record<string, unknown>;
   /**
@@ -32,6 +32,11 @@ export interface MapSessionData {
    * 而不是重新跟随系统。旧 session 缺省为 undefined，由调用方决定回退策略。
    */
   theme?: ThemeId;
+  /**
+   * 界面语言。写进存档后，启动时优先于本地记录恢复；
+   * 旧 session 缺省为 undefined，由调用方回退到本地记录/系统语言。
+   */
+  locale?: 'zh' | 'en';
 }
 
 export function parseSessionFile(text: string): MapSessionData | null {
@@ -73,12 +78,13 @@ export function parseSessionFile(text: string): MapSessionData | null {
 }
 
 function normalizeLootFilters(
-  value: Partial<Record<'misc' | 'template' | 'disc', boolean>> | undefined,
-): { misc: boolean; template: boolean; disc: boolean } {
+  value: Partial<Record<'misc' | 'template' | 'disc' | 'sherd', boolean>> | undefined,
+): { misc: boolean; template: boolean; disc: boolean; sherd: boolean } {
   return {
     misc: value?.misc !== false,
     template: value?.template !== false,
     disc: value?.disc !== false,
+    sherd: value?.sherd !== false,
   };
 }
 
@@ -110,5 +116,6 @@ function normalize(data: Partial<MapSessionData> & { version?: number | string }
     lootFilters: normalizeLootFilters(data.lootFilters),
     searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
     theme: data.theme === 'dark' || data.theme === 'light' ? data.theme : undefined,
+    locale: data.locale === 'zh' || data.locale === 'en' ? data.locale : undefined,
   };
 }

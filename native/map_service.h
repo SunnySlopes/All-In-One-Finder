@@ -19,11 +19,8 @@
 
 using loots::Box3i;
 using loots::OverlayFeature;
-using loots::Overlay_Ore_Diamond;
-using loots::Overlay_Ore_Lapis;
 using loots::Overlay_City_Silence;
 using loots::Overlay_City_SwiftSneak;
-using loots::Overlay_Nether_Debris;
 using loots::Overlay_City_GoldenApple;
 using loots::AncientCityTier;
 using loots::CityTier_None;
@@ -117,6 +114,8 @@ struct LootChest {
     unsigned discKinds = 0;
     /** Banner / sniffer egg / golden apple, see loots::LootMiscBits. */
     unsigned miscKinds = 0;
+    /** Pottery sherds, see loots::LootSherdBits (bits 17-22 reserved). */
+    unsigned sherdKinds = 0;
     /** Total disc_fragment_5 items in this container. */
     int discFragments = 0;
     /** 0 = chest, 1 = barrel, 2 = decorated pot, 3 = suspicious block. */
@@ -142,7 +141,7 @@ struct LootChestInfo {
     bool hasAllay = false;
     /** Number of allay cage feature pieces, when allay detection was evaluated. */
     int allayCages = 0;
-    /** 命中的战利品种类（0 无, 1 纹饰, 2 下界合金, 3 嗅探蛋, 4 附魔金苹果, 5 旗帜图案, 6 唱片）。 */
+    /** 命中的战利品种类（0 无, 1 纹饰, 2 下界合金, 3 嗅探蛋, 4 附魔金苹果, 5 旗帜图案, 6 唱片, 7 陶片）。 */
     int lootKind = 0;
     /** 仅提示型的命中明细（可与 lootKind 同时为真，例如沙丘 + 附魔金）。 */
     bool hasTrim = false;
@@ -157,9 +156,11 @@ struct LootChestInfo {
     unsigned discKinds = 0;
     /** 本结构所有目标箱的杂项并集（loots::LootMiscBits）。 */
     unsigned miscKinds = 0;
+    /** 本结构所有目标箱/方块的陶片并集（loots::LootSherdBits）。 */
+    unsigned sherdKinds = 0;
     /** 本结构所有目标箱的 disc_fragment_5 总数。 */
     int discFragments = 0;
-    /** UI 类别位：1 杂项 / 2 模板 / 4 唱片（loots::LootCategoryBits）。 */
+    /** UI 类别位：1 杂项 / 2 模板 / 4 唱片 / 8 陶片（loots::LootCategoryBits）。 */
     unsigned categoryMask = 0;
     /** True when the structure's chest positions/seeds are approximate. */
     bool approximate = false;
@@ -168,8 +169,6 @@ struct LootChestInfo {
      * （1.20 之前的海底遗迹嗅探蛋、废弃矿井箱子）。
      */
     bool reliable = true;
-    /** 提示文本的补充原因（仅 reliable=false 时非空，前端直接展示）。 */
-    std::string note;
     std::vector<LootChest> chests;
 };
 

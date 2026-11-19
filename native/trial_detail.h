@@ -22,12 +22,20 @@ struct TrialSpawner {
     bool slow = false;
 };
 
-/** One decorated pot that actually contains the Creator music box. */
+/** One decorated pot that contains the Creator music box and/or a sherd pattern. */
 struct TrialCreatorPot {
     int x = 0;
     int y = 0;
     int z = 0;
     uint64_t lootSeed = 0;
+    /**
+     * Pottery sherd bit mask from the template pattern (loots::LootSherdBits):
+     * flow/guster/scrape pots carry one pattern each; undecorated pots (the
+     * Creator chest-like pots) carry none.
+     */
+    unsigned sherdBits = 0;
+    /** This pot's corridor roll yields the Creator music box. */
+    bool creator = false;
 };
 
 /**
@@ -46,7 +54,7 @@ struct TrialChamberInfo {
     /** Only host rooms with cages, horizontally padded by one block. */
     std::vector<TrialFrame> frames;
     std::vector<TrialSpawner> spawners;
-    /** Decorated pots in `pots/trial_chambers/corridor` that hold Creator. */
+    /** Decorated pots with the Creator music box or a pot sherd pattern. */
     std::vector<TrialCreatorPot> pots;
 };
 

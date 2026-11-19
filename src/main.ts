@@ -1,6 +1,6 @@
 import './style.css';
 import { escapeText } from './dialog';
-import { applyI18n, locale, onLocale, setLocale, t } from './i18n';
+import { applyI18n, locale, onLocale, setLocale, t, type LocaleId } from './i18n';
 import { MapView } from './map';
 import { FlowerPanel } from './flower';
 import { FortressPanel } from './fortress';
@@ -112,9 +112,9 @@ function collectSearcherStates(): Record<string, unknown> {
 }
 
 function sessionSnapshot(): MapSessionData {
-  // 主题随存档一起落盘：换会话/重开程序时沿用用户上次的选择，
-  // 而不是重新跟随系统。旧存档没有该字段时保持原行为（跟随系统/本地记录）。
-  return { ...map.exportSnapshot(), theme: currentTheme };
+  // 页面级状态（主题/语言）由 setSessionExtraProvider 注入 exportSnapshot，
+  // 因此 map 自身触发的存档与宿主定时保存写出的字段一致。
+  return map.exportSnapshot();
 }
 
 function applySearcherStates(states: unknown): void {
@@ -134,6 +134,9 @@ function applySearcherStates(states: unknown): void {
 }
 
 map.setSearcherStateProvider(collectSearcherStates);
+// 主题/语言属于页面级状态：注入到 map 的存档快照里，避免 map 自己的
+// writeSession 与宿主定时保存写出不一致的 session 文件。
+map.setSessionExtraProvider(() => ({ theme: currentTheme, locale: locale() }));
 
 /**
  * 每个搜索 tab 共用同一套种子同步接口；集中列出一次，
@@ -245,6 +248,7 @@ langToggle.addEventListener('click', () => {
   syncAboutLabel();
   setWindowTitle();
   paintSearcherBar();
+  map.saveNow();
 });
 
 /* ---- About 按钮：放在语言切换右侧（原生菜单栏移除后由它承担）---- */
@@ -290,11 +294,22 @@ export function adoptSessionTheme(theme: ThemeId | undefined): void {
   if (theme === 'dark' || theme === 'light') setTheme(theme);
 }
 
+/** 由存档恢复语言（优先于本地记录；旧存档没有该字段时保持当前选择）。 */
+export function adoptSessionLocale(localeId: LocaleId | undefined): void {
+  if (localeId !== 'zh' && localeId !== 'en') return;
+  setLocale(localeId);
+  syncLangLabel();
+  syncAboutLabel();
+  setWindowTitle();
+  paintSearcherBar();
+}
+
 applyTheme(currentTheme);
 themeToggle.addEventListener('click', () => {
   const next: ThemeId =
     document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
   setTheme(next);
+  map.saveNow();
 });
 
 function showAbout(): void {
@@ -486,9 +501,10 @@ void Promise.all([call<McVersion[]>('versions'), call<FeatureInfo[]>('features')
     void map.load(versions, features).then((session) => {
       pushSeedToSingleTabs(map.getSeed());
       applySearcherStates(session?.searchers);
-      // 存档里带了主题就沿用它（跨 session 记住用户上次的选择）；
-      // 旧存档没有该字段时保留本次启动已确定的主题（本地记录或系统）。
-      adoptSessionTheme((session as { theme?: ThemeId } | null)?.theme);
+      // 存档里带了主题/语言就沿用（跨 session 记住用户上次的选择）；
+      // 旧存档没有这些字段时保留本次启动已确定的值（本地记录或系统）。
+      adoptSessionTheme(session?.theme);
+      adoptSessionLocale(session?.locale);
     });
     search.load(versions);
     slime.load(versions);

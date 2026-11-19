@@ -52,10 +52,17 @@
   - 海底遗迹、古迹废墟等命中位置是**方块**（可疑沙/可疑砂砾），不是箱子；信息卡会显示为「方块」。
   - 幽静（Silence）箱子使用专用图标，不画圆环。
   - 堡垒遗迹的猪灵旗帜图案（`piglin_banner_pattern`）用粉色圆环标出对应箱子；与纹饰同箱时优先显示纹饰颜色。
-  - 古迹废墟模板方块全部列出（不设 12 条上限），只输出有模板的方块，不输出没有模板的方块；每行标出该方块对应的模板。
-  - **唱片**：Pigstep、Otherside、Relic、Bounce、Creator（八音盒）与 5 号碎片统一用唱片色；Bounce/Creator 使用独立图标，出现即覆盖其他类别（幽静除外）。5 号碎片逐箱显示数量，不汇总“9 个可合成”。废弃矿井的箱子矿车是近似结果：Bounce 名称带“（近似）”，圆环外加虚线，信息卡显示说明。
-  - **试炼密室**：只标出真正开出 Creator（八音盒）的饰纹陶罐，坐标和 loot seed 与 26.3 服务端 oracle 一致。
-- **战利品类别筛选**：勾选「展示战利品」后显示「杂项 / 模板 / 唱片」三个复选框（默认全开），只影响绘制和信息卡，不改变 native 求值。未选中的类别不画圆环/角标、不列信息卡；只选“唱片”时显示 Otherside 地牢不支持提示。
+  - **远古城市/古迹废墟/试炼陶罐不设 12 条上限**：古城列出全部命中箱子；古迹废墟列出全部有模板的方块（不输出没有模板的方块，每行标出该方块对应的模板）；试炼密室的 Creator 陶罐和 flow/guster/scrape 纹样陶罐也全部列出。
+  - **唱片**：Pigstep、Otherside、Relic、Bounce、Creator（八音盒）与 5 号碎片统一用唱片色；Bounce/Creator 使用独立图标，出现即覆盖其他类别（幽静除外）。5 号碎片逐箱显示数量，不汇总“9 个可合成”。废弃矿井箱子矿车在已验证样本中逐箱精确，不再显示“（近似）”或虚线圈；少数受区块生成顺序影响的样本见下方「已知限制」。
+  - **试炼密室**：标出真正开出 Creator（八音盒）的陶罐，以及 flow/guster/scrape 纹样陶罐；陶片按模板名映射，坐标与 26.3 服务端一致（Creator 陶罐的 loot seed 偏差见「已知限制」）。
+  - **陶片**：17 种（古迹废墟 7、试炼纹样陶罐 3、暖海底 3、寒带海底 4）统一用陶片色，逐方块/逐陶罐标记并在信息卡列出名称；沙漠神殿 4 + 沙漠水井 2 未实现，选中陶片筛选时对应结构图标显示问号角标和提示。
+- **战利品类别筛选**：勾选「展示战利品」后显示「杂项 / 模板 / 唱片 / 陶片」四个复选框（默认全开），只影响绘制和信息卡，不改变 native 求值。未选中的类别不画圆环/角标、不列信息卡；只选“唱片”时显示 Otherside 地牢不支持提示。
+- **已知限制（战利品坐标/内容）**：以下项目已实现，但未达到“逐箱/逐方块与实机一致”，界面不做近似标记，以此处为准：
+  - **废弃矿井（Bounce 来源）**：结果依赖区块生成顺序（怪物房、岩浆湖等跨区块写入）。按 oracle 的升序回放时，少数与怪物房重叠的矿井仍可能差 1–2 个箱子，可能漏报或误报 Bounce。
+  - **试炼陶罐（Creator 来源）**：陶罐位置/模板精确；47 个 loot seed 中 26 个与 oracle 一致，Creator 八音盒的判定可能受影响。纹样陶片（flow/guster/scrape）只按模板名映射，不受影响。
+  - **海底遗迹（暖/寒陶片）**：可疑方块坐标仍不精确（暖海底样本 23 vs oracle 29；寒带 10–13 vs 5–9，大遗迹 87 vs 57）。陶片内容由战利品表精确求值，但位置不保证。
+  - **古迹废墟（Relic + 7 陶片）**：8 个实机样本中 6 个坐标一致，2 个差 1 格或位置不同。
+  - **版本验证**：世界生成（结构坐标/区块）的 Java oracle 仅能在 26.3 上运行；战利品表（唱片/陶片等）的多版本结果由 `generate_golden.py` 的多版本 golden oracle 覆盖——它直接读取 1.18.2–26.3 各版本 jar，用独立的 Python 实现生成期望值，`loots-goldentest` 对**每个受支持版本**逐 seed 比对（含 6 张唱片与 17 种陶片的位掩码）。
 - **仅提示型**：海底神殿、沙漠神殿、丛林神殿、掠夺者前哨站、沉船。
   - 不显示箱子/方块坐标，只在原结构图标角落叠加对应图标。
   - 前哨站有悦灵时右上角叠加悦灵，有哨兵模板时右下角叠加哨兵；两者都有则同时叠加。信息卡显示「包含：悦灵笼 ×N、哨兵盔甲纹饰」，有哪个显示哪个，悦灵笼数量来自精确 jigsaw 放置。
@@ -81,7 +88,7 @@
 - 下界要塞在正确起始坐标下 cubiomes 的 X/Z piece 图与 26.3 一致；loots 已补上 `moveInsideHeights` 的 Y 修正，并按 Java 的转弯走廊局部坐标重算箱子。`16080,24544` 和 `15360,26640` 的箱子坐标、Y、lootSeed 与 26.3 oracle 一致。1.20+ 共用该 Y/箱子模拟路径；1.16/1.17 不应用 1.18+ 的 Y 整体偏移。已用 1.20.1/1.21.5/1.21.11 源码核对，前哨站与堡垒遗迹的 placement 数据在 1.20.1–26.3 未变化。
 - 海底遗迹嗅探兽蛋/可疑沙使用 loots 共享的 1.20.1–26.3 模板、箱子表和处理器数据；暖水可疑沙坐标与 26.3 oracle 一致，1.20+ 使用对应版本地形。地形更新和结构重叠仍可能影响最终世界状态。
 - 试炼密室陶罐使用 loots 的独立 layout + post-process RNG 复算；seed 0、结构 `-800,-1008` 的 47 个陶罐坐标/模板/loot seed 与 26.3 服务端完全一致。
-- **废弃矿井**：已把 geode 的 1:1 矿井生成器搬进 loots（`src/mineshaft/mineshaft_gen.*`），piece 图/方向/section/真实 `dy` 与 26.3 服务端一致；箱子 RNG 按 `MineshaftCorridor.generate` 回放。seed 0、`-4080,848` 的 6 个箱子中 4 个的 X/Z/Y 和 loot seed 完全一致，仍有 2 缺 2 多，因此 Bounce/EGA 在矿井上继续标“近似”。
+- **废弃矿井**：已把 geode 的 1:1 矿井生成器搬进 loots（`src/mineshaft/mineshaft_gen.*`），piece 图/方向/section/真实 `dy` 与 26.3 服务端一致；箱子回放按 26.3 `MineShaftCorridor.postProcess` 逐条复刻方块状态与 RNG（`src/mineshaft/block_view.h`），并实现 structure set 的普通/恶地变体选择与各自的 post-process index。seed 0 的 7 座固定样本（含恶地、真正的 mesa、液体跳过、蜘蛛走廊、铁轨）共 33 个箱子坐标与 loot seed 全部与 26.3 oracle 一致；1.18.2–1.21.10 各版本 jar 的矿井 piece/post-process 代码已逐版本反编译对拍，与 1.21.11 逻辑一致，因此 **1.18.2–26.3 全版本都不再标“近似”**。step 1–3 的 feature（怪物房等）会跨区块写入方块，vanilla 结果因此依赖区块生成顺序；与怪物房重叠的少数矿井仍可能差 1–2 个箱子，详见 `docs/loot-layers-integration-status.md` §6。
 
 模块的构建方式、CLI、目录结构和数据生成说明见 [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md)。
 
@@ -146,8 +153,7 @@ npm run regression:compare  # 对比两份回归产物（基线 vs 本次）是�
 ## TODO
 
 1. 无史莱姆区块搜索器
-2. 补全矿井 `MineshaftCorridor.generate` 的方块状态/RNG 回放，使 4/6 对拍提升到 6/6
-3. 战利品子模块增加 23 种陶片展示
+2. 沙漠神殿 4 种 + 沙漠水井 2 种陶片（共 6 种；其余 17 种已实现）
 
 ## 许可
 
@@ -178,4 +184,5 @@ Copyright (C) 2026 SunnySlopes
 - 试炼刷怪笼：https://github.com/SunnySlopes/trial-spawner-native ，作者：打野别说话
 - 紫水晶母岩：https://github.com/SunnySlopes/geode-native ，作者：打野别说话
 - 全花农场：https://github.com/SunnySlopes/FlowerFinderBase ，作者：SunnySlopes
+- 战利品图层：https://github.com/SunnySlopes/LootsFinder ，作者：SunnySlopes
 - 其中低Y溶洞搜索器和繁花搜索器感谢M33三角座星系的指导

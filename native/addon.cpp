@@ -96,9 +96,6 @@ Napi::Value OverlayCapabilityOp(const Napi::CallbackInfo &info)
     out.Set("cityWard", cap.cityWard);
     out.Set("citySwiftSneak", cap.citySwiftSneak);
     out.Set("cityGoldenApple", cap.cityGoldenApple);
-    out.Set("oreDiamond", cap.oreDiamond);
-    out.Set("oreLapis", cap.oreLapis);
-    out.Set("netherDebris", cap.netherDebris);
     out.Set("supported", overlaySupported(mc));
     return out;
 }
@@ -205,11 +202,11 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
         obj.Set("trimKinds", list[i].trimKinds);
         obj.Set("discKinds", list[i].discKinds);
         obj.Set("miscKinds", list[i].miscKinds);
+        obj.Set("sherdKinds", list[i].sherdKinds);
         obj.Set("discFragments", list[i].discFragments);
         obj.Set("categoryMask", list[i].categoryMask);
         obj.Set("approximate", list[i].approximate);
         obj.Set("reliable", list[i].reliable);
-        obj.Set("note", list[i].note);
         Napi::Array chests = Napi::Array::New(env, list[i].chests.size());
         for (size_t c = 0; c < list[i].chests.size(); c++) {
             Napi::Object co = Napi::Object::New(env);
@@ -226,6 +223,7 @@ Napi::Value LootChestsOp(const Napi::CallbackInfo &info)
             co.Set("trimKinds", list[i].chests[c].trimKinds);
             co.Set("discKinds", list[i].chests[c].discKinds);
             co.Set("miscKinds", list[i].chests[c].miscKinds);
+            co.Set("sherdKinds", list[i].chests[c].sherdKinds);
             co.Set("discFragments", list[i].chests[c].discFragments);
             co.Set("container", list[i].chests[c].container);
             co.Set("approximate", list[i].chests[c].approximate);
@@ -1057,6 +1055,8 @@ Napi::Value TrialChambers(const Napi::CallbackInfo &info)
             pot.Set("y", detail.pots[p].y);
             pot.Set("z", detail.pots[p].z);
             pot.Set("lootSeed", Napi::BigInt::New(env, detail.pots[p].lootSeed));
+            pot.Set("sherd", detail.pots[p].sherdBits);
+            pot.Set("creator", detail.pots[p].creator);
             pots.Set(p, pot);
         }
         item.Set("pots", pots);

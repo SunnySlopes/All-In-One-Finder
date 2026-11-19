@@ -9,7 +9,6 @@ import {
   type LootChestInfo,
   type McVersion,
   type MonumentSpongeInfo,
-  type OverlayCapability,
   type Placed,
   type StrongholdPortalInfo,
   type StructureBoundsData,
@@ -82,10 +81,6 @@ const COLORS: Record<string, string> = {
   ruined_portal_n: '#c45ad0',
   end_city: '#d7d2a4',
   end_gateway: '#7fd0c8',
-  // 一期叠加层（古城箱子三类产物）
-  ancient_city_silence: '#c8a2ff',
-  ancient_city_swift_sneak: '#7fe0b0',
-  ancient_city_golden_apple: '#f5c542',
 };
 
 const TILE_CELLS = 128;
@@ -134,18 +129,6 @@ const TRIAL_POT_ICON_SIZE = 12;
 /** Geodes generate roughly once per 43 chunks; below 1:1 their icons overlap into noise. */
 const GEODE_ICON_MIN_PPB = 1;
 /**
- * 一期叠加层 → overlayCapability() 返回的能力字段。
- * 版本不支持时勾选框禁用（例如 1.19 没有纹饰系统，幽静模板在该版本不存在）。
- */
-const OVERLAY_CAPABILITY: Record<string, keyof OverlayCapability> = {
-  ancient_city_silence: 'citySilence',
-  ancient_city_swift_sneak: 'citySwiftSneak',
-  ancient_city_golden_apple: 'cityGoldenApple',
-  ore_diamond: 'oreDiamond',
-  ore_lapis: 'oreLapis',
-  nether_debris: 'netherDebris',
-};
-/**
  * Desert wells: getStructurePos yields ~1/1000 candidates but only ~2% land in a
  * desert, so the effective density is ~1/45,700 chunks. They are drawn only at
  * 1:32 or closer (cubiomes-viewer uses the same per-structure scale of 32) and at
@@ -169,7 +152,7 @@ const LOOT_STRUCTURE_TYPES: number[] = [
   9,  // woodland mansion
   10, // pillager outpost
   13, // ancient city
-  15, // abandoned mineshaft (Bounce; approximate)
+  15, // abandoned mineshaft (Bounce)
   18, // nether fortress
   19, // bastion
   21, // end city
@@ -191,6 +174,8 @@ const LOOT_CHEST_COLOR = {
   swiftSneak: '#7fe0b0',
   /** All music discs share one color (plan §5.4). */
   disc: '#79d6e6',
+  /** All 17 tracked pottery sherds share one color (plan §5.4). */
+  sherd: '#c98b5e',
 };
 /** loots::LootDiscBits 位序号 → 语言键 / 图标。 */
 const LOOT_DISC: Record<number, { name: string; icon?: string }> = {
@@ -202,8 +187,31 @@ const LOOT_DISC: Record<number, { name: string; icon?: string }> = {
   5: { name: 'fragment5' },
 };
 /** UI 类别位（与 native 的 categoryMask 一致）。 */
-const LOOT_CATEGORY = { misc: 1, template: 2, disc: 4 } as const;
+const LOOT_CATEGORY = { misc: 1, template: 2, disc: 4, sherd: 8 } as const;
 type LootCategoryKey = keyof typeof LOOT_CATEGORY;
+/**
+ * loots::LootSherdBits 位序号 → 语言键。bits 0-6 古迹、7-9 试炼陶罐、
+ * 10-12 暖海底、13-16 寒带海底；17-22 预留给沙漠神殿/水井（未实现）。
+ */
+const LOOT_SHERD: Record<number, { name: string }> = {
+  0: { name: 'burn' },
+  1: { name: 'danger' },
+  2: { name: 'friend' },
+  3: { name: 'heart' },
+  4: { name: 'heartbreak' },
+  5: { name: 'howl' },
+  6: { name: 'sheaf' },
+  7: { name: 'flow' },
+  8: { name: 'guster' },
+  9: { name: 'scrape' },
+  10: { name: 'angler' },
+  11: { name: 'shelter' },
+  12: { name: 'snort' },
+  13: { name: 'blade' },
+  14: { name: 'explorer' },
+  15: { name: 'mourner' },
+  16: { name: 'plenty' },
+};
 /**
  * loots::TrimKind 的位序号 → 语言键 / 颜色。位掩码 = 1 << kind。
  * 0 = none，1 = ward，2 = silence，……，16 = eye。
@@ -311,6 +319,17 @@ function mapVersions(versions: McVersion[]): McVersion[] {
     .reverse();
 }
 
+/**
+ * Searchers and older sessions use the cubiomes data-family name for a jump
+ * target; the map version list now shows the concrete profile version.
+ */
+const VERSION_ALIASES: Record<string, string> = {
+  '1.18': '1.18.2',
+  '1.19': '1.19.4',
+  '1.20': '1.20.1',
+  '1.20.6': '1.20.1',
+};
+
 interface MapSession {
   seed: string;
   version: string;
@@ -323,8 +342,11 @@ interface MapSession {
   grid: boolean;
   terrain: boolean;
   features: string[];
-  lootFilters?: { misc: boolean; template: boolean; disc: boolean };
+  lootFilters?: { misc: boolean; template: boolean; disc: boolean; sherd: boolean };
   searchers?: Record<string, unknown>;
+  /** 页面级状态（main.ts 注入），随存档一起恢复。 */
+  theme?: 'dark' | 'light';
+  locale?: 'zh' | 'en';
 }
 
 /** Effective native tile layer for a zoom level (see native/terrain_map.h). */
@@ -445,6 +467,7 @@ function parseSession(raw: string | null): MapSession | null {
       typeof data.version === 'string' ? data.version : typeof data.mcVersion === 'string' ? data.mcVersion : '';
     const x = Number(data.x);
     const z = Number(data.z);
+    const filters = data.lootFilters;
     return {
       seed: data.seed.trim(),
       version: named,
@@ -461,7 +484,16 @@ function parseSession(raw: string | null): MapSession | null {
       features: Array.isArray(data.features)
         ? data.features.filter((item): item is string => typeof item === 'string')
         : [...DEFAULT_FEATURES],
+      // 旧存档没有战利品分项状态：默认四类全开。
+      lootFilters: {
+        misc: filters?.misc !== false,
+        template: filters?.template !== false,
+        disc: filters?.disc !== false,
+        sherd: filters?.sherd !== false,
+      },
       searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
+      theme: data.theme === 'dark' || data.theme === 'light' ? data.theme : undefined,
+      locale: data.locale === 'zh' || data.locale === 'en' ? data.locale : undefined,
     };
   } catch {
     return null;
@@ -524,8 +556,6 @@ export class MapView {
   private large: HTMLInputElement;
   private versions: McVersion[] = [];
   private features: FeatureInfo[] = [];
-  /** 一期叠加层的版本能力；null = 尚未取到（此时不禁用任何勾选框）。 */
-  private overlayCap: OverlayCapability | null = null;
   private enabled = new Set<number>();
   private cx = 0;
   private cz = 0;
@@ -548,7 +578,7 @@ export class MapView {
   private lootChests: LootChestInfo[] = [];
   private lootGen = 0;
   /** 战利品类别筛选；只影响绘制/信息卡，不改变 native 求值内容。 */
-  private lootFilters = { misc: true, template: true, disc: true };
+  private lootFilters = { misc: true, template: true, disc: true, sherd: true };
   /** 最近点击的精确战利品圆环（用于古迹废墟显示该方块的具体模板）。 */
   private selectedLootChest: {
     type: number;
@@ -603,6 +633,7 @@ export class MapView {
   private biomeName = '';
   private saveTimer = 0;
   private collectSearchers: (() => Record<string, unknown>) | null = null;
+  private collectSessionExtra: (() => Record<string, unknown>) | null = null;
   private loaded = false;
   private saveNoticeShown = false;
   private drawing = false;
@@ -689,7 +720,7 @@ export class MapView {
     const hadSession = !!window.aio?.hasSession;
     const session = await this.loadSession();
     const preferred =
-      (session?.version && this.versions.find((item) => item.name === session.version)) ||
+      (session?.version && this.findVersion(session.version)) ||
       this.versions.find((item) => item.name === '26.3') ||
       this.versions[0];
     if (preferred) this.version.value = String(preferred.id);
@@ -708,14 +739,14 @@ export class MapView {
       localStorage.setItem('aio.grid', session.grid ? '1' : '0');
       // 跨 session 打开：把地图中心恢复到上次的位置（旧存档缺省 0,0）。
       this.restoreCenter(session.x, session.z);
+      // 战利品分项（杂项/模板/唱片/陶片）的展示状态随存档恢复。
+      if (session.lootFilters) this.lootFilters = { ...session.lootFilters };
     }
     const enabledKeys = new Set(session?.features ?? DEFAULT_FEATURES);
     this.enabled.clear();
     for (const feature of features) {
       if (enabledKeys.has(feature.key)) this.enabled.add(feature.id);
     }
-    // 版本已选定，再按能力禁用不支持的叠加层（例如 1.19 的幽静模板）。
-    await this.refreshOverlayCap();
     this.renderFeatures();
     this.syncLayerControls();
     this.schedule(true);
@@ -740,6 +771,16 @@ export class MapView {
   /** 自动保存/导出 session 时附带各搜索器的条件。 */
   setSearcherStateProvider(provider: () => Record<string, unknown>): void {
     this.collectSearchers = provider;
+  }
+
+  /** 自动保存/导出 session 时附带页面级状态（主题/语言等）。 */
+  setSessionExtraProvider(provider: () => Record<string, unknown>): void {
+    this.collectSessionExtra = provider;
+  }
+
+  /** 立即提交一次存档（语言/主题等页面级状态变化后调用）。 */
+  saveNow(): void {
+    this.flushSession();
   }
 
   /** 女巫小屋搜索开始时的世界预设快照：大型生物群系跟随地图勾选。 */
@@ -819,6 +860,13 @@ export class MapView {
     this.queueDraw();
   }
 
+  /** Resolve a searcher/session version label to a listed map version. */
+  private findVersion(label: string): McVersion | undefined {
+    if (!label) return undefined;
+    const target = VERSION_ALIASES[label] ?? label;
+    return this.versions.find((item) => item.name === target);
+  }
+
   jumpTo(options: JumpOptions): void {
     this.clearSelection();
     const previous = {
@@ -837,7 +885,7 @@ export class MapView {
       this.onSeedChange(nextSeed);
     }
     if (options.mcVersion) {
-      const match = this.versions.find((item) => item.name === options.mcVersion);
+      const match = this.findVersion(options.mcVersion);
       if (match) this.version.value = String(match.id);
     }
     if (options.largeBiomes != null) {
@@ -911,7 +959,7 @@ export class MapView {
     const version = this.versions.find((item) => String(item.id) === this.version.value);
     const dim = Number(this.dimension.value);
     const y = Number(this.y.value);
-    return {
+    const data: MapSessionData = {
       kind: 'aio-session',
       version: 1,
       seed: this.seed.value.trim() || '0',
@@ -928,12 +976,16 @@ export class MapView {
       lootFilters: { ...this.lootFilters },
       searchers: this.collectSearchers ? this.collectSearchers() : undefined,
     };
+    // 页面级状态（主题/语言）由 main.ts 注入，保证 map 自己触发的存档
+    // 与宿主定时保存写出的字段一致。
+    if (this.collectSessionExtra) Object.assign(data, this.collectSessionExtra());
+    return data;
   }
 
   applySnapshot(data: MapSessionData): void {
     this.seed.value = data.seed;
     this.draftDirty = false;
-    const match = this.versions.find((item) => item.name === data.mcVersion);
+    const match = this.findVersion(data.mcVersion ?? '');
     if (match) this.version.value = String(match.id);
     this.dimension.value = String(data.dim);
     this.y.value = String(data.dim === 0 ? data.y : defaultYForDim(data.dim));
@@ -953,6 +1005,7 @@ export class MapView {
       misc: data.lootFilters?.misc !== false,
       template: data.lootFilters?.template !== false,
       disc: data.lootFilters?.disc !== false,
+      sherd: data.lootFilters?.sherd !== false,
     };
     this.renderFeatures();
     this.persistSession();
@@ -1071,8 +1124,6 @@ export class MapView {
       this.queueFeatures();
     };
     this.version.addEventListener('change', () => {
-      // 版本变化会改变叠加层的可用性（例如 1.19 没有纹饰系统）。
-      void this.refreshOverlayCap();
       worldChanged();
     });
     this.dimension.addEventListener('change', () => {
@@ -1252,35 +1303,7 @@ export class MapView {
     };
   }
 
-  /**
-   * 拉取一期叠加层的版本能力（勾选框禁用依据）。失败时保持 null，
-   * 此时不做禁用（宁可显示也不要因为一次失败把整列灰掉）。
-   */
-  private async refreshOverlayCap(): Promise<void> {
-    try {
-      this.overlayCap = await call<OverlayCapability>('overlayCapability', {
-        mc: Number(this.version.value),
-      });
-    } catch {
-      this.overlayCap = null;
-    }
-    for (const [key, field] of Object.entries(OVERLAY_CAPABILITY)) {
-      if (this.overlayCap && !this.overlayCap[field]) {
-        const id = this.features.find((feature) => feature.key === key)?.id;
-        if (id !== undefined) this.enabled.delete(id);
-      }
-    }
-    this.renderFeatures();
-  }
-
-  /** 勾选框禁用时的 tooltip：1.19 的幽静模板要单独解释。 */
-  private overlayBlockedHint(key: string): string {
-    if (key === 'ancient_city_silence' && this.overlayCap?.cityTier === 1) {
-      return t('common.map.silenceUnavailable119');
-    }
-    return t('common.map.overlayUnsupported');
-  }
-
+  /** 图层勾选列表（版本能力禁用已随矿石/叠加层计划移除）。 */
   private renderFeatures(): void {
     const renderRow = (feature: FeatureInfo, showMark: boolean): string => {
       const icon = showMark ? ICONS[feature.key] : '';
@@ -1289,18 +1312,12 @@ export class MapView {
         : showMark
           ? `<span class="swatch" style="background:${COLORS[feature.key] || '#ddd'}"></span>`
           : '';
-      // 一期叠加层按版本能力禁用（例如 1.19 没有纹饰系统 → 幽静模板不可用）。
-      const capKey = OVERLAY_CAPABILITY[feature.key];
-      const blocked = capKey ? this.overlayCap !== null && !this.overlayCap[capKey] : false;
-      const hintText = blocked ? this.overlayBlockedHint(feature.key) : '';
       return `
-      <label class="check-row"${blocked ? ` title="${hintText}"` : ''}>
+      <label class="check-row">
         <input type="checkbox" data-id="${feature.id}"
-          ${blocked ? 'disabled' : ''}
-          ${this.enabled.has(feature.id) && !blocked ? 'checked' : ''} />
+          ${this.enabled.has(feature.id) ? 'checked' : ''} />
         ${mark}
         <span>${structureLabel(feature.key)}</span>
-        ${blocked ? `<span class="muted">${t('common.map.overlayUnsupportedShort')}</span>` : ''}
       </label>`;
     };
 
@@ -1329,10 +1346,10 @@ export class MapView {
           <label class="check-row"><input id="map-loot-misc" type="checkbox" ${this.lootFilters.misc ? 'checked' : ''} /><span>${t('common.map.lootFilterMisc')}</span></label>
           <label class="check-row"><input id="map-loot-template" type="checkbox" ${this.lootFilters.template ? 'checked' : ''} /><span>${t('common.map.lootFilterTemplate')}</span></label>
           <label class="check-row"><input id="map-loot-disc" type="checkbox" ${this.lootFilters.disc ? 'checked' : ''} /><span>${t('common.map.lootFilterDisc')}</span></label>
+          <label class="check-row"><input id="map-loot-sherd" type="checkbox" ${this.lootFilters.sherd ? 'checked' : ''} /><span>${t('common.map.lootFilterSherd')}</span></label>
         </div>
         <div id="map-loot-disc-hints" ${this.lootFilters.disc ? '' : 'hidden'}>
           <div class="muted loot-hint">${t('common.map.lootOthersideDungeonUnsupported')}</div>
-          <div class="muted loot-hint">${t('common.map.lootBounceInaccurate')}</div>
         </div>`;
       const bindFilter = (id: string, key: LootCategoryKey) => {
         const input = this.lootRowBox.querySelector<HTMLInputElement>(`#${id}`);
@@ -1349,6 +1366,7 @@ export class MapView {
       bindFilter('map-loot-misc', 'misc');
       bindFilter('map-loot-template', 'template');
       bindFilter('map-loot-disc', 'disc');
+      bindFilter('map-loot-sherd', 'sherd');
     }
     this.featureBox.innerHTML = `<div class="feature-divider"></div>${groups.join('<div class="feature-divider"></div>')}`;
     for (const root of [this.lootRowBox, this.featureBox]) root.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
@@ -1600,17 +1618,37 @@ export class MapView {
             if (
               this.enabled.has(LOOT_MARKERS_ID) &&
               this.lootFilters.disc &&
-              detail.pots.length
+              detail.pots.some((pot) => pot.creator)
             ) {
+              const creatorPots = detail.pots.filter((pot) => pot.creator);
               rows.push(
-                `<div>${escapeText(t('common.map.trialCreatorPots', { n: detail.pots.length }))}</div>`,
+                `<div>${escapeText(t('common.map.trialCreatorPots', { n: creatorPots.length }))}</div>`,
               );
-              for (const pot of detail.pots.slice(0, 12)) {
+              for (const pot of creatorPots) {
                 rows.push(
                   `<div class="muted">${escapeText(
                     t('common.map.trialCreatorPotAt', { x: pot.x, y: pot.y, z: pot.z }),
                   )}</div>`,
                 );
+              }
+            }
+            if (this.enabled.has(LOOT_MARKERS_ID) && this.lootFilters.sherd) {
+              const sherdPots = detail.pots.filter((pot) => pot.sherd !== 0);
+              if (sherdPots.length) {
+                rows.push(
+                  `<div>${escapeText(t('common.map.trialSherdPots', { n: sherdPots.length }))}</div>`,
+                );
+                for (const pot of sherdPots) {
+                  const names = Object.entries(LOOT_SHERD)
+                    .map(([bit, meta]) => (pot.sherd & (1 << Number(bit)) ? t(`common.map.sherd_${meta.name}`) : ''))
+                    .filter(Boolean)
+                    .join('、');
+                  rows.push(
+                    `<div class="muted">${escapeText(
+                      t('common.map.trialSherdPotAt', { name: names, x: pot.x, y: pot.y, z: pot.z }),
+                    )}</div>`,
+                  );
+                }
               }
             }
           }
@@ -1660,6 +1698,13 @@ export class MapView {
     // 战利品信息：只对当前勾选的「展示战利品」生效；结构图层仍需打开。
     if (this.enabled.has(LOOT_MARKERS_ID)) {
       rows.push(...this.lootInfoLines(selected));
+      // 沙漠神殿/水井的陶片生成本期未实现；选中陶片筛选时给出提示。
+      if (this.lootFilters.sherd &&
+          (selected.key === 'desert_pyramid' || selected.key === 'desert_well')) {
+        rows.push(
+          `<div class="muted">${escapeText(t('common.map.lootSherdDesertUnknown'))}</div>`,
+        );
+      }
     }
     if (selected.key === 'monument' && this.lootFilters.misc) {
       const sponge = this.monumentSponge.get(this.trialKey(selected.x, selected.z));
@@ -1885,9 +1930,15 @@ export class MapView {
     return (
       this.trialDetailAllowed() &&
       this.enabled.has(LOOT_MARKERS_ID) &&
-      this.lootFilters.disc &&
+      (this.lootFilters.disc || this.lootFilters.sherd) &&
       this.pixelsPerBlock >= TRIAL_POT_MIN_PPB
     );
+  }
+
+  /** 陶罐在当前筛选下是否绘制/可点击：Creator 走唱片筛选，纹样走陶片筛选。 */
+  private trialPotShown(pot: TrialCreatorPot): boolean {
+    if (pot.creator && this.lootFilters.disc) return true;
+    return pot.sherd !== 0 && this.lootFilters.sherd;
   }
 
   private queueTrialDetails(): void {
@@ -2884,6 +2935,7 @@ export class MapView {
     if (this.lootFilters.misc) enabled |= LOOT_CATEGORY.misc;
     if (this.lootFilters.template) enabled |= LOOT_CATEGORY.template;
     if (this.lootFilters.disc) enabled |= LOOT_CATEGORY.disc;
+    if (this.lootFilters.sherd) enabled |= LOOT_CATEGORY.sherd;
     return (mask & enabled) !== 0;
   }
 
@@ -2900,6 +2952,7 @@ export class MapView {
     )
       mask |= LOOT_CATEGORY.misc;
     if (chest.discKinds || chest.discFragments > 0) mask |= LOOT_CATEGORY.disc;
+    if (chest.sherdKinds) mask |= LOOT_CATEGORY.sherd;
     return mask;
   }
 
@@ -2909,6 +2962,7 @@ export class MapView {
     if (info.hasTrim || info.hasNetherite) mask |= LOOT_CATEGORY.template;
     if (info.hasSnifferEgg || info.hasGoldenApple || info.hasPiglinBanner) mask |= LOOT_CATEGORY.misc;
     if (info.discKinds || info.discFragments > 0) mask |= LOOT_CATEGORY.disc;
+    if (info.sherdKinds) mask |= LOOT_CATEGORY.sherd;
     return mask;
   }
 
@@ -2933,6 +2987,17 @@ export class MapView {
     if (chest.discKinds & (1 << 3)) return LOOT_DISC[3].icon || '';
     if (chest.discKinds & (1 << 4)) return LOOT_DISC[4].icon || '';
     return '';
+  }
+
+  /** 一个箱子里命中、且陶片类别已勾选的陶片名称。 */
+  private lootSherdNames(chest: LootChest): string[] {
+    const hits: string[] = [];
+    for (const [bit, meta] of Object.entries(LOOT_SHERD)) {
+      const index = Number(bit);
+      if (!(chest.sherdKinds & (1 << index))) continue;
+      hits.push(t(`common.map.sherd_${meta.name}`));
+    }
+    return hits;
   }
 
   /** 一个箱子是否包含当前选中的类别。 */
@@ -2972,12 +3037,13 @@ export class MapView {
         if (chest.goldenApples > 0) hits.push(t('common.map.lootGoldenApple', { n: chest.goldenApples }));
       }
       if (this.lootFilters.disc) hits.push(...this.lootDiscNames(chest));
+      if (this.lootFilters.sherd) hits.push(...this.lootSherdNames(chest));
       if (!hits.length) continue;
-      // Mineshaft chests are approximate: mark every hit in the detail card.
-      const shownHits =
-        item.type === 15
-          ? hits.map((hit) => t('common.map.lootApproximateName', { name: hit }))
-          : hits;
+      // Only the pre-1.21.11 mineshaft fallback is approximate; mark those hits
+      // in the detail card. The exact 1.21.11+ replay lists plain names.
+      const shownHits = chest.approximate
+        ? hits.map((hit) => t('common.map.lootApproximateName', { name: hit }))
+        : hits;
       const atKey =
         item.type === 6 || item.type === 24
           ? 'common.map.lootBlockAt'
@@ -2986,7 +3052,10 @@ export class MapView {
     }
     if (chestLines.length) {
       rows.push(`<div>${escapeText(t('common.map.lootChestsFound', { n: chestLines.length }))}</div>`);
-      const shown = item.type === 24 ? chestLines.length : Math.min(12, chestLines.length);
+      // Ancient cities (13) and trail ruins (24) list every hit; the other
+      // layers keep the 12-line card cap.
+      const uncapped = item.type === 13 || item.type === 24;
+      const shown = uncapped ? chestLines.length : Math.min(12, chestLines.length);
       for (const line of chestLines.slice(0, shown)) {
         rows.push(`<div class="muted">${escapeText(line)}</div>`);
       }
@@ -3019,24 +3088,17 @@ export class MapView {
           if (info.discFragments > 0) hits.push(t('common.map.lootDiscFragment5', { n: info.discFragments }));
           else if (info.discKinds) hits.push(t('common.map.lootAnyDisc'));
         }
+        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.sherd) && info.sherdKinds) {
+          hits.push(t('common.map.lootAnySherd'));
+        }
       }
       if (hits.length) {
-        const key = item.type === 10 ? 'common.map.lootContains' : 'common.map.lootHint';
-        rows.push(`<div>${escapeText(t(key, { hits: hits.join('、') }))}</div>`);
+        rows.push(
+          `<div>${escapeText(t('common.map.lootContains', { hits: hits.join('、') }))}</div>`,
+        );
       }
     }
 
-    // Mineshaft chests are drawn with the approximate ring, but the detail
-    // card intentionally does not repeat that warning.
-    if (info.note && info.note !== 'mineshaft_approximate' &&
-        this.lootCategoryEnabled(LOOT_CATEGORY.misc)) {
-      const noteKey =
-        info.note === 'ocean_ruin_sniffer_not_ported'
-          ? 'common.map.lootOceanRuinUnsupported'
-          : 'common.map.lootApproximate';
-      const count = info.allayCages && info.allayCages > 0 ? info.allayCages : 1;
-      rows.push(`<div class="muted">${escapeText(t(noteKey, { count }))}</div>`);
-    }
     // The "dungeons are not supported" note is intentionally only shown
     // under the music-disc filter, not in the info card.
     return rows;
@@ -3070,8 +3132,33 @@ export class MapView {
     }
     if (this.lootFilters.disc && (chest.discKinds || chest.discFragments > 0))
       return LOOT_CHEST_COLOR.disc;
+    if (this.lootFilters.sherd && chest.sherdKinds) return LOOT_CHEST_COLOR.sherd;
     if (this.lootFilters.misc && chest.goldenApples > 0) return LOOT_CHEST_COLOR.goldenApples;
     return '';
+  }
+
+  /**
+   * 沙漠神殿/水井的陶片生成尚未模拟：在图标左上角画一个问号角标。
+   */
+  private drawSherdUnknownBadge(
+    ctx: CanvasRenderingContext2D,
+    point: { x: number; y: number },
+    size: number,
+  ): void {
+    const badge = 9;
+    const cx = point.x - size / 2 + badge / 2;
+    const cy = point.y - size / 2 + badge / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, badge / 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(20, 20, 20, 0.8)';
+    ctx.fill();
+    ctx.fillStyle = LOOT_CHEST_COLOR.sherd;
+    ctx.font = 'bold 8px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', cx, cy + 0.5);
+    ctx.restore();
   }
 
   /**
@@ -3086,8 +3173,14 @@ export class MapView {
   ): void {
     const feature = this.features.find((entry) => entry.id === item.type);
     if (!feature) return;
-    const badge = 9;
-    const left = point.x - size / 2;
+    if (
+      (feature.key === 'desert_pyramid' || feature.key === 'desert_well') &&
+      this.lootFilters.sherd &&
+      this.enabled.has(LOOT_MARKERS_ID)
+    ) {
+      this.drawSherdUnknownBadge(ctx, point, size);
+    }
+    const badge = 9;    const left = point.x - size / 2;
     const top = point.y - size / 2;
     const right = point.x + size / 2;
     const bottom = point.y + size / 2;
@@ -3461,7 +3554,11 @@ export class MapView {
     return point.x >= -12 && point.y >= -12 && point.x <= this.canvas.width + 12 && point.y <= this.canvas.height + 12;
   }
 
-  /** Creator pots are exact 1x1 decorated pots; draw the Creator disc icon. */
+  /**
+   * Creator pots use the Creator disc icon; sherd pots use the same ring style
+   * as every other structure's loot markers (no extra outer circle, so they are
+   * not mistaken for the filled trial-cage dots).
+   */
   private drawTrialPots(ctx: CanvasRenderingContext2D): void {
     if (!this.trialPotsVisible()) return;
     const image = this.loadIcon('disc_creator');
@@ -3471,20 +3568,25 @@ export class MapView {
       const detail = this.trialDetailAt(item.x, item.z);
       if (!detail) continue;
       for (const pot of detail.pots) {
+        if (!this.trialPotShown(pot)) continue;
         const point = this.worldToScreen(pot.x + 0.5, pot.z + 0.5);
         if (!this.cageOnScreen(point)) continue;
-        if (image.complete && image.naturalWidth > 0) {
+        if (pot.creator && this.lootFilters.disc && image.complete && image.naturalWidth > 0) {
           const s = TRIAL_POT_ICON_SIZE;
           ctx.drawImage(image, point.x - s / 2, point.y - s / 2, s, s);
-        } else {
-          ctx.beginPath();
-          ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-          ctx.fillStyle = LOOT_CHEST_COLOR.disc;
-          ctx.fill();
+          continue;
         }
+        // Same marker as lootChests: dark centre + coloured ring + thin edge.
         ctx.beginPath();
-        ctx.arc(point.x, point.y, TRIAL_POT_ICON_SIZE / 2 + 1.5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(20, 20, 20, 0.85)';
+        ctx.arc(point.x, point.y, LOOT_MARKER_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fill();
+        ctx.strokeStyle = LOOT_CHEST_COLOR.sherd;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, LOOT_MARKER_RADIUS + 1, 0, Math.PI * 2);
+        ctx.strokeStyle = LOOT_MARKER_EDGE;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
@@ -3492,7 +3594,7 @@ export class MapView {
     ctx.restore();
   }
 
-  /** Click/hover hit test for Creator pot markers. */
+  /** Click/hover hit test for Creator / sherd pot markers. */
   private findTrialPot(
     screenX: number,
     screenY: number,
@@ -3504,6 +3606,7 @@ export class MapView {
       const detail = this.trialDetailAt(item.x, item.z);
       if (!detail) continue;
       for (const pot of detail.pots) {
+        if (!this.trialPotShown(pot)) continue;
         const point = this.worldToScreen(pot.x + 0.5, pot.z + 0.5);
         const dx = point.x - screenX;
         const dy = point.y - screenY;

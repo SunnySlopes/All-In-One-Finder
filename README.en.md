@@ -52,10 +52,17 @@ The map page has a **Show loot** switch below **Show terrain**. When enabled, it
   - Ocean-ruin and trail-ruins hits are **blocks** (suspicious sand/gravel), not chests; the card labels them as blocks.
   - Silence chests use a dedicated icon instead of a ring.
   - Bastion piglin banner pattern (`piglin_banner_pattern`) chests use a pink ring; when the same chest also has a trim, the trim colour wins.
-  - Trail ruins list every block that has a template, with no 12-line cap. Blocks without a template are omitted, and each row identifies the block's template.
-  - **Music discs**: Pigstep, Otherside, Relic, Bounce, Creator (music box), and disc fragment 5 share one disc colour. Bounce/Creator use dedicated icons and override other categories (silence still wins). Fragment chests list their count per chest; there is no "9 fragments craft a disc" summary. Abandoned-mineshaft chest minecarts are approximate: Bounce is suffixed "(approximate)", the ring gets a dashed outer circle, and the card explains the limitation.
-  - **Trial chambers**: only decorated pots that actually roll Creator (music box) are marked; positions and loot seeds match the 26.3 server oracle.
-- **Loot category filters**: with Show loot enabled, three checkboxes (Misc / Templates / Music discs) appear, all on by default. They only filter drawing and the info card, never the native evaluation. Unchecked categories draw no rings/badges and are omitted from the card; selecting Music discs also shows the "dungeons are not supported" note.
+  - **Ancient cities, trail ruins, and trial pots have no 12-line cap**: ancient cities list every matching chest, trail ruins list every block that has a template (blocks without a template are omitted; each row identifies the template), and trial chambers list every Creator pot and every flow/guster/scrape patterned pot.
+  - **Music discs**: Pigstep, Otherside, Relic, Bounce, Creator (music box), and disc fragment 5 share one disc colour. Bounce/Creator use dedicated icons and override other categories (silence still wins). Fragment chests list their count per chest; there is no "9 fragments craft a disc" summary. Abandoned-mineshaft chest minecarts are exact in the verified samples, so Bounce is no longer suffixed "(approximate)" and the dashed ring is gone; a few chunk-order-sensitive mineshafts are listed under Known limitations.
+  - **Trial chambers**: pots that actually roll Creator (music box) plus flow/guster/scrape patterned pots are marked; sherds are mapped from the template name, and positions match the 26.3 server (see Known limitations for the Creator loot-seed caveat).
+  - **Pottery sherds**: 17 tracked (7 trail ruins, 3 trial-chamber patterned pots, 3 warm ocean, 4 cold ocean) share one sherd colour and are marked per block/pot with names in the info card. Desert pyramid (4) and desert well (2) are not simulated yet; their icons get a "?" badge and a note when the sherd filter is on.
+- **Loot category filters**: with Show loot enabled, four checkboxes (Misc / Templates / Music discs / Pottery sherds) appear, all on by default. They only filter drawing and the info card, never the native evaluation. Unchecked categories draw no rings/badges and are omitted from the card; selecting Music discs also shows the "dungeons are not supported" note.
+- **Known limitations (loot coordinates/contents)**: these layers are implemented but do not reach per-chest/per-block parity with the live server. The UI does not mark them as approximate; this list is the reference:
+  - **Abandoned mineshafts (Bounce source)**: the result depends on chunk generation order (monster rooms, lava lakes, and other features write across chunks). Replaying in oracle order still leaves a few mineshafts that differ by 1–2 chests, so Bounce can be missed or shown wrongly.
+  - **Trial pots (Creator source)**: pot positions/templates are exact; 26 of 47 loot seeds match the oracle, so Creator detection can be affected. Patterned-pots sherds (flow/guster/scrape) come from template names and are unaffected.
+  - **Ocean ruins (warm/cold sherds)**: suspicious-block coordinates are not exact yet (warm sample 23 vs oracle 29; cold 10–13 vs 5–9, large ruins 87 vs 57). Sherd contents come from exact loot tables, but positions are not guaranteed.
+  - **Trail ruins (Relic + 7 sherds)**: 6 of 8 in-game samples match; 2 differ by one block or position.
+  - **Version verification**: the worldgen Java oracle only runs on 26.3. Multi-version loot-table verification (including discs and sherds) comes from the `generate_golden.py` golden oracle: it reads every 1.18.2–26.3 jar, generates expectations with an independent Python implementation, and `loots-goldentest` compares per-seed results for every supported version (including the disc/sherd bit masks).
 - **Hint-only layers**: ocean monument, desert pyramid, jungle temple, pillager outpost, shipwreck.
   - No chest/block coordinates are shown; the corresponding icon is overlaid in the corner of the original structure icon.
   - An outpost with an allay cage gets the allay overlay, and a sentry template adds the sentry overlay; both can appear together. The card shows `Contains: allay cage xN` and/or `sentry armor trim`; the cage count comes from the exact jigsaw placement.
@@ -81,7 +88,7 @@ Current accuracy notes:
 - With the correct start coordinate, cubiomes' nether-fortress X/Z piece graph matches 26.3. loots now applies the `moveInsideHeights` Y correction and recomputes chests from Java's corner-piece local coordinates. Chest positions, Y and loot seeds for `16080,24544` and `15360,26640` match the 26.3 oracle. Source checks across 1.20.1/1.21.5/1.21.11 show unchanged placement data for outpost and bastion; fortress uses the same 1.20+ path.
 - Ocean-ruin sniffer eggs/suspicious sand use loots' shared 1.20.1-26.3 templates, chest tables, and processor data; warm suspicious-sand coordinates match the 26.3 oracle, and 1.20+ uses the matching version terrain profile. Terrain updates and overlapping structures may still affect the final world state.
 - Trial-chamber pots use loots' own layout + post-process RNG replay. For seed 0 at structure `-800,-1008`, all 47 pot positions, templates, and loot seeds match the 26.3 server exactly.
-- **Abandoned mineshafts**: geode's 1:1 generator is now ported into loots (`src/mineshaft/mineshaft_gen.*`); pieces, orientation, section, real `dy`, and the 26.3 piece graph match the server. Chest RNG is replayed in `MineshaftCorridor.generate` order. For seed 0 at `-4080,848`, 4 of the 6 server chests match exactly in X/Z/Y and loot seed; 2 are still missing and 2 are extra, so Bounce/EGA on mineshafts stay marked approximate.
+- **Abandoned mineshafts**: geode's 1:1 generator is ported into loots (`src/mineshaft/mineshaft_gen.*`); pieces, orientation, section, real `dy`, and the 26.3 piece graph match the server. Chest replay follows 26.3 `MineShaftCorridor.postProcess` block state and RNG step by step (`src/mineshaft/block_view.h`), including the structure-set normal/badlands variant selection and each variant's post-process RNG index. For seed 0, seven fixtures (badlands, a real mesa, liquid skips, spider corridors, rails) with 33 chests match the 26.3 oracle in position and loot seed. Each 1.18.2–1.21.10 jar was decompiled and compared with 1.21.11: the mineshaft piece/post-process code is logically identical, so **1.18.2–26.3 are no longer marked approximate**; the fallback is only used below 1.18.2. Step 1–3 features (monster rooms, lava lakes, geodes) can write blocks into a chunk from a previously decorated neighbour, so vanilla's own result depends on chunk generation order; a few mineshafts overlapping a monster room may still differ by 1–2 chests. See `docs/loot-layers-integration-status.md` §6.
 
 Module build instructions, CLI, directory layout, and data generation are documented in [tools/loots/README.zh-CN.md](tools/loots/README.zh-CN.md).
 
@@ -146,8 +153,7 @@ Notes:
 ## TODO
 
 1. Add No Slime Chunks searcher
-2. Finish the mineshaft `MineshaftCorridor.generate` block-state/RNG replay to lift the 4/6 oracle result to 6/6
-3. Add display for the 23 pottery sherds in the loots submodule
+2. Desert pyramid (4) + desert well (2) pottery sherds (6 total; the other 17 are implemented)
 
 ## License
 
@@ -178,4 +184,5 @@ Thanks to everyone who contributed; without your contributions this finder would
 - Trial Spawner: <https://github.com/SunnySlopes/trial-spawner-native>, author: qk-yiyihehe
 - Budding Amethyst: <https://github.com/SunnySlopes/geode-native>, author: qk-yiyihehe
 - All Flower Farm: <https://github.com/SunnySlopes/FlowerFinderBase>, author: SunnySlopes
+- Loot layers: <https://github.com/SunnySlopes/LootsFinder>, author: SunnySlopes
 - The Low-Y Dripstone Cave Searcher and the All Flower Farm Searcher also thank M33_Galaxy for guidance

@@ -12,21 +12,6 @@ export interface FeatureInfo {
   dim: number;
 }
 
-/**
- * 一期叠加层的版本能力（overlayCapability op）。
- * cityTier: 0=不支持, 1=1.19, 2=1.20~1.20.1, 3=1.20.2~1.21.5, 4=1.21.6~1.21.11, 5=26.1+
- */
-export interface OverlayCapability {
-  cityTier: number;
-  citySilence: boolean;
-  citySwiftSneak: boolean;
-  cityGoldenApple: boolean;
-  oreDiamond: boolean;
-  oreLapis: boolean;
-  netherDebris: boolean;
-  supported: boolean;
-}
-
 /** 一座古城的箱子求值结果（ancientCityChests op）。 */
 export interface CityChest {
   x: number;
@@ -282,6 +267,10 @@ export interface TrialCreatorPot {
   y: number;
   z: number;
   lootSeed: string;
+  /** 陶片位掩码（loots::LootSherdBits）；0 = 无纹样（Creator 八音盒陶罐）。 */
+  sherd: number;
+  /** 该陶罐的 corridor 战利品表会掉落 Creator 八音盒。 */
+  creator: boolean;
 }
 
 /** Per-chamber map overlay data returned by the `trialChambers` op. */
@@ -649,6 +638,8 @@ export interface LootChest {
   discKinds: number;
   /** 杂项位掩码，见 `LOOT_MISC`。 */
   miscKinds: number;
+  /** 陶片位掩码，见 `LOOT_SHERD`（loots::LootSherdBits）。 */
+  sherdKinds: number;
   discFragments: number;
   /** 0 = chest, 1 = barrel, 2 = decorated pot, 3 = suspicious block. */
   container: number;
@@ -684,7 +675,7 @@ export interface LootChestInfo {
   hasAllay: boolean;
   /** Number of allay cage feature pieces, when detection was evaluated. */
   allayCages: number;
-  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 / 5 旗帜图案 / 6 唱片 */
+  /** 0 无 / 1 纹饰 / 2 下界合金 / 3 嗅探蛋 / 4 附魔金苹果 / 5 旗帜图案 / 6 唱片 / 7 陶片 */
   lootKind: number;
   /** 仅提示型的命中明细（可与 lootKind 同时为真）。 */
   hasTrim: boolean;
@@ -699,15 +690,15 @@ export interface LootChestInfo {
   discKinds: number;
   /** 本结构所有目标箱的杂项并集。 */
   miscKinds: number;
+  /** 本结构所有目标箱/方块的陶片并集（loots::LootSherdBits）。 */
+  sherdKinds: number;
   /** 本结构所有目标箱的 disc_fragment_5 总数。 */
   discFragments: number;
-  /** 1 杂项 / 2 模板 / 4 唱片（loots::LootCategoryBits）。 */
+  /** 1 杂项 / 2 模板 / 4 唱片 / 8 陶片（loots::LootCategoryBits）。 */
   categoryMask: number;
   /** 该结构的箱子坐标/判定是近似值（废弃矿井）。 */
   approximate: boolean;
   /** false = 该结构的结果仍是近似值（海底遗迹嗅探蛋、废弃矿井）。 */
   reliable: boolean;
-  /** 补充原因，前端按语言键翻译；空字符串表示没有额外说明。 */
-  note: string;
   chests: LootChest[];
 }

@@ -13,6 +13,20 @@
 
 namespace {
 
+/** Pottery sherd bit for a trial-chamber decorated-pot template, or 0. */
+unsigned potSherdBit(const std::string &templateName)
+{
+    // The 26.x template NBT only encodes the pattern in the template name; the
+    // pots themselves share the `pots/trial_chambers/corridor` loot table.
+    if (templateName.find("trial_chambers/decor/flow_pot") != std::string::npos)
+        return loots::LootSherd_Flow;
+    if (templateName.find("trial_chambers/decor/guster_pot") != std::string::npos)
+        return loots::LootSherd_Guster;
+    if (templateName.find("trial_chambers/decor/scrape_pot") != std::string::npos)
+        return loots::LootSherd_Scrape;
+    return 0;
+}
+
 /** Cached chamber details are tiny (~10 frames); 1024 entries cap the map session. */
 constexpr size_t kMaxCachedChambers = 1024;
 /** 房间框水平外扩 1 格，覆盖挂在墙外的支架与笼点；Y 不变。 */
@@ -83,18 +97,28 @@ TrialChamberInfo computeChamber(int mc, uint64_t seed, int chunkX, int chunkZ)
         detail.spawners.push_back({p.x, p.y, p.z, slow});
     }
 
-    // Creator music boxes: only decorated pots whose `pots/trial_chambers/corridor`
-    // roll yields `music_disc_creator_music_box`. Positions and LootTableSeeds are
-    // replayed exactly by loots (verified against the 26.3 server oracle).
+    // Creator music boxes and pottery sherds: only decorated pots whose
+    // `pots/trial_chambers/corridor` roll yields `music_disc_creator_music_box`
+    // (undecorated pots) or whose template carries a sherd pattern
+    // (flow/guster/scrape). Positions and LootTableSeeds are replayed exactly by
+    // loots (verified against the 26.3 server oracle).
     std::vector<loots::TrialPot> pots;
     if (loots::trialChamberPots(mc, seed, chunkX, chunkZ, pots)) {
         for (const loots::TrialPot &pot : pots) {
+            const unsigned sherd = potSherdBit(pot.templateName);
             const loots::ChestReward reward =
                 loots::evaluateChest(pot.lootTable.c_str(), pot.lootSeed, mc);
-            if (!reward.evaluated ||
-                !reward.hasDisc(loots::LootDisc_CreatorMusicBox))
-                continue;
-            detail.pots.push_back({pot.x, pot.y, pot.z, pot.lootSeed});
+            const bool creator = reward.evaluated &&
+                                 reward.hasDisc(loots::LootDisc_CreatorMusicBox);
+            if (!creator && sherd == 0) continue;
+            TrialCreatorPot entry;
+            entry.x = pot.x;
+            entry.y = pot.y;
+            entry.z = pot.z;
+            entry.lootSeed = pot.lootSeed;
+            entry.sherdBits = sherd;
+            entry.creator = creator;
+            detail.pots.push_back(entry);
         }
     }
     return detail;

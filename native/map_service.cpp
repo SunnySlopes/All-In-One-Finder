@@ -507,11 +507,31 @@ bool parseSeedText(const std::string &text, uint64_t *out, bool allowTextHash)
     return true;
 }
 
+/**
+ * Display name for the version dropdown.
+ *
+ * cubiomes keeps an alias per generation profile (MC_1_18 == MC_1_18_2,
+ * MC_1_19 == MC_1_19_4, MC_1_20 == MC_1_20_6), so mc2str() reports the base
+ * name ("1.18"/"1.19"/"1.20"). The app lists one entry per cubiomes id and
+ * should show the concrete profile version instead.
+ */
+const char *versionDisplayName(int id)
+{
+    switch (id) {
+    case MC_1_18_2: return "1.18.2";
+    case MC_1_19_2: return "1.19.2";
+    case MC_1_19_4: return "1.19.4";
+    case MC_1_20_6: return "1.20.1";
+    default: return nullptr;
+    }
+}
+
 std::vector<McVersion> listMcVersions()
 {    std::vector<McVersion> out;
     out.reserve(sizeof(kVersions) / sizeof(kVersions[0]));
     for (int id : kVersions) {
-        const char *name = mc2str(id);
+        const char *name = versionDisplayName(id);
+        if (!name) name = mc2str(id);
         if (!name || name[0] == '?') continue;
         out.push_back({id, name});
     }
@@ -547,6 +567,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         chest.trimKinds = c.reward.trimKinds;
         chest.discKinds = c.reward.discKinds;
         chest.miscKinds = c.reward.miscKinds;
+        chest.sherdKinds = c.reward.sherdKinds;
         chest.discFragments = c.reward.discFragments;
         chest.container = static_cast<int>(c.container);
         chest.approximate = c.approximate;
@@ -558,6 +579,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         bool misc = false;
         bool templ = false;
         bool disc = false;
+        bool sherd = false;
         for (const auto &c : info.chests) {
             const bool trim = c.trim || c.ward || c.silence;
             if (trim) {
@@ -567,6 +589,7 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             info.trimKinds |= c.trimKinds;
             info.discKinds |= c.discKinds;
             info.miscKinds |= c.miscKinds;
+            info.sherdKinds |= c.sherdKinds;
             if (c.discFragments > 0) info.discFragments += c.discFragments;
             if (c.netheriteUpgrade) {
                 info.hasNetherite = true;
@@ -586,12 +609,14 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             }
             if (!c.swiftSneakLevels.empty()) misc = true;
             if (c.discKinds != 0 || c.discFragments > 0) disc = true;
+            if (c.sherdKinds != 0) sherd = true;
             if (c.approximate) info.approximate = true;
         }
         info.categoryMask =
             (misc ? loots::LootCategory_Misc : 0u) |
             (templ ? loots::LootCategory_Template : 0u) |
-            (disc ? loots::LootCategory_Disc : 0u);
+            (disc ? loots::LootCategory_Disc : 0u) |
+            (sherd ? loots::LootCategory_Sherd : 0u);
         if (info.hasTrim) {
             info.hasLoot = true;
             info.lootKind = 1;
@@ -610,6 +635,9 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
         } else if (disc) {
             info.hasLoot = true;
             info.lootKind = 6;
+        } else if (sherd) {
+            info.hasLoot = true;
+            info.lootKind = 7;
         }
     };
 
@@ -704,7 +732,6 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                     // Archaeology / suspicious-block generation starts in 1.20.
                     info.exists = true;
                     info.reliable = false;
-                    info.note = "ocean_ruin_sniffer_not_ported";
                 }
                 out.push_back(std::move(info));
                 continue;
@@ -738,12 +765,10 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
             for (const auto &c : sl.chests) addChest(info, c);
             for (const auto &c : sl.suspicious) addChest(info, c);
             summarize(info);
-            if (type == Mineshaft && info.hasLoot) {
-                // geode's exact piece graph is now used, but the corridor
-                // block-state RNG replay still matches 4/6 oracle chests.
+            if (type == Mineshaft && info.approximate) {
+                // Only the pre-1.21.11 cubiomes fallback marks chests as
+                // approximate; the 1.21.11+ block-state replay is exact.
                 info.reliable = false;
-                info.approximate = true;
-                info.note = "mineshaft_approximate";
             }
             // 1.19.2 has no armor-trim templates. Its mansion loot seed is
             // also not supported, so suppress both template flags and chests.
@@ -756,7 +781,6 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                 info.hasGoldenApple = false;
                 info.trimKinds = 0;
                 info.reliable = true;
-                info.note.clear();
             }
 
             // Single-piece structures: presence only, no coordinates (Y depends
