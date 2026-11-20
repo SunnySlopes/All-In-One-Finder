@@ -86,7 +86,7 @@
  * --------
  *   slime_farm_search.exe SEED AFK_X0 AFK_X1 AFK_Z0 AFK_Z1 MIN_CHUNKS MIN_AREA [PLAYER_RANGE]
  *   slime_farm_search.exe 0 -512 512 -512 512 30 3000 5
- *   # MIN_CHUNKS 传 0 或 "-" 且 MIN_AREA∈[9000,15000] 时，按 tools/slime/threshold.json
+ *   # MIN_CHUNKS 传 0 或 "-" 且 MIN_AREA∈[9000,15000] 时，按内嵌档位表
  *   # 的 default 项自动填区块数（区间按相邻档位中点划分，见 slime_farm_default_chunks_for_area）。
  *   slime_farm_search.exe 0 -512 512 -512 512 - 10000 5
  *
@@ -202,7 +202,7 @@ typedef struct SlimeFarmParams {
      *   - 同时作为最终“刷怪环触及的不同史莱姆区块数”下限。
      * 范围 1..192（甜甜圈最多 192 个区块）。
      * 传 0 表示“未指定”：若 min_slime_area ∈ [9000,15000]，则按
-     * tools/slime/threshold.json 对应档位的 default 自动填入；否则报错。
+     * 内嵌档位表对应档位的 default 自动填入；否则报错。
      */
     int32_t min_slime_chunks;
 
@@ -297,7 +297,7 @@ void slime_farm_params_init(SlimeFarmParams* p);
 /*
  * 仅当 area ∈ [9000,15000] 时，按相邻档位中点规则映射到
  * 9000/9250/.../15000，并返回该档 threshold.default；否则返回 -1。
- * 与 tools/slime/threshold.json 保持一致（内嵌表，无需运行时读文件）。
+ * 内嵌表，无需运行时读取外部文件。
  */
 int32_t slime_farm_default_chunks_for_area(int64_t area);
 
@@ -480,7 +480,7 @@ int stage_index(int stage) {
     }
 }
 
-/* 与 tools/slime/threshold.json 同步：档位键 9000..15000 step 250 → default 区块数。 */
+/* 内嵌档位表：档位键 9000..15000 step 250 → default 区块数。 */
 constexpr int32_t kAreaThresholdFirst = 9000;
 constexpr int32_t kAreaThresholdLast = 15000;
 constexpr int32_t kAreaThresholdStep = 250;
@@ -2017,8 +2017,8 @@ void print_usage(const char* exe) {
         "  AFK_X0..AFK_X1 / AFK_Z0..AFK_Z1 are inclusive block coordinates.\n"
         "  MIN_CHUNKS is the radar donut threshold and final distinct-chunk "
         "minimum.\n"
-        "  Pass 0 or '-' for MIN_CHUNKS to auto-fill from tools/slime/"
-        "threshold.json defaults when MIN_AREA is in [9000,15000].\n"
+        "  Pass 0 or '-' for MIN_CHUNKS to auto-fill from built-in "
+        "threshold defaults when MIN_AREA is in [9000,15000].\n"
         "  MIN_AREA is the minimum effective slime spawn area (blocks).\n"
         "example: %s 0 -512 512 -512 512 30 3000 5\n"
         "example: %s 0 -512 512 -512 512 - 10000 5\n",
