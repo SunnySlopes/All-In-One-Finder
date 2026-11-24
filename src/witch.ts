@@ -40,7 +40,6 @@ function groupOf(value: string): WitchVersionGroup {
 export class WitchPanel {
   readonly root: HTMLElement;
   private footer!: HTMLElement;
-  private sortRow!: HTMLElement;
   private sortByY!: HTMLButtonElement;
   private sortByDistance!: HTMLButtonElement;
   private version!: HTMLSelectElement;
@@ -108,16 +107,15 @@ export class WitchPanel {
             ${MAX_Y_OPTIONS.map((value) => `<option value="${value}" ${value === -40 ? 'selected' : ''}>${value}</option>`).join('')}
           </select>
         </div>
-        <div class="row" id="w-sort-row" hidden>
-          <button id="w-sort-distance" type="button" class="btn ghost sm" data-i18n="lowyswamphut.sortByDistance" disabled></button>
-          <button id="w-sort-y" type="button" class="btn ghost sm" data-i18n="lowyswamphut.sortByY" disabled></button>
+        <div class="row" id="w-sort-row">
+          <button id="w-sort-y" type="button" class="btn ghost sm" data-i18n="lowyswamphut.sortByY" data-skip-run-lock disabled></button>
+          <button id="w-sort-distance" type="button" class="btn ghost sm" data-i18n="lowyswamphut.sortByDistance" data-skip-run-lock disabled></button>
         </div>
         <div class="hint" data-i18n="lowyswamphut.help"></div>
       </div>
       <div class="search-panel-footer" id="w-footer"></div>
     `;
     this.footer = this.root.querySelector('#w-footer')!;
-    this.sortRow = this.root.querySelector('#w-sort-row')!;
     this.sortByY = this.root.querySelector('#w-sort-y')!;
     this.sortByDistance = this.root.querySelector('#w-sort-distance')!;
     this.version = this.root.querySelector('#w-version')!;
@@ -232,7 +230,7 @@ export class WitchPanel {
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="common.search.seeds"></label><button id="w-file" type="button" data-i18n="common.search.pickFile"></button>
+        <label data-i18n="common.search.seeds"></label><button id="w-file" type="button" class="btn ghost sm" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="w-file-name"></div>`;
       const fileName = host.querySelector('#w-file-name');
       if (fileName && this.seedText) {
@@ -247,9 +245,6 @@ export class WitchPanel {
     this.seedModeSelect.value = this.seedMode;
     this.version.value = String(this.versionGroup);
     this.renderSeedBlock();
-    // `.row` 的 author 样式会压过 [hidden] 的 UA 规则，用内联 display 切换。
-    this.sortRow.style.display = '';
-    this.updateSortButtons();
     this.footer.innerHTML = `
       <div class="row">
         <button id="w-start" type="button" class="btn primary" data-i18n="common.search.start" ${this.running || isOtherSearcherRunning('LowYSwampHut') ? 'disabled' : ''}></button>
@@ -272,6 +267,8 @@ export class WitchPanel {
     this.footer.querySelector('#w-stop')?.addEventListener('click', () => void call('witchSearchStop'));
     applyI18n(this.root);
     applyRunLock(this.root, this.running, this.paused);
+    // 在 run-lock 之后再设排序按钮，避免解锁时把无结果时的禁用态冲掉。
+    this.updateSortButtons();
     if (this.lastStatus) this.paintStatus(this.lastStatus);
     else initProgressCard(this.footer, 'w');
   }

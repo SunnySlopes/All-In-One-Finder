@@ -226,8 +226,8 @@ export class RiverPanel {
           <input id="rv-y" type="number" min="-64" max="320" step="1" value="${PRESET_EMPTY.playerY}" />
         </div>
         <div class="row">
-          <button id="rv-preset-empty" type="button" data-i18n="river.presetEmpty"></button>
-          <button id="rv-preset-surface" type="button" data-i18n="river.presetSurface"></button>
+          <button id="rv-preset-empty" type="button" class="btn ghost sm" data-i18n="river.presetEmpty"></button>
+          <button id="rv-preset-surface" type="button" class="btn ghost sm" data-i18n="river.presetSurface"></button>
         </div>
         <div class="hint" data-i18n="river.help"></div>
       </div>
@@ -529,7 +529,7 @@ export class RiverPanel {
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="common.search.seeds"></label><button id="rv-file" type="button" data-i18n="common.search.pickFile"></button>
+        <label data-i18n="common.search.seeds"></label><button id="rv-file" type="button" class="btn ghost sm" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="rv-file-name"></div>`;
       const fileName = host.querySelector('#rv-file-name');
       if (fileName && this.seedText) {

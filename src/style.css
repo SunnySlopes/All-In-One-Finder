@@ -1452,23 +1452,10 @@ html[data-theme="light"] .topbar-actions .mini-btn:hover:not(:disabled) {
   color: #111111;
 }
 
-/* --- file 按钮（选择文件 / 浏览类按钮）--- */
+/* --- ghost / sm 次要按钮在亮色主题下的文字色 --- */
 html[data-theme="light"] #panel .btn.ghost,
-html[data-theme="light"] button[id$="-file"],
 html[data-theme="light"] .btn.sm {
   color: #1a1a1a;
-}
-html[data-theme="light"] button[id$="-file"] {
-  background: #ffffff;
-  border: 1px solid #c8c8c8;
-  border-radius: 4px;
-  color: #1a1a1a;
-  padding: 3px 10px;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-}
-html[data-theme="light"] button[id$="-file"]:hover:not(:disabled) {
-  background: #f7f7f7;
-  border-color: #a8a8a8;
 }
 
 /* --- help 文本 --- */

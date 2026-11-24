@@ -329,7 +329,7 @@ export class FlowerPanel {
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="common.search.seeds"></label><button id="f-file" type="button" data-i18n="common.search.pickFile"></button>
+        <label data-i18n="common.search.seeds"></label><button id="f-file" type="button" class="btn ghost sm" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="f-file-name"></div>`;
       const fileName = host.querySelector('#f-file-name');
       if (fileName && this.seedText) {

@@ -381,7 +381,7 @@ export class TrialPanel {
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="common.search.seeds"></label><button id="t-file" type="button" data-i18n="common.search.pickFile"></button>
+        <label data-i18n="common.search.seeds"></label><button id="t-file" type="button" class="btn ghost sm" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="t-file-name"></div>`;
       const fileName = host.querySelector('#t-file-name');
       if (fileName && this.seedText) {

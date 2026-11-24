@@ -175,12 +175,12 @@ export class ResultsColumn {
           <input id="r-x" type="number" value="0" />
           <label data-i18n="common.map.coordZ"></label>
           <input id="r-z" type="number" value="0" />
-          <button type="button" id="r-go" data-i18n="common.map.goto"></button>
+          <button type="button" id="r-go" class="btn ghost sm" data-i18n="common.map.goto"></button>
         </div>
         <label data-i18n="common.map.parseText"></label>
         <div class="row">
           <textarea id="r-parse" rows="2" data-i18n-placeholder="common.map.parseHint"></textarea>
-          <button type="button" id="r-parse-btn" data-i18n="common.map.parse"></button>
+          <button type="button" id="r-parse-btn" class="btn ghost sm" data-i18n="common.map.parse"></button>
         </div>
         <div class="hint" id="r-parse-error"></div>
         <label class="check-row" id="r-spawn-wrap">

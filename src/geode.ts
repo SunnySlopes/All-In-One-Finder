@@ -177,7 +177,7 @@ export class GeodePanel {
         </div>
         <div class="row">
           <button id="g-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
-          <button id="g-full" type="button" data-i18n="common.search.border"></button>
+          <button id="g-full" type="button" class="btn ghost sm" data-i18n="common.search.border"></button>
         </div>
         <div class="hint" id="g-range-hint"></div>
         <div class="grid">
@@ -468,7 +468,7 @@ export class GeodePanel {
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="common.search.seeds"></label><button id="g-file" type="button" data-i18n="common.search.pickFile"></button>
+        <label data-i18n="common.search.seeds"></label><button id="g-file" type="button" class="btn ghost sm" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="g-file-name"></div>`;
       const fileName = host.querySelector('#g-file-name');
       if (fileName && this.seedText) {

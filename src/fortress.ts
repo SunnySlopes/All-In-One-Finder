@@ -107,7 +107,7 @@ export class FortressPanel {
         <div class="row">
           <button id="f-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
           <button id="f-border" type="button" class="btn ghost sm" data-i18n="fortress.maxRange"></button>
-          <button id="f-bordermode" type="button" hidden></button>
+          <button id="f-bordermode" type="button" class="btn ghost sm" hidden></button>
         </div>
         <div id="f-params"></div>
       </div>
@@ -251,7 +251,7 @@ export class FortressPanel {
       </div>`;
     } else {
       host.innerHTML = `<div class="grid">
-        <label data-i18n="common.search.seeds"></label><button id="f-file" type="button" data-i18n="common.search.pickFile"></button>
+        <label data-i18n="common.search.seeds"></label><button id="f-file" type="button" class="btn ghost sm" data-i18n="common.search.pickFile"></button>
       </div><div class="hint" id="f-file-name"></div>`;
       const fileName = host.querySelector('#f-file-name');
       if (fileName && this.seedText) {
