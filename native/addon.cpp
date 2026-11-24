@@ -459,6 +459,7 @@ Napi::Value Structures(const Napi::CallbackInfo &info)
         item.Set("x", found[i].x);
         item.Set("z", found[i].z);
         item.Set("variant", found[i].variant);
+        if (found[i].heightRejected) item.Set("heightRejected", true);
         if (found[i].hasFrame) {
             item.Set("large", BoxToObject(info.Env(), found[i].large));
             item.Set("pieces", BoxesToArray(info.Env(), found[i].pieces));

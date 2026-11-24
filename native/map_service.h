@@ -13,6 +13,7 @@
 #include "loots/loots.h"
 #include "loots/structure_pieces.h"
 #include "loots/fixed_structures.h"
+#include "loots/woodland_mansion.h"
 #include "loots/shipwreck.h"
 #include "loots/outpost.h"
 #include "loots/bastion.h"
@@ -43,7 +44,12 @@ using loots::StructureChest;
 using loots::netherFortressLoot;
 using loots::endCityLoot;
 using loots::desertPyramidLoot;
+using loots::desertWellLoot;
+using loots::desertWellCanPlace;
+using loots::singlePieceAboveSea;
 using loots::jungleTempleLoot;
+using loots::woodlandMansionCanPlace;
+using loots::woodlandMansionLoot;
 using loots::shipwreckLoot;
 using loots::pillagerOutpostLoot;
 using loots::bastionLoot;
@@ -65,6 +71,8 @@ struct PlacedFeature {
     int x;
     int z;
     int variant; // 0 default; 1 end-city ship / abandoned-camp copper chest
+    /** Terrain height gate failed (pyramid/jungle/well/mansion); still shown translucent. */
+    bool heightRejected = false;
     bool hasFrame = false;
     Box3i large;
     std::vector<Box3i> pieces;

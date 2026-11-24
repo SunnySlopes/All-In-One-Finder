@@ -46,6 +46,8 @@ export interface Placed {
   x: number;
   z: number;
   variant?: number;
+  /** Terrain height gate failed; icon is drawn translucent. */
+  heightRejected?: boolean;
   /** Nether fortress full bounds and every generated piece (only for fortresses). */
   large?: Bounds3;
   pieces?: Bounds3[];

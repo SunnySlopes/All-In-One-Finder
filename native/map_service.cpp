@@ -10,6 +10,7 @@
 #include "cubiomes/util.h"
 
 #include "loots/bastion.h"
+#include "loots/fixed_structures.h"
 #include "loots/outpost.h"
 #include "loots/shipwreck.h"
 #include "loots/trail_ruins.h"
@@ -368,6 +369,22 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
             int id = isViableStructurePos(type, &gGen, pos.x, pos.z, 0);
             if (!id) continue;
             if (!biomeAllowsStructure(type, &gGen, pos.x, pos.z)) continue;
+            // Height gates: keep the cubiomes candidate but mark heightRejected so
+            // the map can draw a translucent icon + info-card note.
+            bool heightRejected = false;
+            if (mc >= MC_1_18) {
+                if (type == Desert_Pyramid) {
+                    const int ox = pos.x & ~15, oz = pos.z & ~15;
+                    heightRejected = !singlePieceAboveSea(mc, seed, ox, oz, 21, 21);
+                } else if (type == Jungle_Temple) {
+                    const int ox = pos.x & ~15, oz = pos.z & ~15;
+                    heightRejected = !singlePieceAboveSea(mc, seed, ox, oz, 12, 15);
+                } else if (type == Desert_Well) {
+                    heightRejected = !desertWellCanPlace(mc, seed, pos.x, pos.z, nullptr);
+                } else if (type == Mansion) {
+                    heightRejected = !woodlandMansionCanPlace(mc, seed, pos.x, pos.z);
+                }
+            }
             int variant = 0;
             if (type == Village) {
                 StructureVariant sv{};
@@ -417,7 +434,13 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
                 getVariant(&sv, Igloo, mc, seed, pos.x, pos.z, id);
                 if (sv.basement) variant = 1;
             }
-            out.push_back({type, pos.x, pos.z, variant});
+            PlacedFeature placed{};
+            placed.type = type;
+            placed.x = pos.x;
+            placed.z = pos.z;
+            placed.variant = variant;
+            placed.heightRejected = heightRejected;
+            out.push_back(placed);
         }
     }
 }
@@ -737,6 +760,25 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                 continue;
             }
 
+            if (type == Desert_Well) {
+                loots::StructureLoot sl;
+                if (!desertWellLoot(mc, seed, s.first, s.second, sl)) {
+                    info.exists = false;
+                    info.reliable = true;
+                    out.push_back(std::move(info));
+                    continue;
+                }
+                info.exists = true;
+                info.pieces = sl.pieces;
+                if (mc >= MC_1_20) {
+                    sl.evaluate(mc);
+                    for (const auto &c : sl.suspicious) addChest(info, c);
+                    summarize(info);
+                }
+                out.push_back(std::move(info));
+                continue;
+            }
+
             loots::StructureLoot sl;
             bool ok = false;
             if (type == Fortress) ok = netherFortressLoot(mc, seed, s.first, s.second, sl);
@@ -751,9 +793,15 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                 ok = loots::trailRuinsLoot(mc, seed, s.first, s.second, sl);
             }
             if (!ok) {
-                // Structure missing or layer unsupported on this version: stay
-                // silent instead of writing an empty result.
-                if (type == Trail_Ruins || type == Mansion) continue;
+                // Structure missing or layer unsupported: stay silent, except
+                // height-gate rejects which emit exists=false for the map.
+                if (type == Trail_Ruins) continue;
+                if (type == Desert_Pyramid || type == Jungle_Temple || type == Mansion) {
+                    info.exists = false;
+                    info.reliable = true;
+                    out.push_back(std::move(info));
+                    continue;
+                }
                 out.push_back(std::move(info));
                 continue;
             }
@@ -783,10 +831,19 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
                 info.reliable = true;
             }
 
-            // Single-piece structures: presence only, no coordinates (Y depends
-            // on the surface height).
-            if (type == Desert_Pyramid || type == Jungle_Temple || type == Shipwreck) {
+            // Jungle temple / shipwreck: presence only (chest Y depends on
+            // surface height). Desert pyramid keeps archaeology suspicious
+            // blocks for the info card; normal chests stay structure-only.
+            if (type == Jungle_Temple || type == Shipwreck) {
                 info.chests.clear();
+            } else if (type == Desert_Pyramid) {
+                info.chests.erase(
+                    std::remove_if(info.chests.begin(), info.chests.end(),
+                                   [](const LootChest &c) {
+                                       return c.container !=
+                                              static_cast<int>(loots::ContainerKind::suspicious);
+                                   }),
+                    info.chests.end());
             }
             out.push_back(std::move(info));
         }

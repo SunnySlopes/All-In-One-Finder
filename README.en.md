@@ -55,7 +55,7 @@ The map page has a **Show loot** switch below **Show terrain**. When enabled, it
   - **Ancient cities, trail ruins, and trial pots have no 12-line cap**: ancient cities list every matching chest, trail ruins list every block that has a template (blocks without a template are omitted; each row identifies the template), and trial chambers list every Creator pot and every flow/guster/scrape patterned pot.
   - **Music discs**: Pigstep, Otherside, Relic, Bounce, Creator (music box), and disc fragment 5 share one disc colour. Bounce/Creator use dedicated icons and override other categories (silence still wins). Fragment chests list their count per chest; there is no "9 fragments craft a disc" summary. Abandoned-mineshaft chest minecarts are exact in the verified samples, so Bounce is no longer suffixed "(approximate)" and the dashed ring is gone; a few chunk-order-sensitive mineshafts are listed under Known limitations.
   - **Trial chambers**: pots that actually roll Creator (music box) plus flow/guster/scrape patterned pots are marked; sherds are mapped from the template name, and positions match the 26.3 server (see Known limitations for the Creator loot-seed caveat).
-  - **Pottery sherds**: 17 tracked (7 trail ruins, 3 trial-chamber patterned pots, 3 warm ocean, 4 cold ocean) share one sherd colour and are marked per block/pot with names in the info card. Desert pyramid (4) and desert well (2) are not simulated yet; their icons get a "?" badge and a note when the sherd filter is on.
+  - **Pottery sherds**: 21 tracked exactly (7 trail ruins, 3 trial-chamber patterned pots, 3 warm ocean, 4 cold ocean, 4 desert pyramid) share one sherd colour; desert-well (2) is not exact yet and shows a `?` badge when loot+sherd is on. Trail/ocean/trial mark per block/pot; desert pyramids use a structure-corner badge and list suspicious-sand xz in the info card.
 - **Loot category filters**: with Show loot enabled, four checkboxes (Misc / Templates / Music discs / Pottery sherds) appear, all on by default. They only filter drawing and the info card, never the native evaluation. Unchecked categories draw no rings/badges and are omitted from the card; selecting Music discs also shows the "dungeons are not supported" note.
 - **Known limitations (loot coordinates/contents)**: these layers are implemented but do not reach per-chest/per-block parity with the live server. The UI does not mark them as approximate; this list is the reference:
   - **Abandoned mineshafts (Bounce source)**: the result depends on chunk generation order (monster rooms, lava lakes, and other features write across chunks). Replaying in oracle order still leaves a few mineshafts that differ by 1–2 chests, so Bounce can be missed or shown wrongly.
@@ -153,7 +153,6 @@ Notes:
 ## TODO
 
 1. Add No Slime Chunks searcher
-2. Desert pyramid (4) + desert well (2) pottery sherds (6 total; the other 17 are implemented)
 
 ## License
 

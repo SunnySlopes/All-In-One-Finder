@@ -153,14 +153,18 @@ const LOOT_STRUCTURE_TYPES: number[] = [
   10, // pillager outpost
   13, // ancient city
   15, // abandoned mineshaft (Bounce)
+  16, // desert well
   18, // nether fortress
   19, // bastion
   21, // end city
   24, // trail ruins
   27, // stronghold (library eye trim)
 ];
-/** 仅提示型：不给箱子/方块坐标；图标用原图 + 角落叠加（海底遗迹已改为精确坐标型）。 */
-const LOOT_STRUCTURE_ONLY_TYPES = [1, 2, 7, 10];
+/**
+ * 仅结构角标：地图上不画箱子/方块圆环。沙漠神殿/水井的可疑沙坐标只出现在
+ * 信息卡里；丛林神殿/沉船/前哨站仍是提示型。
+ */
+const LOOT_STRUCTURE_ONLY_TYPES = [1, 2, 7, 10, 16];
 /**
  * 箱子/方块标记的配色。只画**真正带目标战利品**的位置：既没有纹饰 / 下界合金，
  * 也没有附魔金苹果 / 嗅探兽蛋的位置一律不画，否则整张图都是无意义的点。
@@ -174,7 +178,7 @@ const LOOT_CHEST_COLOR = {
   swiftSneak: '#7fe0b0',
   /** All music discs share one color (plan §5.4). */
   disc: '#79d6e6',
-  /** All 17 tracked pottery sherds share one color (plan §5.4). */
+  /** All 23 tracked pottery sherds share one color. */
   sherd: '#c98b5e',
 };
 /** loots::LootDiscBits 位序号 → 语言键 / 图标。 */
@@ -191,7 +195,7 @@ const LOOT_CATEGORY = { misc: 1, template: 2, disc: 4, sherd: 8 } as const;
 type LootCategoryKey = keyof typeof LOOT_CATEGORY;
 /**
  * loots::LootSherdBits 位序号 → 语言键。bits 0-6 古迹、7-9 试炼陶罐、
- * 10-12 暖海底、13-16 寒带海底；17-22 预留给沙漠神殿/水井（未实现）。
+ * 10-12 暖海底、13-16 寒带海底、17-20 沙漠神殿、21-22 沙漠水井。
  */
 const LOOT_SHERD: Record<number, { name: string }> = {
   0: { name: 'burn' },
@@ -211,6 +215,12 @@ const LOOT_SHERD: Record<number, { name: string }> = {
   14: { name: 'explorer' },
   15: { name: 'mourner' },
   16: { name: 'plenty' },
+  17: { name: 'archer' },
+  18: { name: 'miner' },
+  19: { name: 'prize' },
+  20: { name: 'skull' },
+  21: { name: 'arms_up' },
+  22: { name: 'brewer' },
 };
 /**
  * loots::TrimKind 的位序号 → 语言键 / 颜色。位掩码 = 1 << kind。
@@ -380,6 +390,8 @@ interface SelectedStructure {
   x: number;
   z: number;
   variant: number;
+  /** Cubiomes candidate rejected by terrain height gate. */
+  heightRejected?: boolean;
   large?: Bounds3;
   details: DetailState;
   /** Ocean monument: sponge-room count from the room-graph port. */
@@ -1457,6 +1469,7 @@ export class MapView {
       x: item.x,
       z: item.z,
       variant: item.variant ?? 0,
+      heightRejected: !!item.heightRejected,
       details: 'none',
       cage,
       spongeRooms: null,
@@ -1695,16 +1708,13 @@ export class MapView {
       rows.push(`<div>${escapeText(t('common.map.boundsFailed'))}</div>`);
     }
 
+    if (selected.heightRejected) {
+      rows.push(`<div class="muted">${escapeText(t('common.map.heightRejected'))}</div>`);
+    }
+
     // 战利品信息：只对当前勾选的「展示战利品」生效；结构图层仍需打开。
-    if (this.enabled.has(LOOT_MARKERS_ID)) {
+    if (this.enabled.has(LOOT_MARKERS_ID) && !selected.heightRejected) {
       rows.push(...this.lootInfoLines(selected));
-      // 沙漠神殿/水井的陶片生成本期未实现；选中陶片筛选时给出提示。
-      if (this.lootFilters.sherd &&
-          (selected.key === 'desert_pyramid' || selected.key === 'desert_well')) {
-        rows.push(
-          `<div class="muted">${escapeText(t('common.map.lootSherdDesertUnknown'))}</div>`,
-        );
-      }
     }
     if (selected.key === 'monument' && this.lootFilters.misc) {
       const sponge = this.monumentSponge.get(this.trialKey(selected.x, selected.z));
@@ -3044,17 +3054,53 @@ export class MapView {
       const shownHits = chest.approximate
         ? hits.map((hit) => t('common.map.lootApproximateName', { name: hit }))
         : hits;
-      const atKey =
-        item.type === 6 || item.type === 24
-          ? 'common.map.lootBlockAt'
-          : 'common.map.lootChestAt';
-      chestLines.push(t(atKey, { x: chest.x, z: chest.z, hits: shownHits.join('、') }));
+      const desertPyramidArchaeology = item.type === 1;
+      const desertWell = item.type === 16;
+      if (desertPyramidArchaeology) {
+        // 沙漠神殿：只列含陶片的可疑沙。Y 受高度图偏差影响，信息卡只报 xz。
+        if (!chest.sherdKinds || !this.lootFilters.sherd) continue;
+        chestLines.push(
+          t('common.map.lootBlockAt', {
+            x: chest.x,
+            z: chest.z,
+            hits: shownHits.join('、'),
+          }),
+        );
+      } else if (desertWell) {
+        // 沙漠水井：可疑沙方块（非箱子）；Y 已精确，报 xyz。
+        if (!chest.sherdKinds || !this.lootFilters.sherd) continue;
+        chestLines.push(
+          t('common.map.lootBlockAtY', {
+            x: chest.x,
+            y: chest.y,
+            z: chest.z,
+            hits: shownHits.join('、'),
+          }),
+        );
+      } else {
+        // container 3 = suspicious block；海底遗迹 / 古迹废墟亦为方块。
+        const atKey =
+          chest.container === 3 || item.type === 6 || item.type === 24
+            ? 'common.map.lootBlockAt'
+            : 'common.map.lootChestAt';
+        chestLines.push(t(atKey, { x: chest.x, z: chest.z, hits: shownHits.join('、') }));
+      }
+    }
+    // 沙漠神殿：箱子坐标依赖地表，信息卡只提示是否含沙丘纹饰模板（无坐标）。
+    if (
+      item.type === 1 &&
+      this.lootFilters.template &&
+      info.hasTrim
+    ) {
+      rows.push(
+        `<div>${escapeText(t('common.map.lootContains', { hits: t('common.map.trim_dune') }))}</div>`,
+      );
     }
     if (chestLines.length) {
       rows.push(`<div>${escapeText(t('common.map.lootChestsFound', { n: chestLines.length }))}</div>`);
-      // Ancient cities (13) and trail ruins (24) list every hit; the other
-      // layers keep the 12-line card cap.
-      const uncapped = item.type === 13 || item.type === 24;
+      // Ancient cities (13), trail ruins (24), desert pyramid/well list every hit;
+      // the other layers keep the 12-line card cap.
+      const uncapped = item.type === 13 || item.type === 24 || item.type === 1 || item.type === 16;
       const shown = uncapped ? chestLines.length : Math.min(12, chestLines.length);
       for (const line of chestLines.slice(0, shown)) {
         rows.push(`<div class="muted">${escapeText(line)}</div>`);
@@ -3075,8 +3121,11 @@ export class MapView {
         if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.template) && info.hasTrim)
           hits.push(t('common.map.lootSentryTrim'));
       } else {
-        if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.template)) {
+        // Desert pyramid dune trim is emitted above (no chest coordinates).
+        if (item.type !== 1 && this.lootCategoryEnabled(mask & LOOT_CATEGORY.template)) {
           if (info.hasTrim) hits.push(t('common.map.lootAnyTrim'));
+          if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
+        } else if (item.type === 1 && this.lootCategoryEnabled(mask & LOOT_CATEGORY.template)) {
           if (info.hasNetherite) hits.push(t('common.map.lootNetherite'));
         }
         if (this.lootCategoryEnabled(mask & LOOT_CATEGORY.misc)) {
@@ -3138,30 +3187,6 @@ export class MapView {
   }
 
   /**
-   * 沙漠神殿/水井的陶片生成尚未模拟：在图标左上角画一个问号角标。
-   */
-  private drawSherdUnknownBadge(
-    ctx: CanvasRenderingContext2D,
-    point: { x: number; y: number },
-    size: number,
-  ): void {
-    const badge = 9;
-    const cx = point.x - size / 2 + badge / 2;
-    const cy = point.y - size / 2 + badge / 2;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, badge / 2, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(20, 20, 20, 0.8)';
-    ctx.fill();
-    ctx.fillStyle = LOOT_CHEST_COLOR.sherd;
-    ctx.font = 'bold 8px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('?', cx, cy + 0.5);
-    ctx.restore();
-  }
-
-  /**
    * 在原始结构图标上叠角落图标；底图仍按 ICON_SIZE 原位置、原尺寸绘制，
    * 因此加标记不会让原图标变小或偏移。
    */
@@ -3173,14 +3198,8 @@ export class MapView {
   ): void {
     const feature = this.features.find((entry) => entry.id === item.type);
     if (!feature) return;
-    if (
-      (feature.key === 'desert_pyramid' || feature.key === 'desert_well') &&
-      this.lootFilters.sherd &&
-      this.enabled.has(LOOT_MARKERS_ID)
-    ) {
-      this.drawSherdUnknownBadge(ctx, point, size);
-    }
-    const badge = 9;    const left = point.x - size / 2;
+    const badge = 9;
+    const left = point.x - size / 2;
     const top = point.y - size / 2;
     const right = point.x + size / 2;
     const bottom = point.y + size / 2;
@@ -3200,13 +3219,19 @@ export class MapView {
     if (!LOOT_STRUCTURE_ONLY_TYPES.includes(item.type)) return;
     const info = this.lootInfoAt(item);
     if (!info || !info.exists) return;
+    const showSherd =
+      this.lootFilters.sherd && this.enabled.has(LOOT_MARKERS_ID) && !!info.sherdKinds;
     switch (feature.key) {
       case 'outpost':
         if (this.lootFilters.misc && info.hasAllay) draw('allay_loot', 'tr');
         if (this.lootFilters.template && info.hasTrim) draw('trim_sentry', 'br');
         break;
       case 'desert_pyramid':
+        if (showSherd) draw('sherd', 'tl');
         if (this.lootFilters.template && info.hasTrim) draw('trim_dune', 'br');
+        break;
+      case 'desert_well':
+        if (showSherd) draw('sherd', 'tl');
         break;
       case 'jungle_temple':
         if (this.lootFilters.template && info.hasTrim) draw('trim_wild', 'br');
@@ -3824,6 +3849,9 @@ export class MapView {
       const point = this.worldToScreen(item.x, item.z);
       const icon = feature ? this.structureIcon(feature.key, item.variant ?? 0) : null;
       const size = ICON_SIZE;
+      const rejected = !!item.heightRejected;
+      ctx.save();
+      if (rejected) ctx.globalAlpha = 0.38;
       if (icon) {
         ctx.drawImage(icon, point.x - size / 2, point.y - size / 2, size, size);
       } else {
@@ -3832,7 +3860,8 @@ export class MapView {
         ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (feature && this.enabled.has(LOOT_MARKERS_ID)) {
+      ctx.restore();
+      if (feature && this.enabled.has(LOOT_MARKERS_ID) && !rejected) {
         this.drawLootBadges(ctx, item, point, size);
       }
     }
