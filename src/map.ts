@@ -1210,9 +1210,9 @@ export class MapView {
     // Terrain is a 1:1-only overlay: keep the checkbox out of the UI at coarser
     // zooms (and outside the overworld) instead of leaving a dead toggle visible.
     this.terrainRow.hidden = !overworld || scale !== TERRAIN_SCALE;
-    // Loot mirrors terrain-style availability: hide the whole row at 1:16 and
-    // coarser so a zoomed-out map is not flooded with chest/sherd markers.
+    // Hide the loot row at 1:16 and coarser so zoomed-out maps stay readable.
     const lootOk = this.lootUiAllowed();
+    const wasLootHidden = this.lootRowBox.hidden;
     this.lootRowBox.hidden = !lootOk;
     if (!lootOk && this.lootChests.length) {
       this.lootChests = [];
@@ -1232,6 +1232,11 @@ export class MapView {
       // layer is part of the tile key, so the whole cache is stale now.
       this.schedule(true);
       this.queueFeatures();
+    } else if (lootOk && wasLootHidden && this.enabled.has(LOOT_MARKERS_ID)) {
+      // Crossing back into the loot zoom band: structures may already be loaded,
+      // so refresh chests without waiting for another structure scan.
+      void this.refreshLootChests();
+      void this.refreshMonumentSponge();
     }
   }
 
