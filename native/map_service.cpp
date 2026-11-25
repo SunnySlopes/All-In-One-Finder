@@ -171,10 +171,15 @@ const FeatureDef kFeatures[] = {
  * borders where the game refuses to place them (verified: desert pyramid
  * (3872,-5808) of seed -5474371961803057987 is a river at 1:1 and does not
  * generate in game or in cubiomes-viewer).
+ *
+ * Sample at Y=319 (same vertical as cubiomes feature checks), not Y=63:
+ * sea-level columns can be dripstone_caves / lush_caves under a valid desert
+ * surface, which falsely rejected (14368,-9712) on the same seed.
  */
 static bool biomeAllowsStructure(int type, Generator *gen, int x, int z)
 {
-    const int id = getBiomeAt(gen, 1, x, 63, z);
+    constexpr int kSurfaceBiomeY = 319;
+    const int id = getBiomeAt(gen, 1, x, kSurfaceBiomeY, z);
     if (id < 0) return true;
     switch (type) {
     case Desert_Pyramid:
@@ -336,8 +341,14 @@ void addGeneric(std::vector<PlacedFeature> &out, int type, int mc, uint64_t seed
         const int span = (x1 - x0 > z1 - z0 ? x1 - x0 : z1 - z0);
         if (span > 15680) return;
     }
+    // Chunk-scale decorators (regionSize 1) are expensive on huge views — clamp
+    // to a center window. Region structures (pyramids, villages, …) match
+    // Cubiomes Viewer: when the view is too coarse / too large, skip the layer
+    // entirely so the map is not flooded (frontend also hides below ~1:32).
+    // Budget ~10000 regions ≈ covers Viewer min-vis (1:32) on large monitors;
+    // beyond that the layer stays empty until the user zooms in.
     const int maxSide = (dim == DIM_END) ? 1024 : 192;
-    const long long limit = cfg.regionSize <= 1 ? (long long)maxSide * maxSide : 2500LL;
+    const long long limit = cfg.regionSize <= 1 ? (long long)maxSide * maxSide : 10000LL;
     int scan0x = r0x, scan1x = r1x, scan0z = r0z, scan1z = r1z;
     if (count <= 0) return;
     if (count > limit) {
@@ -854,7 +865,8 @@ std::vector<LootChestInfo> lootChests(int mc, uint64_t seed,
 bool paintBiomes(Generator *gen, int scale, int x, int z, int sx, int sz, int blockY,
                  std::vector<uint8_t> &rgba, std::string &error)
 {
-    if (scale != 1 && scale != 4 && scale != 16 && scale != 64 && scale != 256) {
+    // 1:1024 matches cubiomes-viewer 1.18+ far zoom (genBiomeNoiseScaled accepts it).
+    if (scale != 1 && scale != 4 && scale != 16 && scale != 64 && scale != 256 && scale != 1024) {
         error = "bad-scale";
         return false;
     }
@@ -916,7 +928,8 @@ bool renderBiomeTile(int mc, uint64_t seed, int dim, uint32_t flags, int scale,
 }
 
 void renderTiles(int mc, uint64_t seed, int dim, uint32_t flags, int blockY,
-                 const std::vector<TileSpec> &tiles, std::vector<TileImage> &out)
+                 const std::vector<TileSpec> &tiles, std::vector<TileImage> &out,
+                 int workersOverride)
 {
     out.assign(tiles.size(), TileImage{});
     if (tiles.empty()) return;
@@ -925,10 +938,17 @@ void renderTiles(int mc, uint64_t seed, int dim, uint32_t flags, int blockY,
         ensureColors();
         ensureGenerator(mc, seed, dim, flags);
     }
-    unsigned workers = std::thread::hardware_concurrency();
-    if (workers < 1) workers = 1;
+    // Default: half the logical CPUs (UI / search keep the other half).
+    // Hard caps: never more than 16, and never more than hardware_concurrency.
+    unsigned hw = std::thread::hardware_concurrency();
+    if (hw < 1) hw = 1;
+    unsigned workers = workersOverride > 0
+        ? static_cast<unsigned>(workersOverride)
+        : (hw > 1 ? hw / 2 : 1);
     if (workers > 16) workers = 16;
+    if (workers > hw) workers = hw;
     if (workers > tiles.size()) workers = static_cast<unsigned>(tiles.size());
+    if (workers < 1) workers = 1;
     std::atomic<size_t> cursor{0};
     auto work = [&]() {
         Generator gen;

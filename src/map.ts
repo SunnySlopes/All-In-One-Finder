@@ -87,9 +87,11 @@ const TILE_CELLS = 128;
 /** GPU/canvas dest textures often fail above ~4k–8k; oversized drawImage aborts the frame. */
 const MAX_TILE_DRAW_PX = 4096;
 /** Keep at most this many cached tile canvases; off-screen ones are evicted first. */
-const MAX_TILE_CACHE = 256;
+const MAX_TILE_CACHE = 512;
+/** Hard cap when a huge zoomed-out view would otherwise demand thousands of canvases. */
+const MAX_TILE_CACHE_CAP = 1024;
 /** Terrain tiles carry an extra cave canvas plus height/mask buffers; keep fewer of them. */
-const MAX_TILE_CACHE_TERRAIN = 192;
+const MAX_TILE_CACHE_TERRAIN = 256;
 /** Only 1:1 renders terrain; every coarser zoom level stays on the biome map. */
 const TERRAIN_SCALE = 1;
 /** One cave cell covers 4x4 blocks, so a 128 px tile holds 32x32 cells (1:1 only). */
@@ -108,7 +110,8 @@ const LAVA_LEVEL = -54;
 const LAVA_TOP_BLOCK = LAVA_LEVEL - 1;
 /** Terrain batches request more tiles per round trip than biome batches. */
 const TERRAIN_BATCH = 24;
-const BIOME_BATCH = 8;
+/** Match half-core map workers (≤16): one round trip can saturate the pool. */
+const BIOME_BATCH = 16;
 /** Drop pending jobs that fall outside the view expanded by this many tiles. */
 const PENDING_MARGIN_TILES = 1;
 const MAX_PENDING = 96;
@@ -126,15 +129,28 @@ const TRIAL_CAGE_MIN_PPB = 1;
 /** Creator pots are exact 1x1 containers; draw them at 1:1 like cages. */
 const TRIAL_POT_MIN_PPB = 1;
 const TRIAL_POT_ICON_SIZE = 12;
-/** Geodes generate roughly once per 43 chunks; below 1:1 their icons overlap into noise. */
-const GEODE_ICON_MIN_PPB = 1;
 /**
- * Desert wells: getStructurePos yields ~1/1000 candidates but only ~2% land in a
- * desert, so the effective density is ~1/45,700 chunks. They are drawn only at
- * 1:32 or closer (cubiomes-viewer uses the same per-structure scale of 32) and at
- * half the normal icon size.
+ * Cubiomes Viewer `MapConfig` defaults (`structscale`):
+ *   most structures → scale 32  ⇒ show when blocks2pix >= 1/32
+ *   geode           → scale 16  ⇒ show when blocks2pix >= 1/16
+ * Spawn + stronghold stay visible at every zoom (user requirement).
+ * Loot markers UI follows terrain: hidden at 1:16 and coarser (ppb ≤ 1/16).
  */
-const DESERT_WELL_MIN_PPB = 1 / 32;
+const STRUCT_ICON_MIN_PPB = 1 / 32;
+const GEODE_ICON_MIN_PPB = 1 / 16;
+/** Loot checkbox / overlay only when zoomed in closer than 1:16. */
+const LOOT_UI_MIN_PPB = 1 / 16;
+/** Alias kept for call sites that refer specifically to wells (same as Viewer 32). */
+const DESERT_WELL_MIN_PPB = STRUCT_ICON_MIN_PPB;
+
+/** Minimum pixels-per-block before a structure layer is requested / drawn. */
+function structureMinPpb(key: string): number {
+  if (key === 'geode') return GEODE_ICON_MIN_PPB;
+  // Always-on markers (match spawn behaviour).
+  if (key === 'spawn' || key === 'stronghold') return 0;
+  if (key === 'slime_chunk' || key === 'loot_markers') return 0;
+  return STRUCT_ICON_MIN_PPB;
+}
 
 /** 「展示战利品」总开关（native 的 kFeatures 里 id 110，dim -1 = 所有维度）。 */
 const LOOT_MARKERS_ID = 110;
@@ -456,8 +472,12 @@ function randomMcSeed(): string {
   return value.toString();
 }
 
+/**
+ * Match cubiomes-viewer MapView::zoom: blocks2pix in [1/2048, 128].
+ * (Previously clamped to [1/256, 16], which cut off the far/near ends.)
+ */
 function clampZoom(value: number): number {
-  return Math.min(16, Math.max(1 / 256, value));
+  return Math.min(128, Math.max(1 / 2048, value));
 }
 
 function defaultYForDim(dim: number): number {
@@ -571,8 +591,9 @@ export class MapView {
   private enabled = new Set<number>();
   private cx = 0;
   private cz = 0;
-  private pixelsPerBlock = 1 / 8;
-  private lastActiveScale = 256;
+  /** Match cubiomes-viewer MapView default (blocks2pix = 1/16). */
+  private pixelsPerBlock = 1 / 16;
+  private lastActiveScale = 1024;
   private dragging = false;
   private lastX = 0;
   private lastZ = 0;
@@ -1105,6 +1126,14 @@ export class MapView {
     // Terrain is a 1:1-only overlay: keep the checkbox out of the UI at coarser
     // zooms (and outside the overworld) instead of leaving a dead toggle visible.
     this.terrainRow.hidden = !overworld || scale !== TERRAIN_SCALE;
+    // Loot mirrors terrain-style availability: hide the whole row at 1:16 and
+    // coarser so a zoomed-out map is not flooded with chest/sherd markers.
+    const lootOk = this.lootUiAllowed();
+    this.lootRowBox.hidden = !lootOk;
+    if (!lootOk && this.lootChests.length) {
+      this.lootChests = [];
+      this.monumentSponge.clear();
+    }
     this.syncYPreset();
     this.terrain.title = t('common.map.terrainHint');
 
@@ -1120,6 +1149,11 @@ export class MapView {
       this.schedule(true);
       this.queueFeatures();
     }
+  }
+
+  /** Loot markers only when zoomed in closer than 1:16 (ppb > 1/16). */
+  private lootUiAllowed(): boolean {
+    return this.pixelsPerBlock > LOOT_UI_MIN_PPB;
   }
 
   private bind(): void {
@@ -1629,6 +1663,7 @@ export class MapView {
               }
             }
             if (
+              this.lootUiAllowed() &&
               this.enabled.has(LOOT_MARKERS_ID) &&
               this.lootFilters.disc &&
               detail.pots.some((pot) => pot.creator)
@@ -1645,7 +1680,7 @@ export class MapView {
                 );
               }
             }
-            if (this.enabled.has(LOOT_MARKERS_ID) && this.lootFilters.sherd) {
+            if (this.lootUiAllowed() && this.enabled.has(LOOT_MARKERS_ID) && this.lootFilters.sherd) {
               const sherdPots = detail.pots.filter((pot) => pot.sherd !== 0);
               if (sherdPots.length) {
                 rows.push(
@@ -1713,7 +1748,7 @@ export class MapView {
     }
 
     // 战利品信息：只对当前勾选的「展示战利品」生效；结构图层仍需打开。
-    if (this.enabled.has(LOOT_MARKERS_ID) && !selected.heightRejected) {
+    if (this.lootUiAllowed() && this.enabled.has(LOOT_MARKERS_ID) && !selected.heightRejected) {
       rows.push(...this.lootInfoLines(selected));
     }
     if (selected.key === 'monument' && this.lootFilters.misc) {
@@ -1849,14 +1884,22 @@ export class MapView {
     };
   }
 
-  /** Match cubiomes-viewer: use scale 1 once a block is at least ~1 screen pixel. */
+  /**
+   * Match cubiomes-viewer QWorld::draw for 1.18+ (qual = 2.0):
+   * pick the finest power-of-4 scale whose cells stay ≤ ~2 screen pixels.
+   * Levels: 1, 4, 16, 64, 256, 1024 (viewer lcnt = 6).
+   */
   private activeScale(): number {
+    const levels = [1, 4, 16, 64, 256, 1024] as const;
     const ppb = this.pixelsPerBlock;
-    if (ppb >= 1) return 1;
-    if (ppb >= 0.25) return 4;
-    if (ppb >= 0.0625) return 16;
-    if (ppb >= 0.015625) return 64;
-    return 256;
+    let imgres = 2; // qual
+    let level = 0;
+    for (; level < levels.length; level++, imgres /= 4) {
+      if (ppb > imgres) break;
+    }
+    level -= 1;
+    if (level < 0) return 1;
+    return levels[level];
   }
 
   private schedule(clear = false): void {
@@ -2333,8 +2376,9 @@ export class MapView {
       this.lastActiveScale = scale;
       const levels: number[] = [];
       // At finest zoom only request/draw scale 1; keep scale 4 underlay only while it still fits GPU limits.
+      // Coarser zooms keep underlays up to 1:1024 (cubiomes-viewer 1.18+ lcnt).
       const underlayOk = TILE_CELLS * 4 * this.pixelsPerBlock <= MAX_TILE_DRAW_PX;
-      const maxLevel = scale === 1 ? (underlayOk ? 4 : 1) : 256;
+      const maxLevel = scale === 1 ? (underlayOk ? 4 : 1) : 1024;
       for (let level = scale; level <= maxLevel; level *= 4) levels.push(level);
       const state = this.state();
       this.pruneTilePipeline();
@@ -2539,23 +2583,33 @@ export class MapView {
     request: boolean,
   ): void {
     const tileBlocks = TILE_CELLS * scale;
-    const size = tileBlocks * this.pixelsPerBlock;
+    const approxSize = tileBlocks * this.pixelsPerBlock;
     // Skip levels that would stretch past the safe canvas destination size.
-    if (size > MAX_TILE_DRAW_PX) return;
+    if (approxSize > MAX_TILE_DRAW_PX) return;
     const layer = this.terrainLayerFor(scale);
     const view = this.viewBounds();
-    const x0 = Math.floor(view.x0 / tileBlocks) * tileBlocks;
-    const z0 = Math.floor(view.z0 / tileBlocks) * tileBlocks;
-    for (let z = z0; z < view.z1; z += tileBlocks) {
-      for (let x = x0; x < view.x1; x += tileBlocks) {
+    // Pad by one tile so the viewport rim never shows a half-evicted edge.
+    const x0 = Math.floor(view.x0 / tileBlocks) * tileBlocks - tileBlocks;
+    const z0 = Math.floor(view.z0 / tileBlocks) * tileBlocks - tileBlocks;
+    const x1 = view.x1 + tileBlocks;
+    const z1 = view.z1 + tileBlocks;
+    for (let z = z0; z < z1; z += tileBlocks) {
+      for (let x = x0; x < x1; x += tileBlocks) {
         const key = this.tileKey(state, layer, scale, x, z);
         const tile = this.tiles.get(key);
+        // Integer-pixel destinations: float origins leave 1px gaps / overlaps at
+        // large zooms when adjacent tiles round differently.
         const origin = this.worldToScreen(x, z);
+        const corner = this.worldToScreen(x + tileBlocks, z + tileBlocks);
+        const ox = Math.round(origin.x);
+        const oy = Math.round(origin.y);
+        const dw = Math.max(1, Math.round(corner.x) - ox);
+        const dh = Math.max(1, Math.round(corner.y) - oy);
         if (tile) {
           try {
-            ctx.drawImage(tile.canvas, origin.x, origin.y, size, size);
+            ctx.drawImage(tile.canvas, ox, oy, dw, dh);
             // Cave openings sit above the relief but below the grid/structures.
-            if (tile.cave) ctx.drawImage(tile.cave, origin.x, origin.y, size, size);
+            if (tile.cave) ctx.drawImage(tile.cave, ox, oy, dw, dh);
           } catch {
             /* oversized/invalid draw must not blank the whole frame */
           }
@@ -2769,9 +2823,21 @@ export class MapView {
     return { x0: this.cx - halfW, z0: this.cz - halfH, x1: this.cx + halfW, z1: this.cz + halfH };
   }
 
+  /** Cache budget grows with the visible tile grid so zoomed-out rims stay warm. */
+  private tileCacheLimit(): number {
+    if (this.terrain.checked && this.activeScale() === TERRAIN_SCALE) return MAX_TILE_CACHE_TERRAIN;
+    const view = this.viewBounds();
+    const span = TILE_CELLS * this.activeScale();
+    const cols = Math.ceil((view.x1 - view.x0) / span) + 4;
+    const rows = Math.ceil((view.z1 - view.z0) / span) + 4;
+    // Active level + one underlay ≈ 2× the grid.
+    const need = cols * rows * 2;
+    return Math.min(MAX_TILE_CACHE_CAP, Math.max(MAX_TILE_CACHE, need));
+  }
+
   private evictTiles(keep?: string): void {
-    const limit = this.terrain.checked ? MAX_TILE_CACHE_TERRAIN : MAX_TILE_CACHE;
-    const keepView = this.expandedViewBounds(PENDING_MARGIN_TILES);
+    const limit = this.tileCacheLimit();
+    const keepView = this.expandedViewBounds(PENDING_MARGIN_TILES + 1);
     // Always drop canvases that are no longer near the viewport.
     for (const cached of [...this.tiles.keys()]) {
       if (cached === keep) continue;
@@ -2822,8 +2888,15 @@ export class MapView {
     if (!this.version.value) return;
     const view = this.viewBounds();
     const state = this.state();
+    const ppb = this.pixelsPerBlock;
     const types = this.featuresForCurrentDimension()
-      .filter((feature) => this.enabled.has(feature.id) && feature.id !== -2)
+      .filter(
+        (feature) =>
+          this.enabled.has(feature.id) &&
+          feature.id !== -2 &&
+          feature.id !== LOOT_MARKERS_ID &&
+          ppb >= structureMinPpb(feature.key),
+      )
       .map((feature) => feature.id);
     if (!types.length) {
       this.placed = [];
@@ -2859,7 +2932,12 @@ export class MapView {
    * 未勾选时清空缓存，不额外发请求。
    */
   private async refreshLootChests(): Promise<void> {
-    const on = this.enabled.has(LOOT_MARKERS_ID);
+    const on = this.lootUiAllowed() && this.enabled.has(LOOT_MARKERS_ID);
+    if (!on) {
+      this.lootChests = [];
+      this.queueDraw();
+      return;
+    }
     const mineshaftId = this.features.find((feature) => feature.key === 'mineshaft')?.id;
     const mineshaftAllowed =
       mineshaftId === undefined || this.pixelsPerBlock >= MINESHAFT_LOOT_MIN_PPB;
@@ -2878,7 +2956,7 @@ export class MapView {
         mineshafts++;
         return true;
       });
-    if (!on || !targets.length) {
+    if (!targets.length) {
       this.lootChests = [];
       this.queueDraw();
       return;
@@ -2903,7 +2981,7 @@ export class MapView {
 
   /** 神殿海绵房：仅提示数量/有无，不显示房间坐标。 */
   private async refreshMonumentSponge(): Promise<void> {
-    const on = this.enabled.has(LOOT_MARKERS_ID);
+    const on = this.lootUiAllowed() && this.enabled.has(LOOT_MARKERS_ID);
     const typeId = this.features.find((feature) => feature.key === 'monument')?.id;
     if (!on || typeId === undefined || !this.enabled.has(typeId)) {
       this.monumentSponge.clear();
@@ -3245,7 +3323,7 @@ export class MapView {
   }
 
   private drawLootChests(ctx: CanvasRenderingContext2D): void {
-    if (!this.enabled.has(LOOT_MARKERS_ID)) return;
+    if (!this.lootUiAllowed() || !this.enabled.has(LOOT_MARKERS_ID)) return;
     for (const info of this.lootChests) {
       if (!info.exists || LOOT_STRUCTURE_ONLY_TYPES.includes(info.type)) continue;
       for (const chest of info.chests) {
@@ -3842,10 +3920,8 @@ export class MapView {
     for (const item of this.placed) {
       if (item.type === -2) continue;
       const feature = byId.get(item.type);
-      if (feature?.key === 'geode' && this.pixelsPerBlock < GEODE_ICON_MIN_PPB) continue;
-      // 沙漠水井极稀有（有效密度约 1/45,700 区块），只在 1:32 及更近才显示；图标与普通结构同尺寸。
-      const well = feature?.key === 'desert_well';
-      if (well && this.pixelsPerBlock < DESERT_WELL_MIN_PPB) continue;
+      // Cubiomes Viewer-style scale gate: omit icons when zoomed out too far.
+      if (feature && this.pixelsPerBlock < structureMinPpb(feature.key)) continue;
       const point = this.worldToScreen(item.x, item.z);
       const icon = feature ? this.structureIcon(feature.key, item.variant ?? 0) : null;
       const size = ICON_SIZE;
@@ -3861,7 +3937,7 @@ export class MapView {
         ctx.fill();
       }
       ctx.restore();
-      if (feature && this.enabled.has(LOOT_MARKERS_ID) && !rejected) {
+      if (feature && this.lootUiAllowed() && this.enabled.has(LOOT_MARKERS_ID) && !rejected) {
         this.drawLootBadges(ctx, item, point, size);
       }
     }

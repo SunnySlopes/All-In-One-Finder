@@ -332,9 +332,15 @@ Napi::Value RenderTiles(const Napi::CallbackInfo &info)
         tile.sz = sz;
         tiles.push_back(tile);
     }
+    int workers = 0;
+    Napi::Value workersArg = args.Get("workers");
+    if (!workersArg.IsUndefined() && !workersArg.IsNull()) {
+        if (!workersArg.IsNumber()) throw Napi::Error::New(info.Env(), "bad-workers");
+        workers = workersArg.As<Napi::Number>().Int32Value();
+    }
     std::vector<TileImage> images;
     if (layer == MAP_LAYER_BIOME) {
-        renderTiles(mc, static_cast<uint64_t>(seed), dim, mapFlags(large), y, tiles, images);
+        renderTiles(mc, static_cast<uint64_t>(seed), dim, mapFlags(large), y, tiles, images, workers);
     } else {
         renderTerrainTiles(mc, static_cast<uint64_t>(seed), dim, mapFlags(large), y, layer, tiles, images);
     }

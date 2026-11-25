@@ -197,8 +197,10 @@ bool renderBiomeTile(int mc, uint64_t seed, int dim, uint32_t flags, int scale,
                       int x, int z, int sx, int sz, int blockY,
                       std::vector<uint8_t> &rgba, std::string &error);
 
+/** workers <= 0 → half of hardware_concurrency; always min(workers, 16, hw). */
 void renderTiles(int mc, uint64_t seed, int dim, uint32_t flags, int blockY,
-                 const std::vector<TileSpec> &tiles, std::vector<TileImage> &out);
+                 const std::vector<TileSpec> &tiles, std::vector<TileImage> &out,
+                 int workers = 0);
 
 void slimeMask(uint64_t seed, int chunkX, int chunkZ, int width, int height, std::vector<uint8_t> &out);
 
