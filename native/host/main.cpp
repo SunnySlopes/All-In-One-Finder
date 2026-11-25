@@ -98,8 +98,24 @@ bool systemUsesDarkApps()
 }
 
 constexpr wchar_t kSessionFilter[] =
-    L"Session\0*.json;*.txt\0JSON\0*.json\0Text\0*.txt\0\0";
+    L"Session\0*.json;*.txt\0JSON\0*.json\0Text\0*.txt\0All files\0*.*\0\0";
+constexpr wchar_t kColormapFilter[] =
+    L"Colormap\0*.colormap;*.txt;*.json\0Text\0*.txt\0JSON\0*.json\0All files\0*.*\0\0";
 constexpr wchar_t kTextFilter[] = L"Text\0*.txt;*.csv\0All files\0*.*\0\0";
+
+const wchar_t *filterForKind(const std::string &kind)
+{
+    if (kind == "session") return kSessionFilter;
+    if (kind == "colormap") return kColormapFilter;
+    return kTextFilter;
+}
+
+const wchar_t *defaultExtForKind(const std::string &kind)
+{
+    if (kind == "session") return L"json";
+    if (kind == "colormap") return L"colormap";
+    return L"txt";
+}
 
 struct Config
 {
@@ -540,6 +556,12 @@ void replyText(long long id, const std::string &text)
     postRaw("{\"id\":" + std::to_string(id) + ",\"ok\":true,\"b64\":\"" + base64Encode(text) + "\"}");
 }
 
+void replyTextWithPath(long long id, const std::string &text, const std::wstring &path)
+{
+    postRaw("{\"id\":" + std::to_string(id) + ",\"ok\":true,\"b64\":\"" + base64Encode(text) +
+            "\",\"pathB64\":\"" + wideToB64(path) + "\"}");
+}
+
 void replyError(long long id, const char *message)
 {
     postRaw("{\"id\":" + std::to_string(id) + ",\"ok\":false,\"error\":\"" + std::string(message) + "\"}");
@@ -573,7 +595,8 @@ bool pickOpenFile(std::wstring &out, const wchar_t *filter)
     return true;
 }
 
-bool pickSaveFile(std::wstring &out, const wchar_t *filter, const wchar_t *extension, const std::wstring &suggested)
+/** 1 = path chosen, 0 = user cancelled, -1 = dialog error. */
+int pickSaveFile(std::wstring &out, const wchar_t *filter, const wchar_t *extension, const std::wstring &suggested)
 {
     wchar_t path[MAX_PATH] = {};
     wcsncpy_s(path, suggested.c_str(), _TRUNCATE);
@@ -587,16 +610,17 @@ bool pickSaveFile(std::wstring &out, const wchar_t *filter, const wchar_t *exten
     dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameW(&dialog))
     {
+        const DWORD err = CommDlgExtendedError();
         if (g_config.verbose)
         {
             std::fwprintf(stderr, L"[host] GetSaveFileName failed (commdlg=0x%08lX)\n",
-                          static_cast<unsigned long>(CommDlgExtendedError()));
+                          static_cast<unsigned long>(err));
             std::fflush(stderr);
         }
-        return false;
+        return err == 0 ? 0 : -1;
     }
     out = path;
-    return true;
+    return 1;
 }
 
 std::wstring sessionFile(const std::wstring &name)
@@ -608,6 +632,14 @@ std::wstring sessionFile(const std::wstring &name)
                            ? c
                            : L'_');
     if (safe.empty()) safe = L"map";
+    // Colormaps use cubiomes-viewer ".colormap"; keep ".json"/".txt" when callers already
+    // include an extension so we do not write "foo.colormap.json".
+    const auto endsWith = [&](const wchar_t *ext) -> bool {
+        const size_t n = wcslen(ext);
+        return safe.size() >= n && _wcsicmp(safe.c_str() + (safe.size() - n), ext) == 0;
+    };
+    if (endsWith(L".json") || endsWith(L".colormap") || endsWith(L".txt"))
+        return joinPath(g_sessionDir, safe);
     return joinPath(g_sessionDir, safe + L".json");
 }
 
@@ -635,9 +667,23 @@ void handleAio(const std::string &message, long long id)
     }
     if (method == "open-file")
     {
+        const std::string kind = jsonField(message, "kind");
+        const bool withPath = jsonField(message, "withPath") == "1";
         std::wstring path;
         std::string text;
-        if (pickOpenFile(path, kTextFilter) && readFileBytes(path, text)) replyText(id, text);
+        if (pickOpenFile(path, filterForKind(kind)) && readFileBytes(path, text))
+        {
+            if (withPath) replyTextWithPath(id, text, path);
+            else replyText(id, text);
+        }
+        else replyNull(id);
+        return;
+    }
+    if (method == "read-path")
+    {
+        const std::wstring path = b64ToWide(jsonField(message, "pathB64"));
+        std::string text;
+        if (!path.empty() && readFileBytes(path, text)) replyText(id, text);
         else replyNull(id);
         return;
     }
@@ -645,10 +691,20 @@ void handleAio(const std::string &message, long long id)
     {
         const std::wstring name = b64ToWide(jsonField(message, "nameB64"));
         const std::string text = base64Decode(jsonField(message, "textB64"));
+        const std::string kind = jsonField(message, "kind");
+        const wchar_t *ext = defaultExtForKind(kind);
+        const std::wstring fallback = kind == "session" ? L"map.json"
+            : kind == "colormap" ? L"colormap.colormap"
+            : L"results.txt";
         std::wstring path;
-        const bool ok = pickSaveFile(path, kTextFilter, L"txt", name.empty() ? L"results.txt" : name) &&
-                        writeFileBytes(path, text, false);
-        replyResult(id, ok);
+        const int picked = pickSaveFile(path, filterForKind(kind), ext, name.empty() ? fallback : name);
+        if (picked <= 0)
+        {
+            // Cancel → true so the page does not toast "save failed". Dialog error → false.
+            replyResult(id, picked == 0);
+            return;
+        }
+        replyResult(id, writeFileBytes(path, text, false));
         return;
     }
     if (method == "read-session")

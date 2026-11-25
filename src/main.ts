@@ -14,6 +14,7 @@ import {
   systemTheme,
   type ThemeId,
 } from './theme';
+import { BiomeColorPanel } from './biome-colors';
 import { ResultsColumn } from './results';
 import { RiverPanel } from './river';
 import { SearchPanel } from './search';
@@ -22,7 +23,12 @@ import { TrialPanel } from './trial';
 import { WitchPanel } from './witch';
 import { onRunLockChange, runLockOwner } from './run-lock';
 import { SEARCHER_ITEMS, type SearcherId } from './searchers';
-import { type MapSessionData } from './session';
+import {
+  injectSharedSeed,
+  resolveSharedSeed,
+  type SharedSearchSeed,
+} from './search-seeds';
+import { serializeSession, type MapSessionData } from './session';
 
 const app = document.querySelector<HTMLElement>('#app')!;
 app.innerHTML = `
@@ -65,7 +71,14 @@ const fortressSpan = new FortressPanel('span');
 const monumentDouble = new MonumentPanel('double');
 const monumentMulti = new MonumentPanel('multi');
 const results = new ResultsColumn(map);
-resultsHost.append(results.root);
+const biomeColors = new BiomeColorPanel(map, (data) => {
+  void applyImportedSession(data);
+});
+resultsHost.append(results.root, biomeColors.root);
+map.root.querySelector('#map-session-import')!.addEventListener('click', () => void biomeColors.importSession());
+map.root.querySelector('#map-session-export')!.addEventListener('click', () => void biomeColors.exportSession());
+map.root.querySelector('#map-cmap-import')!.addEventListener('click', () => void biomeColors.importColormap());
+map.root.querySelector('#map-cmap-export')!.addEventListener('click', () => void biomeColors.exportColormap());
 search.bindResults(results);
 slime.bindResults(results);
 witch.bindResults(results);
@@ -117,26 +130,56 @@ function sessionSnapshot(): MapSessionData {
   return map.exportSnapshot();
 }
 
-function applySearcherStates(states: unknown): void {
+function applySearcherStates(states: unknown, shared?: SharedSearchSeed, mapSeed = ''): void {
   if (!states || typeof states !== 'object') return;
   const saved = states as Record<string, unknown>;
-  search.importStates(saved);
-  slime.importState(saved.SlimeChunk);
-  witch.importState(saved.LowYSwampHut);
-  flower.importState(saved.FlowerFarm);
-  trial.importState(saved.TrialSpawner);
-  geode.importState(saved.BuddingAmethyst);
-  river.importState(saved.River);
-  fortressCross.importState(saved.NetherFortressCross);
-  fortressSpan.importState(saved.NetherFortressOverall);
-  monumentDouble.importState(saved.DoubleMonument);
-  monumentMulti.importState(saved.MultiMonument);
+  const seed = mapSeed.trim() || '0';
+  const withShared = (state: unknown) => (shared ? injectSharedSeed(state, shared, seed) : state);
+  const forSearch = shared
+    ? {
+        ...saved,
+        LowYDripstoneCave: withShared(saved.LowYDripstoneCave),
+        LowYPitDripstoneCave: withShared(saved.LowYPitDripstoneCave),
+      }
+    : saved;
+  search.importStates(forSearch);
+  slime.importState(withShared(saved.SlimeChunk));
+  witch.importState(withShared(saved.LowYSwampHut));
+  flower.importState(withShared(saved.FlowerFarm));
+  trial.importState(withShared(saved.TrialSpawner));
+  geode.importState(withShared(saved.BuddingAmethyst));
+  river.importState(withShared(saved.River));
+  fortressCross.importState(withShared(saved.NetherFortressCross));
+  fortressSpan.importState(withShared(saved.NetherFortressOverall));
+  monumentDouble.importState(withShared(saved.DoubleMonument));
+  monumentMulti.importState(withShared(saved.MultiMonument));
+}
+
+async function applyImportedSession(data: MapSessionData): Promise<void> {
+  const shared = await resolveSharedSeed({
+    seedMode: data.seedMode === 'list' ? 'list' : 'single',
+    seedText: data.seedText || '',
+    seedListPath: data.seedListPath || '',
+  });
+  data.seedMode = shared.seedMode;
+  data.seedText = shared.seedText;
+  data.seedListPath = shared.seedListPath;
+  map.applySnapshot(data);
+  applySearcherStates(data.searchers, shared, data.seed);
+  adoptSessionTheme(data.theme);
+  adoptSessionLocale(data.locale);
+  biomeColors.applyScheme(data.biomeGroupScheme);
+  pushSeedToSingleTabs(map.getSeed());
 }
 
 map.setSearcherStateProvider(collectSearcherStates);
 // 主题/语言属于页面级状态：注入到 map 的存档快照里，避免 map 自己的
 // writeSession 与宿主定时保存写出不一致的 session 文件。
-map.setSessionExtraProvider(() => ({ theme: currentTheme, locale: locale() }));
+map.setSessionExtraProvider(() => ({
+  theme: currentTheme,
+  locale: locale(),
+  biomeGroupScheme: biomeColors.getScheme(),
+}));
 
 /**
  * 每个搜索 tab 共用同一套种子同步接口；集中列出一次，
@@ -168,7 +211,7 @@ map.onSeedChange = (seed) => pushSeedToSingleTabs(seed);
 // 原生宿主在关闭窗口前调用它，把当前地图状态同步落盘，避免异步 session 写入被关闭流程截断。
 window.__AIO_SESSION_B64__ = () => {
   if (!map.hasLoaded()) return '';
-  const bytes = new TextEncoder().encode(JSON.stringify(sessionSnapshot()));
+  const bytes = new TextEncoder().encode(serializeSession(sessionSnapshot()));
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
@@ -335,12 +378,19 @@ function showAbout(): void {
   };
 }
 
+function showMiddleColumn(which: SearcherId): void {
+  const onMap = which === 'map';
+  results.root.hidden = onMap;
+  biomeColors.root.hidden = !onMap;
+}
+
 function show(which: SearcherId): void {
   current = which;
   // Tab 主题色入口（决策 1）：CSS 用 #app[data-searcher] 覆盖 --accent*。
   app.dataset.searcher = which;
   // 地图不再占 Tab，改由品牌图标承载；这里同步它的激活态。
   mapHome.classList.toggle('active', which === 'map');
+  showMiddleColumn(which);
   if (which === 'map') {
     map.commitDraft();
     panel.replaceChildren(map.root);
@@ -477,6 +527,7 @@ onLocale(() => {
   monumentDouble.refresh();
   monumentMulti.refresh();
   results.refresh();
+  biomeColors.refresh();
   paintSearcherBar();
   syncLangLabel();
   syncAboutLabel();
@@ -498,13 +549,24 @@ setWindowTitle();
 
 void Promise.all([call<McVersion[]>('versions'), call<FeatureInfo[]>('features')])
   .then(([versions, features]) => {
-    void map.load(versions, features).then((session) => {
+    void map.load(versions, features).then(async (session) => {
       pushSeedToSingleTabs(map.getSeed());
-      applySearcherStates(session?.searchers);
+      const shared = session
+        ? await resolveSharedSeed({
+            seedMode: session.seedMode === 'list' ? 'list' : 'single',
+            seedText: session.seedText || '',
+            seedListPath: session.seedListPath || '',
+          })
+        : undefined;
+      applySearcherStates(session?.searchers, shared, session?.seed || map.getSeed());
       // 存档里带了主题/语言就沿用（跨 session 记住用户上次的选择）；
       // 旧存档没有这些字段时保留本次启动已确定的值（本地记录或系统）。
       adoptSessionTheme(session?.theme);
       adoptSessionLocale(session?.locale);
+      await biomeColors.load();
+      biomeColors.applyScheme(session?.biomeGroupScheme);
+      // 搜索器条件已恢复：补写一次，完成旧 session → 去重格式的迁移。
+      if (session) map.saveNow();
     });
     search.load(versions);
     slime.load(versions);
@@ -520,6 +582,7 @@ void Promise.all([call<McVersion[]>('versions'), call<FeatureInfo[]>('features')
     applyI18n();
     map.refreshText();
     results.refresh();
+    biomeColors.refresh();
   })
   .catch((error) => {
     panel.insertAdjacentHTML('afterbegin', `<div class="hint">${t('common.error.native')} ${String(error)}</div>`);

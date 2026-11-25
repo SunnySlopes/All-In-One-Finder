@@ -39,6 +39,150 @@ static_assert(MC_1_19_2 == 23 && MC_1_19_4 == 24 && MC_1_20_6 == 25 &&
               MC_1_21_6 == 30 && MC_1_21_11 == 32 && MC_26_1 == 33,
               "cubiomes MC_* ids changed - update tools/loots/src/version.cpp");
 
+/** Shared with terrain_map.cpp — keep outside the anonymous namespace. */
+unsigned char gColors[256][3];
+static bool gColorsReady = false;
+static constexpr int kDimDivider = 6;
+
+void ensureBiomeColors()
+{
+    if (!gColorsReady) {
+        std::memset(gColors, 0, sizeof(gColors));
+        initBiomeColors(gColors);
+        gColorsReady = true;
+    }
+}
+
+static void clampByte(int &v)
+{
+    if (v < 0) v = 0;
+    if (v > 255) v = 255;
+}
+
+std::vector<BiomeColorEntry> listBiomeColors(int dim)
+{
+    ensureBiomeColors();
+    std::vector<BiomeColorEntry> out;
+    out.reserve(96);
+    const bool filterDim = dim == DIM_OVERWORLD || dim == DIM_NETHER || dim == DIM_END;
+    for (int id = 0; id < 256; id++) {
+        if (!biomeExists(MC_NEWEST, id)) continue;
+        if (filterDim && getDimension(id) != dim) continue;
+        const char *name = biome2str(MC_NEWEST, id);
+        if (!name || !*name) continue;
+        BiomeColorEntry entry;
+        entry.id = id;
+        entry.name = name;
+        entry.r = gColors[id][0];
+        entry.g = gColors[id][1];
+        entry.b = gColors[id][2];
+        out.push_back(std::move(entry));
+    }
+    return out;
+}
+
+void setBiomeColor(int id, int r, int g, int b)
+{
+    if (id < 0 || id >= 256) return;
+    clampByte(r);
+    clampByte(g);
+    clampByte(b);
+    ensureBiomeColors();
+    gColors[id][0] = static_cast<unsigned char>(r);
+    gColors[id][1] = static_cast<unsigned char>(g);
+    gColors[id][2] = static_cast<unsigned char>(b);
+}
+
+void setBiomeColors(const std::vector<BiomeColorEntry> &colors)
+{
+    ensureBiomeColors();
+    for (const BiomeColorEntry &entry : colors) {
+        if (entry.id < 0 || entry.id >= 256) continue;
+        if (!biomeExists(MC_NEWEST, entry.id)) continue;
+        int r = entry.r, g = entry.g, b = entry.b;
+        clampByte(r);
+        clampByte(g);
+        clampByte(b);
+        gColors[entry.id][0] = static_cast<unsigned char>(r);
+        gColors[entry.id][1] = static_cast<unsigned char>(g);
+        gColors[entry.id][2] = static_cast<unsigned char>(b);
+    }
+}
+
+void resetBiomeColors()
+{
+    std::memset(gColors, 0, sizeof(gColors));
+    initBiomeColors(gColors);
+    gColorsReady = true;
+}
+
+void dimBiomeColors()
+{
+    unsigned char defaults[256][3];
+    std::memset(defaults, 0, sizeof(defaults));
+    initBiomeColors(defaults);
+    ensureBiomeColors();
+    for (int id = 0; id < 256; id++) {
+        if (!biomeExists(MC_NEWEST, id)) continue;
+        gColors[id][0] = static_cast<unsigned char>(defaults[id][0] / kDimDivider);
+        gColors[id][1] = static_cast<unsigned char>(defaults[id][1] / kDimDivider);
+        gColors[id][2] = static_cast<unsigned char>(defaults[id][2] / kDimDivider);
+    }
+}
+
+int applyBiomeColorText(const char *buf)
+{
+    if (!buf) return 0;
+    unsigned char parsed[256][3];
+    std::memset(parsed, 0, sizeof(parsed));
+    initBiomeColors(parsed);
+    const int mapped = parseBiomeColors(parsed, buf);
+    ensureBiomeColors();
+    for (int id = 0; id < 256; id++) {
+        if (!biomeExists(MC_NEWEST, id)) continue;
+        gColors[id][0] = parsed[id][0];
+        gColors[id][1] = parsed[id][1];
+        gColors[id][2] = parsed[id][2];
+    }
+    return mapped;
+}
+
+static bool gHighlightOn = false;
+static bool gHighlightMask[256];
+static constexpr int kHighlightDim = 5;
+
+void setBiomeHighlight(const std::vector<int> &ids)
+{
+    if (ids.empty()) {
+        gHighlightOn = false;
+        return;
+    }
+    std::memset(gHighlightMask, 0, sizeof(gHighlightMask));
+    gHighlightOn = false;
+    for (int id : ids) {
+        if (id < 0 || id >= 256) continue;
+        gHighlightMask[id] = true;
+        gHighlightOn = true;
+    }
+}
+
+void biomeDisplayColor(int id, unsigned char &r, unsigned char &g, unsigned char &b)
+{
+    if (id < 0 || id >= 256) {
+        r = g = b = 0;
+        return;
+    }
+    ensureBiomeColors();
+    r = gColors[id][0];
+    g = gColors[id][1];
+    b = gColors[id][2];
+    if (gHighlightOn && !gHighlightMask[id]) {
+        r = static_cast<unsigned char>(r / kHighlightDim);
+        g = static_cast<unsigned char>(g / kHighlightDim);
+        b = static_cast<unsigned char>(b / kHighlightDim);
+    }
+}
+
 namespace {
 
 std::mutex gMu;
@@ -48,8 +192,6 @@ int gMc = -1;
 int gDim = 999;
 uint32_t gFlags = 0;
 uint64_t gSeed = 0;
-unsigned char gColors[256][3];
-bool gColorsReady = false;
 
 struct StrongholdCache {
     int mc = -1;
@@ -190,15 +332,6 @@ static bool biomeAllowsStructure(int type, Generator *gen, int x, int z)
                id == bamboo_jungle_hills || id == sparse_jungle;
     default:
         return true;
-    }
-}
-
-void ensureColors()
-{
-    if (!gColorsReady) {
-        std::memset(gColors, 0, sizeof(gColors));
-        initBiomeColors(gColors);
-        gColorsReady = true;
     }
 }
 
@@ -902,13 +1035,8 @@ bool paintBiomes(Generator *gen, int scale, int x, int z, int sx, int sz, int bl
     }
     rgba.assign(cells * 4, 255);
     for (size_t i = 0; i < cells; i++) {
-        int id = biomes[i];
         unsigned char r = 0, g = 0, b = 0;
-        if (id >= 0 && id < 256) {
-            r = gColors[id][0];
-            g = gColors[id][1];
-            b = gColors[id][2];
-        }
+        biomeDisplayColor(biomes[i], r, g, b);
         rgba[i * 4] = r;
         rgba[i * 4 + 1] = g;
         rgba[i * 4 + 2] = b;
@@ -922,7 +1050,7 @@ bool renderBiomeTile(int mc, uint64_t seed, int dim, uint32_t flags, int scale,
                       std::vector<uint8_t> &rgba, std::string &error)
 {
     std::lock_guard<std::mutex> lock(gMu);
-    ensureColors();
+    ensureBiomeColors();
     ensureGenerator(mc, seed, dim, flags);
     return paintBiomes(&gGen, scale, x, z, sx, sz, blockY, rgba, error);
 }
@@ -935,7 +1063,7 @@ void renderTiles(int mc, uint64_t seed, int dim, uint32_t flags, int blockY,
     if (tiles.empty()) return;
     {
         std::lock_guard<std::mutex> lock(gMu);
-        ensureColors();
+        ensureBiomeColors();
         ensureGenerator(mc, seed, dim, flags);
     }
     // Default: half the logical CPUs (UI / search keep the other half).

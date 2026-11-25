@@ -423,6 +423,111 @@ Napi::Value BiomeAt(const Napi::CallbackInfo &info)
     return out;
 }
 
+Napi::Object BiomeColorToObject(Napi::Env env, const BiomeColorEntry &entry)
+{
+    Napi::Object out = Napi::Object::New(env);
+    out.Set("id", entry.id);
+    out.Set("name", entry.name);
+    out.Set("r", entry.r);
+    out.Set("g", entry.g);
+    out.Set("b", entry.b);
+    return out;
+}
+
+Napi::Value ListBiomeColors(const Napi::CallbackInfo &info)
+{
+    int dim = DIM_UNDEF;
+    if (info.Length() > 0 && info[0].IsObject()) {
+        Napi::Object args = info[0].As<Napi::Object>();
+        if (args.Has("dim") && args.Get("dim").IsNumber())
+            dim = args.Get("dim").As<Napi::Number>().Int32Value();
+    }
+    auto list = listBiomeColors(dim);
+    Napi::Env env = info.Env();
+    Napi::Array out = Napi::Array::New(env, list.size());
+    for (size_t i = 0; i < list.size(); i++) out.Set(i, BiomeColorToObject(env, list[i]));
+    return out;
+}
+
+BiomeColorEntry readBiomeColorEntry(const Napi::Object &item)
+{
+    BiomeColorEntry entry;
+    entry.id = item.Get("id").As<Napi::Number>().Int32Value();
+    if (item.Has("name") && item.Get("name").IsString())
+        entry.name = item.Get("name").As<Napi::String>().Utf8Value();
+    entry.r = item.Get("r").As<Napi::Number>().Int32Value();
+    entry.g = item.Get("g").As<Napi::Number>().Int32Value();
+    entry.b = item.Get("b").As<Napi::Number>().Int32Value();
+    return entry;
+}
+
+Napi::Value SetBiomeColor(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    BiomeColorEntry entry = readBiomeColorEntry(args);
+    setBiomeColor(entry.id, entry.r, entry.g, entry.b);
+    return info.Env().Undefined();
+}
+
+Napi::Value SetBiomeColors(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    Napi::Value colorsValue = args.Get("colors");
+    if (!colorsValue.IsArray()) throw Napi::TypeError::New(info.Env(), "bad-colors");
+    Napi::Array colors = colorsValue.As<Napi::Array>();
+    std::vector<BiomeColorEntry> entries;
+    entries.reserve(colors.Length());
+    for (uint32_t i = 0; i < colors.Length(); i++) {
+        Napi::Value item = colors.Get(i);
+        if (!item.IsObject()) continue;
+        entries.push_back(readBiomeColorEntry(item.As<Napi::Object>()));
+    }
+    setBiomeColors(entries);
+    return info.Env().Undefined();
+}
+
+Napi::Value ResetBiomeColors(const Napi::CallbackInfo &info)
+{
+    resetBiomeColors();
+    return info.Env().Undefined();
+}
+
+Napi::Value DimBiomeColors(const Napi::CallbackInfo &info)
+{
+    dimBiomeColors();
+    return info.Env().Undefined();
+}
+
+Napi::Value ApplyBiomeColorText(const Napi::CallbackInfo &info)
+{
+    Napi::Object args = info[0].As<Napi::Object>();
+    if (!args.Get("text").IsString()) throw Napi::TypeError::New(info.Env(), "bad-text");
+    const std::string text = args.Get("text").As<Napi::String>().Utf8Value();
+    const int mapped = applyBiomeColorText(text.c_str());
+    Napi::Object out = Napi::Object::New(info.Env());
+    out.Set("mapped", mapped);
+    return out;
+}
+
+Napi::Value SetBiomeHighlight(const Napi::CallbackInfo &info)
+{
+    std::vector<int> ids;
+    if (info.Length() > 0 && info[0].IsObject()) {
+        Napi::Object args = info[0].As<Napi::Object>();
+        Napi::Value value = args.Get("ids");
+        if (value.IsArray()) {
+            Napi::Array arr = value.As<Napi::Array>();
+            ids.reserve(arr.Length());
+            for (uint32_t i = 0; i < arr.Length(); i++) {
+                Napi::Value item = arr.Get(i);
+                if (item.IsNumber()) ids.push_back(item.As<Napi::Number>().Int32Value());
+            }
+        }
+    }
+    setBiomeHighlight(ids);
+    return info.Env().Undefined();
+}
+
 Napi::Object BoxToObject(Napi::Env env, const Box3i &box)
 {
     Napi::Object out = Napi::Object::New(env);
@@ -1611,6 +1716,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set("renderTiles", Napi::Function::New(env, RenderTiles));
     exports.Set("slimeMask", Napi::Function::New(env, SlimeMask));
     exports.Set("biomeAt", Napi::Function::New(env, BiomeAt));
+    exports.Set("listBiomeColors", Napi::Function::New(env, ListBiomeColors));
+    exports.Set("setBiomeColor", Napi::Function::New(env, SetBiomeColor));
+    exports.Set("setBiomeColors", Napi::Function::New(env, SetBiomeColors));
+    exports.Set("resetBiomeColors", Napi::Function::New(env, ResetBiomeColors));
+    exports.Set("dimBiomeColors", Napi::Function::New(env, DimBiomeColors));
+    exports.Set("applyBiomeColorText", Napi::Function::New(env, ApplyBiomeColorText));
+    exports.Set("setBiomeHighlight", Napi::Function::New(env, SetBiomeHighlight));
     exports.Set("structures", Napi::Function::New(env, Structures));
     exports.Set("structureBounds", Napi::Function::New(env, StructureBounds));
     exports.Set("weirdness", Napi::Function::New(env, Weirdness));

@@ -82,17 +82,6 @@ constexpr int kAquiferMinY = -64;
 constexpr int kWaterY = 63;
 constexpr int kLavaY = -54;
 
-unsigned char gColors[256][3];
-std::once_flag gColorsOnce;
-
-void ensureColors()
-{
-    std::call_once(gColorsOnce, []() {
-        std::memset(gColors, 0, sizeof(gColors));
-        initBiomeColors(gColors);
-    });
-}
-
 int verticalFor(int scale, int blockY)
 {
     int y = blockY;
@@ -402,13 +391,8 @@ void paintFlat(TileImage &out, const std::vector<int> &biomes, int sx, int sz)
     out.rgba.assign(static_cast<size_t>(sx) * sz * 4, 0);
     const size_t cells = static_cast<size_t>(sx) * sz;
     for (size_t i = 0; i < cells; i++) {
-        const int id = biomes[i];
         unsigned char r = 0, g = 0, b = 0;
-        if (id >= 0 && id < 256) {
-            r = gColors[id][0];
-            g = gColors[id][1];
-            b = gColors[id][2];
-        }
+        biomeDisplayColor(biomes[i], r, g, b);
         out.rgba[i * 4] = r;
         out.rgba[i * 4 + 1] = g;
         out.rgba[i * 4 + 2] = b;
@@ -459,11 +443,7 @@ void paintShaded(TileImage &out, const std::vector<int> &biomes, const std::vect
                 light = std::min(kShadeMax, std::max(kShadeMin, light));
             }
             unsigned char r = 0, g = 0, b = 0;
-            if (id >= 0 && id < 256) {
-                r = gColors[id][0];
-                g = gColors[id][1];
-                b = gColors[id][2];
-            }
+            biomeDisplayColor(id, r, g, b);
             const float scale = light;
             out.rgba[index * 4] = static_cast<uint8_t>(std::min(255.0f, r * scale));
             out.rgba[index * 4 + 1] = static_cast<uint8_t>(std::min(255.0f, g * scale));
@@ -843,7 +823,7 @@ void renderTerrainTiles(int mc, uint64_t seed, int dim, uint32_t flags, int bloc
 {
     out.assign(tiles.size(), TileImage{});
     if (tiles.empty()) return;
-    ensureColors();
+    ensureBiomeColors();
 
     const bool supported = terrainSupported(mc, dim);
     unsigned workers = std::thread::hardware_concurrency();

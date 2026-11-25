@@ -5,6 +5,7 @@ import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyFor
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
+import { pickSeedListFile } from './search-seeds';
 
 export type MonumentVariant = 'double' | 'multi';
 
@@ -59,6 +60,7 @@ export class MonumentPanel {
   private results: ResultsColumn | null = null;
   private seed = '';
   private seedText = '';
+  private seedListPath = '';
   private running = false;
   private paused = false;
   /** 已发出停止请求、等待引擎结束当前工作单元；期间禁止再次点击/暂停。 */
@@ -143,6 +145,7 @@ export class MonumentPanel {
       seedMode: this.seedMode,
       seed: this.seed,
       seedText: this.seedText,
+      seedListPath: this.seedListPath,
       level: this.level,
       mode: this.mode,
       areaValue: this.areaValue,
@@ -156,6 +159,7 @@ export class MonumentPanel {
     if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
     if (typeof s.seed === 'string') this.seed = s.seed;
     if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    if (typeof s.seedListPath === 'string') this.seedListPath = s.seedListPath;
     if (Number(s.level) === 4) this.level = 4;
     else if (Number(s.level) === 3) this.level = 3;
     if (Number(s.mode) === 1) this.mode = 1;
@@ -347,10 +351,11 @@ export class MonumentPanel {
   }
 
   private async pickFile(): Promise<void> {
-    const text = await window.aio.openFile();
-    if (text == null) return;
-    this.seedText = text;
-    const count = text.split(/\r?\n/).filter((line) => line.trim()).length;
+    const picked = await pickSeedListFile();
+    if (!picked) return;
+    this.seedText = picked.text;
+    this.seedListPath = picked.path;
+    const count = picked.text.split(/\r?\n/).filter((line) => line.trim()).length;
     const node = this.root.querySelector('#m-file-name');
     if (node) node.textContent = String(count);
   }

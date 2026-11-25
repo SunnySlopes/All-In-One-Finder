@@ -17,7 +17,16 @@ import {
   type TrialFrame,
   type TrialSpawner,
 } from './native';
-import { type MapSessionData } from './session';
+import {
+  collectSharedSearchSeed,
+  liftSharedSeedFromSearchers,
+  packSharedSeedForSession,
+  packSharedSeedSync,
+  stripAllSearcherSeedFields,
+  type PanelSeedSnapshot,
+} from './search-seeds';
+import { APP_VERSION } from './i18n';
+import { serializeSession, type MapSessionData } from './session';
 
 export interface MapAreaOverlay {
   kind: 'rect' | 'circle';
@@ -84,14 +93,17 @@ const COLORS: Record<string, string> = {
 };
 
 const TILE_CELLS = 128;
-/** GPU/canvas dest textures often fail above ~4k–8k; oversized drawImage aborts the frame. */
+/**
+ * Prefer clipped source-rect blits once a tile's screen size exceeds this.
+ * Full-tile drawImage destinations above ~4k–8k can fail on some GPUs.
+ */
 const MAX_TILE_DRAW_PX = 4096;
 /** Keep at most this many cached tile canvases; off-screen ones are evicted first. */
-const MAX_TILE_CACHE = 512;
+const MAX_TILE_CACHE = 768;
 /** Hard cap when a huge zoomed-out view would otherwise demand thousands of canvases. */
-const MAX_TILE_CACHE_CAP = 1024;
+const MAX_TILE_CACHE_CAP = 2048;
 /** Terrain tiles carry an extra cave canvas plus height/mask buffers; keep fewer of them. */
-const MAX_TILE_CACHE_TERRAIN = 256;
+const MAX_TILE_CACHE_TERRAIN = 384;
 /** Only 1:1 renders terrain; every coarser zoom level stays on the biome map. */
 const TERRAIN_SCALE = 1;
 /** One cave cell covers 4x4 blocks, so a 128 px tile holds 32x32 cells (1:1 only). */
@@ -114,7 +126,9 @@ const TERRAIN_BATCH = 24;
 const BIOME_BATCH = 16;
 /** Drop pending jobs that fall outside the view expanded by this many tiles. */
 const PENDING_MARGIN_TILES = 1;
-const MAX_PENDING = 96;
+/** Floor / ceiling for the dynamic pending queue (active + underlay + pad). */
+const MIN_PENDING = 128;
+const MAX_PENDING = 512;
 const ICON_SIZE = 20;
 /** Ocean monuments are 58x58 blocks and centered on the structure position. */
 const MONUMENT_SIZE = 58;
@@ -140,9 +154,6 @@ const STRUCT_ICON_MIN_PPB = 1 / 32;
 const GEODE_ICON_MIN_PPB = 1 / 16;
 /** Loot checkbox / overlay only when zoomed in closer than 1:16. */
 const LOOT_UI_MIN_PPB = 1 / 16;
-/** Alias kept for call sites that refer specifically to wells (same as Viewer 32). */
-const DESERT_WELL_MIN_PPB = STRUCT_ICON_MIN_PPB;
-
 /** Minimum pixels-per-block before a structure layer is requested / drawn. */
 function structureMinPpb(key: string): number {
   if (key === 'geode') return GEODE_ICON_MIN_PPB;
@@ -370,9 +381,14 @@ interface MapSession {
   features: string[];
   lootFilters?: { misc: boolean; template: boolean; disc: boolean; sherd: boolean };
   searchers?: Record<string, unknown>;
+  /** 搜索种子公共字段（存档顶层一份；旧档可能缺省）。 */
+  seedMode?: 'single' | 'list';
+  seedText?: string;
+  seedListPath?: string;
   /** 页面级状态（main.ts 注入），随存档一起恢复。 */
   theme?: 'dark' | 'light';
   locale?: 'zh' | 'en';
+  biomeGroupScheme?: 'continentalness' | 'temperature' | 'none';
 }
 
 /** Effective native tile layer for a zoom level (see native/terrain_map.h). */
@@ -500,8 +516,20 @@ function parseSession(raw: string | null): MapSession | null {
     const x = Number(data.x);
     const z = Number(data.z);
     const filters = data.lootFilters;
+    const seed = data.seed.trim();
+    const searchers =
+      data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined;
+    const lifted = liftSharedSeedFromSearchers(
+      searchers,
+      {
+        seedMode: data.seedMode === 'single' || data.seedMode === 'list' ? data.seedMode : undefined,
+        seedText: typeof data.seedText === 'string' ? data.seedText : undefined,
+        seedListPath: typeof data.seedListPath === 'string' ? data.seedListPath : undefined,
+      },
+      seed,
+    );
     return {
-      seed: data.seed.trim(),
+      seed,
       version: named,
       dim: Number.isFinite(Number(data.dim)) ? Number(data.dim) : 0,
       y: Number.isFinite(Number(data.y)) ? Number(data.y) : 256,
@@ -523,9 +551,18 @@ function parseSession(raw: string | null): MapSession | null {
         disc: filters?.disc !== false,
         sherd: filters?.sherd !== false,
       },
-      searchers: data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined,
+      searchers: stripAllSearcherSeedFields(searchers),
+      seedMode: lifted.seedMode,
+      seedText: lifted.seedText,
+      seedListPath: lifted.seedListPath,
       theme: data.theme === 'dark' || data.theme === 'light' ? data.theme : undefined,
       locale: data.locale === 'zh' || data.locale === 'en' ? data.locale : undefined,
+      biomeGroupScheme:
+        data.biomeGroupScheme === 'continentalness' ||
+        data.biomeGroupScheme === 'temperature' ||
+        data.biomeGroupScheme === 'none'
+          ? data.biomeGroupScheme
+          : undefined,
     };
   } catch {
     return null;
@@ -672,6 +709,8 @@ export class MapView {
   private drawing = false;
   private drawQueued = false;
   onSeedChange: (seed: string) => void = () => {};
+  /** Fired after the map dimension select changes (including jump/session restore). */
+  onDimensionChange: (dim: number) => void = () => {};
 
   constructor() {
     this.root = document.createElement('div');
@@ -698,6 +737,16 @@ export class MapView {
       <div class="row" id="map-loot-row"></div>
       <div id="map-layer-hint" class="hint" hidden></div>
       <div id="map-features" class="feature-groups"></div>
+      <div class="stack map-file-tools">
+        <div class="row biome-color-files">
+          <button type="button" id="map-session-import" class="btn ghost sm" data-i18n="common.map.importSession"></button>
+          <button type="button" id="map-session-export" class="btn ghost sm" data-i18n="common.map.exportSession"></button>
+        </div>
+        <div class="row biome-color-files">
+          <button type="button" id="map-cmap-import" class="btn ghost sm" data-i18n="common.map.importColormap"></button>
+          <button type="button" id="map-cmap-export" class="btn ghost sm" data-i18n="common.map.exportColormap"></button>
+        </div>
+      </div>
     `;
     this.version = this.root.querySelector('#map-version')!;
     this.seed = this.root.querySelector('#map-seed')!;
@@ -740,7 +789,17 @@ export class MapView {
     stage.append(tools);
     tools.querySelector('#zoom-in')!.addEventListener('click', () => this.zoom(1.25));
     tools.querySelector('#zoom-out')!.addEventListener('click', () => this.zoom(0.8));
-    new ResizeObserver(() => this.queueDraw()).observe(this.canvas);
+    new ResizeObserver(() => {
+      const prevW = this.canvas.width;
+      const prevH = this.canvas.height;
+      this.resize();
+      this.queueDraw();
+      // First layout (or any real size change) must refresh structures: the
+      // initial loadFeatures may have run against a 0×0 / 1×1 canvas.
+      if (this.loaded && (this.canvas.width !== prevW || this.canvas.height !== prevH)) {
+        this.queueFeatures();
+      }
+    }).observe(this.canvas);
     this.resize();
   }
 
@@ -794,6 +853,11 @@ export class MapView {
 
   getSeed(): string {
     return this.seed.value.trim();
+  }
+
+  getDim(): number {
+    const dim = Number(this.dimension.value);
+    return dim === -1 || dim === 1 ? dim : 0;
   }
 
   /** 版本/地物列表就绪后才允许自动保存，避免启动瞬间用默认值覆盖旧 session。 */
@@ -963,6 +1027,7 @@ export class MapView {
     this.persistSession();
     // Panning keeps the current tiles on screen. Only a seed/Y/version/dimension change drops the cache.
     this.schedule(worldChanged);
+    if (this.dimension.value !== previous.dim) this.onDimensionChange(this.getDim());
     this.spawnOverlays =
       options.spawnCenters ??
       (options.spawnCircles
@@ -992,10 +1057,25 @@ export class MapView {
     const version = this.versions.find((item) => String(item.id) === this.version.value);
     const dim = Number(this.dimension.value);
     const y = Number(this.y.value);
+    const seed = this.seed.value.trim() || '0';
+    const rawSearchers = this.collectSearchers ? this.collectSearchers() : undefined;
+    const panels: PanelSeedSnapshot[] = rawSearchers
+      ? Object.values(rawSearchers).map((state) => {
+          if (!state || typeof state !== 'object') return {};
+          const s = state as Record<string, unknown>;
+          return {
+            seedMode: s.seedMode === 'single' || s.seedMode === 'list' ? s.seedMode : undefined,
+            seed: typeof s.seed === 'string' ? s.seed : undefined,
+            seedText: typeof s.seedText === 'string' ? s.seedText : undefined,
+            seedListPath: typeof s.seedListPath === 'string' ? s.seedListPath : undefined,
+          };
+        })
+      : [];
+    const packed = packSharedSeedSync(collectSharedSearchSeed(panels, seed));
     const data: MapSessionData = {
       kind: 'aio-session',
-      version: 1,
-      seed: this.seed.value.trim() || '0',
+      version: APP_VERSION,
+      seed,
       mcVersion: version?.name || '',
       dim: dim === -1 || dim === 1 ? dim : 0,
       y: Number.isFinite(y) ? y : 256,
@@ -1007,7 +1087,10 @@ export class MapView {
       terrain: this.terrain.checked,
       features: this.features.filter((feature) => this.enabled.has(feature.id)).map((feature) => feature.key),
       lootFilters: { ...this.lootFilters },
-      searchers: this.collectSearchers ? this.collectSearchers() : undefined,
+      searchers: stripAllSearcherSeedFields(rawSearchers),
+      seedMode: packed.seedMode,
+      seedText: packed.seedText || undefined,
+      seedListPath: packed.seedListPath || undefined,
     };
     // 页面级状态（主题/语言）由 main.ts 注入，保证 map 自己触发的存档
     // 与宿主定时保存写出的字段一致。
@@ -1046,6 +1129,7 @@ export class MapView {
     this.schedule(true);
     this.queueFeatures();
     this.onSeedChange(data.seed);
+    this.onDimensionChange(this.getDim());
   }
 
   refreshText(): void {
@@ -1177,6 +1261,7 @@ export class MapView {
       this.renderFeatures();
       worldChanged();
       this.syncLayerControls();
+      this.onDimensionChange(this.getDim());
     });
     this.y.addEventListener('change', worldChanged);
     /* 采样 Y 组合框：输入框始终可手填；下拉按钮只在主世界显示。
@@ -1843,7 +1928,16 @@ export class MapView {
 
   private async writeSession(): Promise<void> {
     if (!this.loaded) return;
-    const text = JSON.stringify(this.exportSnapshot());
+    const snapshot = this.exportSnapshot();
+    const packed = await packSharedSeedForSession({
+      seedMode: snapshot.seedMode === 'list' ? 'list' : 'single',
+      seedText: snapshot.seedText || '',
+      seedListPath: snapshot.seedListPath || '',
+    });
+    snapshot.seedMode = packed.seedMode;
+    snapshot.seedText = packed.seedText || undefined;
+    snapshot.seedListPath = packed.seedListPath || undefined;
+    const text = serializeSession(snapshot);
     try {
       localStorage.setItem('aio.session', text);
     } catch {
@@ -1919,6 +2013,23 @@ export class MapView {
       this.clearSelection();
     }
     this.queueDraw();
+    // Clearing bumps featureGen and empties `placed`. Re-request structures once
+    // the map is live — otherwise a later invalidate (e.g. colormap load right
+    // after startup) drops the in-flight result and nothing draws until zoom.
+    if (clear && this.loaded) this.queueFeatures();
+  }
+
+  /** Drop cached biome/terrain tiles after the colormap changes. */
+  invalidateBiomeColors(): void {
+    this.schedule(true);
+  }
+
+  /**
+   * Dim non-listed biomes on subsequent tiles. Empty array clears highlight mode.
+   */
+  async setBiomeHighlight(ids: number[]): Promise<void> {
+    await call('setBiomeHighlight', { ids });
+    this.invalidateBiomeColors();
   }
 
   /** Drop cached chamber layouts when the world/version changes or the layer is turned off. */
@@ -2576,6 +2687,37 @@ export class MapView {
     this.drawWorldRect(ctx, minX, minZ, minX + width - 1, minZ + height - 1, color);
   }
 
+  /**
+   * Blit a 128×128 tile canvas into the map. When the on-screen size would
+   * exceed MAX_TILE_DRAW_PX (common at 1:1 max zoom), clip to the viewport and
+   * use a source rect so the GPU never sees a multi-k destination.
+   */
+  private blitTile(
+    ctx: CanvasRenderingContext2D,
+    source: HTMLCanvasElement,
+    ox: number,
+    oy: number,
+    dw: number,
+    dh: number,
+  ): void {
+    if (dw <= 0 || dh <= 0) return;
+    if (dw <= MAX_TILE_DRAW_PX && dh <= MAX_TILE_DRAW_PX) {
+      ctx.drawImage(source, ox, oy, dw, dh);
+      return;
+    }
+    const dx0 = Math.max(ox, 0);
+    const dy0 = Math.max(oy, 0);
+    const dx1 = Math.min(ox + dw, ctx.canvas.width);
+    const dy1 = Math.min(oy + dh, ctx.canvas.height);
+    if (dx1 <= dx0 || dy1 <= dy0) return;
+    const sx = ((dx0 - ox) / dw) * TILE_CELLS;
+    const sy = ((dy0 - oy) / dh) * TILE_CELLS;
+    const sw = ((dx1 - dx0) / dw) * TILE_CELLS;
+    const sh = ((dy1 - dy0) / dh) * TILE_CELLS;
+    if (!(sw > 0) || !(sh > 0)) return;
+    ctx.drawImage(source, sx, sy, sw, sh, dx0, dy0, dx1 - dx0, dy1 - dy0);
+  }
+
   private paintLevel(
     ctx: CanvasRenderingContext2D,
     state: ReturnType<MapView['state']>,
@@ -2583,9 +2725,6 @@ export class MapView {
     request: boolean,
   ): void {
     const tileBlocks = TILE_CELLS * scale;
-    const approxSize = tileBlocks * this.pixelsPerBlock;
-    // Skip levels that would stretch past the safe canvas destination size.
-    if (approxSize > MAX_TILE_DRAW_PX) return;
     const layer = this.terrainLayerFor(scale);
     const view = this.viewBounds();
     // Pad by one tile so the viewport rim never shows a half-evicted edge.
@@ -2607,9 +2746,9 @@ export class MapView {
         const dh = Math.max(1, Math.round(corner.y) - oy);
         if (tile) {
           try {
-            ctx.drawImage(tile.canvas, ox, oy, dw, dh);
+            this.blitTile(ctx, tile.canvas, ox, oy, dw, dh);
             // Cave openings sit above the relief but below the grid/structures.
-            if (tile.cave) ctx.drawImage(tile.cave, ox, oy, dw, dh);
+            if (tile.cave) this.blitTile(ctx, tile.cave, ox, oy, dw, dh);
           } catch {
             /* oversized/invalid draw must not blank the whole frame */
           }
@@ -2620,16 +2759,32 @@ export class MapView {
     }
   }
 
+  /** Pending budget for the current viewport (active level + underlay + pad). */
+  private pendingLimit(): number {
+    const view = this.viewBounds();
+    const scale = this.activeScale();
+    const span = TILE_CELLS * scale;
+    const cols = Math.ceil((view.x1 - view.x0) / span) + 4;
+    const rows = Math.ceil((view.z1 - view.z0) / span) + 4;
+    return Math.min(MAX_PENDING, Math.max(MIN_PENDING, cols * rows * 2 + 32));
+  }
+
   private enqueueTile(key: string, layer: MapLayer, scale: number, x: number, z: number): void {
     if (this.tiles.has(key) || this.inflight.has(key) || this.pending.has(key)) return;
-    if (this.pending.size >= MAX_PENDING) this.prunePendingOnly();
-    if (this.pending.size >= MAX_PENDING) {
-      // Drop farthest pending job so the newest visible tile can enter the queue.
-      let farthest: string | null = null;
-      let farthestDist = -1;
+    const limit = this.pendingLimit();
+    if (this.pending.size >= limit) this.prunePendingOnly();
+    if (this.pending.size >= limit) {
+      // Only displace a pending job if this tile is closer to the view center.
+      // Blindly dropping the farthest for every new key made paintLevel's scan
+      // thrash corner tiles against each other — only the last corner survived.
       const view = this.viewBounds();
       const midX = (view.x0 + view.x1) / 2;
       const midZ = (view.z0 + view.z1) / 2;
+      const newDist =
+        Math.abs(x * scale + (TILE_CELLS * scale) / 2 - midX) +
+        Math.abs(z * scale + (TILE_CELLS * scale) / 2 - midZ);
+      let farthest: string | null = null;
+      let farthestDist = -1;
       for (const [pendingKey, job] of this.pending) {
         const bx = job.x * job.scale + (TILE_CELLS * job.scale) / 2;
         const bz = job.z * job.scale + (TILE_CELLS * job.scale) / 2;
@@ -2639,7 +2794,8 @@ export class MapView {
           farthest = pendingKey;
         }
       }
-      if (farthest) this.pending.delete(farthest);
+      if (!farthest || newDist >= farthestDist) return;
+      this.pending.delete(farthest);
     }
     this.pending.set(key, { layer, scale, x, z });
     this.kickFlush();
@@ -2828,10 +2984,11 @@ export class MapView {
     if (this.terrain.checked && this.activeScale() === TERRAIN_SCALE) return MAX_TILE_CACHE_TERRAIN;
     const view = this.viewBounds();
     const span = TILE_CELLS * this.activeScale();
-    const cols = Math.ceil((view.x1 - view.x0) / span) + 4;
-    const rows = Math.ceil((view.z1 - view.z0) / span) + 4;
-    // Active level + one underlay ≈ 2× the grid.
-    const need = cols * rows * 2;
+    // +6 covers paintLevel's ±1 tile pad plus a pan cushion.
+    const cols = Math.ceil((view.x1 - view.x0) / span) + 6;
+    const rows = Math.ceil((view.z1 - view.z0) / span) + 6;
+    // Active level + underlay (+ optional coarser leftovers briefly kept).
+    const need = cols * rows * 3;
     return Math.min(MAX_TILE_CACHE_CAP, Math.max(MAX_TILE_CACHE, need));
   }
 

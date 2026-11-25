@@ -12,6 +12,7 @@ import {
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
+import { pickSeedListFile } from './search-seeds';
 
 export const RIVER_MAP_VERSION = '26.3';
 
@@ -148,6 +149,7 @@ export class RiverPanel {
   private results: ResultsColumn | null = null;
   private seed = '';
   private seedText = '';
+  private seedListPath = '';
   private running = false;
   private paused = false;
   /**
@@ -287,6 +289,7 @@ export class RiverPanel {
       seedMode: this.seedMode,
       seed: this.seed,
       seedText: this.seedText,
+      seedListPath: this.seedListPath,
     };
   }
 
@@ -296,6 +299,7 @@ export class RiverPanel {
     if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
     if (typeof s.seed === 'string') this.seed = s.seed;
     if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    if (typeof s.seedListPath === 'string') this.seedListPath = s.seedListPath;
     applyForm(this.root, s);
     this.render();
     applyForm(this.root, s);
@@ -578,10 +582,11 @@ export class RiverPanel {
   }
 
   private async pickFile(): Promise<void> {
-    const text = await window.aio.openFile();
-    if (text == null) return;
-    this.seedText = text;
-    const count = text.split(/\r?\n/).filter((line: string) => line.trim()).length;
+    const picked = await pickSeedListFile();
+    if (!picked) return;
+    this.seedText = picked.text;
+    this.seedListPath = picked.path;
+    const count = picked.text.split(/\r?\n/).filter((line: string) => line.trim()).length;
     const node = this.root.querySelector('#rv-file-name');
     if (node) node.textContent = String(count);
   }

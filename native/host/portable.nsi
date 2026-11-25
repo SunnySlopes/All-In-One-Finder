@@ -1,4 +1,4 @@
-﻿; All-In-One Finder — portable launcher (M3).
+﻿; All-In-One Finder — portable launcher.
 ;
 ; Extracts the app to a temporary directory, runs it with --portable-dir so the
 ; session/userdata folders stay next to the exe the user launched, then lets NSIS

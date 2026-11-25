@@ -6,6 +6,7 @@ import { call, type McVersion, type SearchStatus } from './native';
 import { applyForm, applyRunLock, captureForm, RunTimer, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import type { SearcherId } from './searchers';
+import { pickSeedListFile } from './search-seeds';
 
 const LUCKY_AREA = 6000001 * 6000001;
 const LUCKY_BELOW = 0.75;
@@ -107,6 +108,7 @@ export class SearchPanel {
   /** Opt-in GPU coarse scan; the engine still gates it by window size / threads. */
   private allowGpu = false;
   private seedText = '';
+  private seedListPath = '';
   /** 0.75→0.70 的默认值迁移已写入本条件（避免用户手动改回 0.75 后被反复覆盖）。 */
   private riverMigrated = false;
   private readonly timer = new RunTimer();
@@ -253,6 +255,7 @@ export class SearchPanel {
       uiVersion: this.uiVersion,
       seed: this.seed,
       seedText: this.seedText,
+      seedListPath: this.seedListPath,
       river: this.river,
       riverMigrated: this.riverMigrated,
       ratio: this.ratio,
@@ -268,6 +271,7 @@ export class SearchPanel {
     if (state.uiVersion === 'pre' || state.uiVersion === 'sulfur') this.uiVersion = state.uiVersion;
     if (typeof state.seed === 'string') this.seed = state.seed;
     if (typeof state.seedText === 'string') this.seedText = state.seedText;
+    if (typeof state.seedListPath === 'string') this.seedListPath = state.seedListPath;
     if (typeof state.river === 'string') this.river = state.river;
     // 0.75 是旧版本的默认折算系数；老 session 保存的 0.75 与“用户改过”无法区分，
     // 首次读档时按新默认 0.70 迁移一次，迁移后写入 riverMigrated 标记。
@@ -577,10 +581,11 @@ export class SearchPanel {
   }
 
   private async pickFile(): Promise<void> {
-    const text = await window.aio.openFile();
-    if (text == null) return;
-    this.seedText = text;
-    const count = text.split(/\r?\n/).filter((line: string) => line.trim()).length;
+    const picked = await pickSeedListFile();
+    if (!picked) return;
+    this.seedText = picked.text;
+    this.seedListPath = picked.path;
+    const count = picked.text.split(/\r?\n/).filter((line: string) => line.trim()).length;
     const node = this.root.querySelector('#p-file-name');
     if (node) node.textContent = String(count);
   }

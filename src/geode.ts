@@ -5,6 +5,7 @@ import { call, type GeodeStatus, type McVersion } from './native';
 import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyForm, captureForm, paintProgressCard, initProgressCard } from './panel-utils';
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
+import { pickSeedListFile } from './search-seeds';
 
 type SeedMode = 'single' | 'list';
 
@@ -126,6 +127,7 @@ export class GeodePanel {
   private results: ResultsColumn | null = null;
   private seed = '';
   private seedText = '';
+  private seedListPath = '';
   private running = false;
   private paused = false;
   private pausing = false;
@@ -277,6 +279,7 @@ export class GeodePanel {
       seedMode: this.seedMode,
       seed: this.seed,
       seedText: this.seedText,
+      seedListPath: this.seedListPath,
     };
   }
 
@@ -286,6 +289,7 @@ export class GeodePanel {
     if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
     if (typeof s.seed === 'string') this.seed = s.seed;
     if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    if (typeof s.seedListPath === 'string') this.seedListPath = s.seedListPath;
     applyForm(this.root, s);
     this.render();
     applyForm(this.root, s);
@@ -521,10 +525,11 @@ export class GeodePanel {
   }
 
   private async pickFile(): Promise<void> {
-    const text = await window.aio.openFile();
-    if (text == null) return;
-    this.seedText = text;
-    const count = text.split(/\r?\n/).filter((line: string) => line.trim()).length;
+    const picked = await pickSeedListFile();
+    if (!picked) return;
+    this.seedText = picked.text;
+    this.seedListPath = picked.path;
+    const count = picked.text.split(/\r?\n/).filter((line: string) => line.trim()).length;
     const node = this.root.querySelector('#g-file-name');
     if (node) node.textContent = String(count);
   }

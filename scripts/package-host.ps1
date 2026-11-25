@@ -8,7 +8,7 @@
 #   native/host/build/WebView2Loader.dll (SDK)
 #   dist/                               (npm run build)
 #
-# Output: release/All-In-One Finder <version>.exe
+# Output: release/All-In-One Finder <version>.exe  (NSIS portable SFX)
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -57,8 +57,6 @@ try {
 }
 
 $out = Join-Path $release ("All-In-One Finder {0}.exe" -f $version)
+$zip = Join-Path $release ("All-In-One Finder {0}.zip" -f $version)
+if (Test-Path $zip) { Remove-Item $zip -Force -ErrorAction SilentlyContinue }
 Get-Item $out | Select-Object FullName, @{n = 'MB'; e = { [math]::Round($_.Length / 1MB, 2) } }
-
-
-
-

@@ -206,6 +206,40 @@ void slimeMask(uint64_t seed, int chunkX, int chunkZ, int width, int height, std
 
 int biomeAt(int mc, uint64_t seed, int dim, uint32_t flags, int blockX, int blockY, int blockZ);
 
+/** Shared biome colormap used by biome tiles and terrain shading. */
+extern unsigned char gColors[256][3];
+void ensureBiomeColors();
+
+struct BiomeColorEntry {
+    int id = 0;
+    std::string name;
+    int r = 0;
+    int g = 0;
+    int b = 0;
+};
+
+/**
+ * 1.18+ biomes that still exist (biomeExists(MC_NEWEST)), optionally filtered
+ * by cubiomes getDimension(id) when dim is DIM_OVERWORLD / DIM_NETHER / DIM_END.
+ * Pass DIM_UNDEF (or any other value) to return all dimensions.
+ */
+std::vector<BiomeColorEntry> listBiomeColors(int dim = 1000);
+void setBiomeColor(int id, int r, int g, int b);
+void setBiomeColors(const std::vector<BiomeColorEntry> &colors);
+void resetBiomeColors();
+/** Dim every surviving 1.18+ biome to default_rgb / 6 (cubiomes-viewer DIM_DIVIDER). */
+void dimBiomeColors();
+/** Parse cubiomes/viewer colormap text; only applies biomeExists(MC_NEWEST) ids. */
+int applyBiomeColorText(const char *buf);
+
+/**
+ * When non-empty, biomes not in the set are drawn dimmed on biome/terrain tiles.
+ * Empty vector clears highlight mode (all biomes at full colour).
+ */
+void setBiomeHighlight(const std::vector<int> &ids);
+/** Sample gColors with optional highlight dimming into r/g/b. */
+void biomeDisplayColor(int id, unsigned char &r, unsigned char &g, unsigned char &b);
+
 std::vector<PlacedFeature> featuresInView(int mc, uint64_t seed, int dim, uint32_t flags,
                                           int x0, int z0, int x1, int z1,
                                           const std::vector<int> &types);

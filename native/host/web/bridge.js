@@ -103,7 +103,13 @@
       return;
     }
     if (typeof message.bin === 'string') entry.resolve(b64ToBytes(message.bin));
-    else if (typeof message.b64 === 'string') entry.resolve(b64ToUtf8(message.b64));
+    else if (typeof message.b64 === 'string') {
+      if (typeof message.pathB64 === 'string') {
+        entry.resolve({ text: b64ToUtf8(message.b64), path: b64ToUtf8(message.pathB64) });
+      } else {
+        entry.resolve(b64ToUtf8(message.b64));
+      }
+    }
     else entry.resolve(message.result === undefined ? null : message.result);
   });
 
@@ -131,15 +137,27 @@
     setTheme: function (theme) {
       send({ channel: 'aio', id: 0, method: 'set-theme', theme: theme === 'light' ? 'light' : 'dark' });
     },
-    openFile: function () { return request('open-file'); },
-    saveFile: function (name, text) {
-      return request('save-file', { nameB64: utf8ToB64(name), textB64: utf8ToB64(text) });
+    openFile: function (kind) {
+      return request('open-file', kind ? { kind: String(kind) } : undefined);
+    },
+    openFileWithPath: function (kind) {
+      var payload = { withPath: '1' };
+      if (kind) payload.kind = String(kind);
+      return request('open-file', payload);
+    },
+    saveFile: function (name, text, kind) {
+      var payload = { nameB64: utf8ToB64(name), textB64: utf8ToB64(text) };
+      if (kind) payload.kind = String(kind);
+      return request('save-file', payload);
     },
     readSession: function (name) {
       return request('read-session', { nameB64: utf8ToB64(name) });
     },
     writeSession: function (name, text) {
       return request('write-session', { nameB64: utf8ToB64(name), textB64: utf8ToB64(text) });
+    },
+    readPath: function (path) {
+      return request('read-path', { pathB64: utf8ToB64(path == null ? '' : path) });
     },
     onShowAbout: function (handler) { handlers['show-about'].push(handler); }
   };

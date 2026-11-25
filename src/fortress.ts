@@ -5,6 +5,7 @@ import { escapeAttr, formatDuration, messageOf, applyRunLock, RunTimer, applyFor
 import type { ResultsColumn } from './results';
 import { isOtherSearcherRunning } from './run-lock';
 import type { SearcherId } from './searchers';
+import { pickSeedListFile } from './search-seeds';
 
 export type FortressMode = 'cross' | 'span';
 
@@ -63,6 +64,7 @@ export class FortressPanel {
   private results: ResultsColumn | null = null;
   private seed = '';
   private seedText = '';
+  private seedListPath = '';
   private running = false;
   private paused = false;
   private pollTimer = 0;
@@ -146,6 +148,7 @@ export class FortressPanel {
       seedMode: this.seedMode,
       seed: this.seed,
       seedText: this.seedText,
+      seedListPath: this.seedListPath,
       border: this.border,
       spanSquare: this.spanSquare,
       spanLong: this.spanLong,
@@ -161,6 +164,7 @@ export class FortressPanel {
     if (s.seedMode === 'single' || s.seedMode === 'list') this.seedMode = s.seedMode;
     if (typeof s.seed === 'string') this.seed = s.seed;
     if (typeof s.seedText === 'string') this.seedText = s.seedText;
+    if (typeof s.seedListPath === 'string') this.seedListPath = s.seedListPath;
     if (s.border === 'none' || s.border === 'nw' || s.border === 'sw' || s.border === 'se' || s.border === 'ne') {
       this.border = s.border;
     }
@@ -360,10 +364,11 @@ export class FortressPanel {
   }
 
   private async pickFile(): Promise<void> {
-    const text = await window.aio.openFile();
-    if (text == null) return;
-    this.seedText = text;
-    const count = text.split(/\r?\n/).filter((line) => line.trim()).length;
+    const picked = await pickSeedListFile();
+    if (!picked) return;
+    this.seedText = picked.text;
+    this.seedListPath = picked.path;
+    const count = picked.text.split(/\r?\n/).filter((line) => line.trim()).length;
     const node = this.root.querySelector('#f-file-name');
     if (node) node.textContent = String(count);
   }
