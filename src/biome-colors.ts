@@ -69,6 +69,8 @@ function groupLabel(group: BiomeGroupDef): string {
 
 export class BiomeColorPanel {
   readonly root: HTMLElement;
+  /** Fired when the goto X/Z fields change (parse, typing, or programmatic sync). */
+  onJumpCoordsChange: (x: number, z: number) => void = () => {};
   private readonly map: MapView;
   private readonly onImportSession: (data: MapSessionData) => void;
   private jumpX!: HTMLInputElement;
@@ -142,6 +144,13 @@ export class BiomeColorPanel {
     };
     this.jumpX.addEventListener('keydown', jumpOnEnter);
     this.jumpZ.addEventListener('keydown', jumpOnEnter);
+    const syncTyped = () => {
+      const x = Number(this.jumpX.value);
+      const z = Number(this.jumpZ.value);
+      if (Number.isFinite(x) && Number.isFinite(z)) this.onJumpCoordsChange(x, z);
+    };
+    this.jumpX.addEventListener('input', syncTyped);
+    this.jumpZ.addEventListener('input', syncTyped);
     this.root.querySelector('#bc-parse-btn')!.addEventListener('click', () => this.parse());
     this.root.querySelector('#bc-default')!.addEventListener('click', () => void this.resetAll());
     this.root.querySelector('#bc-dimmed')!.addEventListener('click', () => void this.dimAll());
@@ -452,6 +461,13 @@ export class BiomeColorPanel {
     }
   }
 
+  /** Keep the goto fields in sync with the results-column jump bar. */
+  setJumpCoords(x: number, z: number, announce = true): void {
+    this.jumpX.value = String(x);
+    this.jumpZ.value = String(z);
+    if (announce) this.onJumpCoordsChange(x, z);
+  }
+
   private parse(): void {
     const parsed = parseCoords(this.parseText.value);
     if (!parsed) {
@@ -459,8 +475,7 @@ export class BiomeColorPanel {
       return;
     }
     this.parseError.textContent = '';
-    this.jumpX.value = String(parsed.x);
-    this.jumpZ.value = String(parsed.z);
+    this.setJumpCoords(parsed.x, parsed.z);
   }
 
   private jumpFromInputs(): void {
@@ -471,6 +486,7 @@ export class BiomeColorPanel {
       return;
     }
     this.parseError.textContent = '';
+    this.onJumpCoordsChange(x, z);
     requestAnimationFrame(() => {
       this.map.jumpTo({ x, z });
     });

@@ -438,6 +438,7 @@ export class SlimePanel {
         this.results?.setSlimeHits(status.hits, this.currentConvert, this.searchVersion);
         if (status.done) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           this.running = false;
           this.paused = false;
           if (status.error && status.error !== this.shownError) {
@@ -448,6 +449,7 @@ export class SlimePanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
       }
     }, 100);

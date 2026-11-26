@@ -71,29 +71,36 @@ function scalarText(value: unknown): string {
 /**
  * Wall-clock timer for a search run. Pausing shifts the anchors instead of tracking
  * a separate total, so every "elapsed since start/phase" query already excludes the
- * time the search was paused.
+ * time the search was paused. `stop()` freezes the final value until the next `start()`
+ * so completed runs do not keep ticking on later UI refreshes.
  */
 export class RunTimer {
   private startedAt = 0;
   private phaseAt = 0;
   private pausedAt = 0;
+  /** When set, `elapsed()` / `phaseElapsed()` return this fixed value. */
+  private frozenMs: number | null = null;
 
   start(): void {
     const now = Date.now();
     this.startedAt = now;
     this.phaseAt = now;
     this.pausedAt = 0;
+    this.frozenMs = null;
   }
 
   markPhase(): void {
-    this.phaseAt = Date.now();
+    if (this.frozenMs != null) return;
+    this.phaseAt = this.pausedAt || Date.now();
   }
 
   pause(): void {
+    if (this.frozenMs != null) return;
     if (this.startedAt && !this.pausedAt) this.pausedAt = Date.now();
   }
 
   resume(): void {
+    if (this.frozenMs != null) return;
     if (!this.pausedAt) return;
     const delta = Date.now() - this.pausedAt;
     this.pausedAt = 0;
@@ -101,7 +108,15 @@ export class RunTimer {
     if (this.phaseAt) this.phaseAt += delta;
   }
 
+  /** Freeze the clock at the current elapsed value (run finished / stopped / errored). */
+  stop(): void {
+    if (this.frozenMs != null) return;
+    this.frozenMs = this.elapsed();
+    this.pausedAt = 0;
+  }
+
   elapsed(): number {
+    if (this.frozenMs != null) return this.frozenMs;
     if (!this.startedAt) return 0;
     // While paused the anchors are not shifted yet (that happens on resume), so
     // stop the clock at `pausedAt` instead of letting it keep counting.
@@ -110,6 +125,7 @@ export class RunTimer {
   }
 
   phaseElapsed(): number {
+    if (this.frozenMs != null) return this.frozenMs;
     if (!this.phaseAt) return this.elapsed();
     const now = this.pausedAt || Date.now();
     return Math.max(0, now - this.phaseAt);

@@ -97,6 +97,8 @@ function monumentFocus(hit: MonumentHit): { x: number; z: number } {
 
 export class ResultsColumn {
   readonly root: HTMLElement;
+  /** Fired when the goto X/Z fields change (parse, result click, or typing). */
+  onJumpCoordsChange: (x: number, z: number) => void = () => {};
   private jumpX!: HTMLInputElement;
   private jumpZ!: HTMLInputElement;
   private parseText!: HTMLTextAreaElement;
@@ -211,6 +213,13 @@ export class ResultsColumn {
     };
     this.jumpX.addEventListener('keydown', jumpOnEnter);
     this.jumpZ.addEventListener('keydown', jumpOnEnter);
+    const syncTyped = () => {
+      const x = Number(this.jumpX.value);
+      const z = Number(this.jumpZ.value);
+      if (Number.isFinite(x) && Number.isFinite(z)) this.onJumpCoordsChange(x, z);
+    };
+    this.jumpX.addEventListener('input', syncTyped);
+    this.jumpZ.addEventListener('input', syncTyped);
     this.root.querySelector('#r-parse-btn')!.addEventListener('click', () => this.parse());
     this.spawnCheck.addEventListener('change', () => {
       if (!this.spawnCheck.checked) this.map.clearSpawnCircles();
@@ -223,6 +232,13 @@ export class ResultsColumn {
   focusJump(): void {
     this.jumpX.focus();
     this.jumpX.select();
+  }
+
+  /** Keep the goto fields in sync with the map-tab jump bar (`announce=false` avoids loops). */
+  setJumpCoords(x: number, z: number, announce = true): void {
+    this.jumpX.value = String(x);
+    this.jumpZ.value = String(z);
+    if (announce) this.onJumpCoordsChange(x, z);
   }
 
   setViewTab(tab: SearcherId): void {
@@ -610,8 +626,7 @@ export class ResultsColumn {
       return;
     }
     this.parseError.textContent = '';
-    this.jumpX.value = String(parsed.x);
-    this.jumpZ.value = String(parsed.z);
+    this.setJumpCoords(parsed.x, parsed.z);
   }
 
   private jumpFromInputs(): void {
@@ -622,6 +637,7 @@ export class ResultsColumn {
       return;
     }
     this.parseError.textContent = '';
+    this.onJumpCoordsChange(x, z);
     this.performJump(x, z, undefined, false);
   }
 
@@ -710,15 +726,16 @@ export class ResultsColumn {
   }
 
   private performWitchJump(hit: WitchHit): void {
-    // 点击结果固定主世界 + y=64 + 打开女巫小屋图标；不切大型生物群系、不画刷怪环。
+    // 保留当前地图 Y；打开女巫小屋图标；不切大型生物群系、不画刷怪环。
     this.spawnCheck.checked = false;
+    const y = this.map.getY();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
         x: hit.x,
         z: hit.z,
         seed: hit.seed,
-        y: 64,
+        y,
         dimension: 0,
         mcVersion: witchMapVersion(this.witchVersion),
         features: ['swamp_hut'],
@@ -729,15 +746,16 @@ export class ResultsColumn {
   }
 
   private performFlowerJump(hit: FlowerHit): void {
-    // 结果没有 Y；跳图用采样 y=256，关闭大型生物群系，并按结果方向画窗口矩形。
+    // 保留当前地图 Y；关闭大型生物群系，并按结果方向画窗口矩形。
     this.spawnCheck.checked = false;
+    const y = this.map.getY();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
         x: hit.x,
         z: hit.z,
         seed: hit.seed,
-        y: 256,
+        y,
         dimension: 0,
         mcVersion: flowerMapVersion(this.flowerVersion, this.map.getVersionName()),
         largeBiomes: false,
@@ -756,16 +774,17 @@ export class ResultsColumn {
   }
 
   private performFlowerNetherJump(hit: FlowerHit): void {
-    // 主世界窗口按 1:8 映射到地狱：中心与边长都除以 8，跳地狱并在同一点画对应矩形。
+    // 主世界窗口按 1:8 映射到地狱：中心与边长都除以 8；Y 仍保留当前地图采样高度。
     const nether = flowerNetherCoords(hit);
     this.spawnCheck.checked = false;
+    const y = this.map.getY();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
         x: nether.x,
         z: nether.z,
         seed: hit.seed,
-        y: 64,
+        y,
         dimension: -1,
         mcVersion: flowerMapVersion(this.flowerVersion, this.map.getVersionName()),
         largeBiomes: false,
@@ -784,17 +803,17 @@ export class ResultsColumn {
   }
 
   private performTrialJump(hit: TrialHit): void {
-    // Cards never show Y; the jump uses the engine's display height (-30) and draws the
-    // statistics window (circle radius, or long/short rectangle sides) around the center.
+    // 保留当前地图 Y；围绕中心画统计窗口（圆半径，或长/短边矩形）。
     this.spawnCheck.checked = false;
     const window = this.trialWindow;
+    const y = this.map.getY();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
         x: hit.x,
         z: hit.z,
         seed: hit.seed,
-        y: -30,
+        y,
         dimension: 0,
         mcVersion: trialMapVersion(this.trialVersion),
         largeBiomes: false,
@@ -864,6 +883,7 @@ export class ResultsColumn {
   private performMonumentJump(hit: MonumentHit): void {
     const focus = monumentFocus(hit);
     this.spawnCheck.checked = hit.mode !== 2;
+    const y = this.map.getY();
     const jump = () => {
       this.map.clearSpawnCircles();
       if (hit.mode === 1) {
@@ -871,7 +891,7 @@ export class ResultsColumn {
           x: focus.x,
           z: focus.z,
           seed: hit.seed,
-          y: 64,
+          y,
           dimension: 0,
           mcVersion: '26.3',
           features: ['monument'],
@@ -890,7 +910,7 @@ export class ResultsColumn {
           x: focus.x,
           z: focus.z,
           seed: hit.seed,
-          y: 64,
+          y,
           dimension: 0,
           mcVersion: '26.3',
           features: ['monument'],
@@ -910,7 +930,7 @@ export class ResultsColumn {
         x: focus.x,
         z: focus.z,
         seed: hit.seed,
-        y: 64,
+        y,
         dimension: 0,
         mcVersion: '26.3',
         features: ['monument'],
@@ -924,13 +944,14 @@ export class ResultsColumn {
     this.spawnCheck.checked = true;
     const cross = this.fortressTab !== 'NetherFortressOverall';
     const radii = cross ? [64] : [128];
+    const y = this.map.getY();
     const jump = () => {
       this.map.clearSpawnCircles();
       this.map.jumpTo({
         x: hit.x,
         z: hit.z,
         seed: hit.seed,
-        y: 64,
+        y,
         dimension: -1,
         mcVersion: '26.3',
         features: ['fortress'],
@@ -982,8 +1003,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy, .result-nether-btn')) return;
         const hit = this.flowerHits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performFlowerJump(hit);
       });
     });
@@ -1001,8 +1021,7 @@ export class ResultsColumn {
         const hit = this.flowerHits[Number(button.dataset.index)];
         if (!hit) return;
         const nether = flowerNetherCoords(hit);
-        this.jumpX.value = String(nether.x);
-        this.jumpZ.value = String(nether.z);
+        this.setJumpCoords(nether.x, nether.z);
         this.performFlowerNetherJump(hit);
       });
     });
@@ -1041,8 +1060,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.trialHits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performTrialJump(hit);
       });
     });
@@ -1116,8 +1134,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.geodeHits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performGeodeJump(hit);
       });
     });
@@ -1192,8 +1209,7 @@ export class ResultsColumn {
         const hit = this.monumentHits[Number(card.dataset.index)];
         if (!hit) return;
         const focus = monumentFocus(hit);
-        this.jumpX.value = String(focus.x);
-        this.jumpZ.value = String(focus.z);
+        this.setJumpCoords(focus.x, focus.z);
         this.performMonumentJump(hit);
       });
     });
@@ -1239,8 +1255,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.fortressHits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performFortressJump(hit);
       });
     });
@@ -1321,8 +1336,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.hits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performJump(hit.x, hit.z, hit.seed, true);
       });
     });
@@ -1371,8 +1385,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.slimeHits[Number(card.dataset.index)];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performSlimeJump(hit);
       });
     });
@@ -1424,8 +1437,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.witchHits[index];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performWitchJump(hit);
       });
       card.querySelector<HTMLButtonElement>('.result-copy')?.addEventListener('click', (event) => {
@@ -1474,8 +1486,7 @@ export class ResultsColumn {
         if (target.closest('.result-copy')) return;
         const hit = this.riverHits[index];
         if (!hit) return;
-        this.jumpX.value = String(hit.x);
-        this.jumpZ.value = String(hit.z);
+        this.setJumpCoords(hit.x, hit.z);
         this.performRiverJump(hit);
       });
       card.querySelector<HTMLButtonElement>('.result-copy')?.addEventListener('click', (event) => {

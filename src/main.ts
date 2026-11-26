@@ -75,6 +75,9 @@ const biomeColors = new BiomeColorPanel(map, (data) => {
   void applyImportedSession(data);
 });
 resultsHost.append(results.root, biomeColors.root);
+// 地图页与其它页的「前往坐标」X/Z 双向同步（同一侧栏两套输入框）。
+results.onJumpCoordsChange = (x, z) => biomeColors.setJumpCoords(x, z, false);
+biomeColors.onJumpCoordsChange = (x, z) => results.setJumpCoords(x, z, false);
 map.root.querySelector('#map-session-import')!.addEventListener('click', () => void biomeColors.importSession());
 map.root.querySelector('#map-session-export')!.addEventListener('click', () => void biomeColors.exportSession());
 map.root.querySelector('#map-cmap-import')!.addEventListener('click', () => void biomeColors.importColormap());

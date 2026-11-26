@@ -520,6 +520,7 @@ export class FlowerPanel {
         this.results?.setFlowerHits(status.hits, this.searchTier);
         if (status.done) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           this.running = false;
           this.paused = false;
           if (status.error && status.error !== this.shownError) {
@@ -530,6 +531,7 @@ export class FlowerPanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
       }
     }, 100);

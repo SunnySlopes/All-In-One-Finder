@@ -408,6 +408,7 @@ export class WitchPanel {
         this.results?.setWitchHits(status.hits, this.searchVersion);
         if (status.done) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           this.running = false;
           this.paused = false;
           this.updateSortButtons();
@@ -421,6 +422,7 @@ export class WitchPanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
         this.updateSortButtons();
       }

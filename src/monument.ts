@@ -506,6 +506,7 @@ export class MonumentPanel {
         // done，或引擎已结束但没报告 done（停止/出错后的收尾）都要立刻解锁界面。
         if (status.done || (!status.running && !status.paused)) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           this.running = false;
           this.paused = false;
           this.stopping = false;
@@ -517,6 +518,7 @@ export class MonumentPanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
         this.paused = false;
         this.stopping = false;

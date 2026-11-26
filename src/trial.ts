@@ -673,6 +673,7 @@ export class TrialPanel {
     } catch {
       /* the host clears its state even if the thread is already gone */
     }
+    this.timer.stop();
     this.running = false;
     this.paused = false;
     this.pausing = false;
@@ -704,6 +705,7 @@ export class TrialPanel {
         }
         if (status.done) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           this.running = false;
           this.paused = false;
           this.pausing = false;
@@ -722,6 +724,7 @@ export class TrialPanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
         this.pausing = false;
         this.render();

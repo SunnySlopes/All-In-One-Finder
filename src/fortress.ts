@@ -109,7 +109,7 @@ export class FortressPanel {
         <div class="row">
           <button id="f-reset" type="button" class="btn ghost sm" data-i18n="common.search.reset"></button>
           <button id="f-border" type="button" class="btn ghost sm" data-i18n="fortress.maxRange"></button>
-          <button id="f-bordermode" type="button" class="btn ghost sm" hidden></button>
+          ${mode === 'span' ? '<button id="f-bordermode" type="button" class="btn ghost sm"></button>' : ''}
         </div>
         <div id="f-params"></div>
       </div>
@@ -129,7 +129,7 @@ export class FortressPanel {
     this.side.addEventListener('input', () => this.applySquare());
     this.root.querySelector('#f-reset')!.addEventListener('click', () => this.resetDefaultArea());
     this.root.querySelector('#f-border')!.addEventListener('click', () => this.resetMaxRange());
-    this.root.querySelector('#f-bordermode')!.addEventListener('click', () => this.advanceBorder());
+    this.root.querySelector('#f-bordermode')?.addEventListener('click', () => this.advanceBorder());
     this.seedModeSelect.addEventListener('change', () => {
       this.seedMode = this.seedModeSelect.value as SeedMode;
       this.resetDefaultArea();
@@ -325,11 +325,8 @@ export class FortressPanel {
     }
 
     const borderModeButton = this.root.querySelector<HTMLButtonElement>('#f-bordermode');
-    if (borderModeButton) {
-      borderModeButton.hidden = this.mode !== 'span';
-      if (this.mode === 'span') {
-        borderModeButton.textContent = `${t('fortress.border')}${t('common.labelColon')}${t(`fortress.borderState.${this.border}`)}`;
-      }
+    if (borderModeButton && this.mode === 'span') {
+      borderModeButton.textContent = `${t('fortress.border')}${t('common.labelColon')}${t(`fortress.borderState.${this.border}`)}`;
     }
 
     this.footer.innerHTML = `
@@ -504,6 +501,7 @@ export class FortressPanel {
         this.results?.setFortressHits(status.hits, this.tab);
         if (status.done) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           this.running = false;
           this.paused = false;
           if (status.error && status.error !== this.shownError) {
@@ -514,6 +512,7 @@ export class FortressPanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
       }
     }, 100);
@@ -534,7 +533,7 @@ export class FortressPanel {
       const pct = status.done ? 100 : status.total > 0 ? Math.min(100, (status.current / status.total) * 100) : 0;
       bar.style.width = `${pct}%`;
     }
-  
+
     paintProgressCard(this.footer, 'f', {
       state: status.error ? 'error' : status.done ? 'done' : this.running ? (this.paused ? 'paused' : 'running') : 'idle',
       stateText: this.progressStateText(status),

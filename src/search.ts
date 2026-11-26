@@ -796,6 +796,7 @@ export class SearchPanel {
         // 只认 done 的话，引擎提前收尾时页面会一直停在“停止中”且所有按钮禁用。
         if (status.done || (!status.running && !status.paused)) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           // 引擎收尾时可能没把 done 置位；统一按“已完成”收进该 tab 的状态。
           const finished: SearchStatus = status.done ? status : { ...status, done: true };
           // 结束前先记录是不是用户按了停止，进度行据此显示“已停止”而不是“已完成”。
@@ -817,6 +818,7 @@ export class SearchPanel {
         }
       } catch (error) {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         this.running = false;
         this.paused = false;
         this.stopping = false;

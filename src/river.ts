@@ -828,6 +828,7 @@ export class RiverPanel {
     this.stopGuard = window.setTimeout(() => {
       if (!this.stopping) return;
       this.stopping = false;
+      this.timer.stop();
       this.running = false;
       this.paused = false;
       window.clearInterval(this.pollTimer);
@@ -872,6 +873,7 @@ export class RiverPanel {
         // running=false 而 done 未置位的形态，也必须在退出轮询前解除 UI。
         if (status.done || (this.stopping && !status.running)) {
           window.clearInterval(this.pollTimer);
+          this.timer.stop();
           window.clearTimeout(this.stopGuard);
           const finished = status.done;
           this.running = false;
@@ -885,6 +887,7 @@ export class RiverPanel {
         }
       } catch {
         window.clearInterval(this.pollTimer);
+        this.timer.stop();
         window.clearTimeout(this.stopGuard);
         this.running = false;
         this.stopping = false;
