@@ -28,6 +28,11 @@ export interface MapSessionData {
    */
   x?: number;
   z?: number;
+  /**
+   * 地图缩放：pixels-per-block（cubiomes-viewer 的 blocks2pix）。
+   * 合法范围约 [1/2048, 128]；旧 session 缺省时保持默认 1/16。
+   */
+  zoom?: number;
   largeBiomes: boolean;
   grid: boolean;
   /**
@@ -92,6 +97,8 @@ export function serializeSession(data: MapSessionData, pretty = false): string {
     lootFilters: normalizeLootFilters(data.lootFilters),
     seedMode: data.seedMode === 'list' ? 'list' : 'single',
   };
+  const zoom = Number(data.zoom);
+  if (Number.isFinite(zoom) && zoom > 0) body.zoom = zoom;
   const seedText = typeof data.seedText === 'string' ? data.seedText : '';
   const seedListPath = typeof data.seedListPath === 'string' ? data.seedListPath.trim() : '';
   if (seedText) body.seedText = seedText;
@@ -192,6 +199,7 @@ export function parseSessionFile(text: string): MapSessionData | null {
     y: Number(map.get('y') || 256),
     x: map.has('x') ? Number(map.get('x')) : undefined,
     z: map.has('z') ? Number(map.get('z')) : undefined,
+    zoom: map.has('zoom') ? Number(map.get('zoom')) : undefined,
     largeBiomes: map.get('largeBiomes') === 'true' || map.get('largeBiomes') === '1',
     grid: map.get('grid') !== 'false' && map.get('grid') !== '0',
     terrain: map.get('terrain') === 'true' || map.get('terrain') === '1',
@@ -236,6 +244,7 @@ function normalize(
   /* 地图中心：旧 session 没有这两个字段，缺省 0,0（保持旧行为）。 */
   const x = Number(data.x);
   const z = Number(data.z);
+  const zoom = Number(data.zoom);
   const searchersRaw =
     data.searchers && typeof data.searchers === 'object' ? data.searchers : undefined;
   const lifted = liftSharedSeedFromSearchers(
@@ -258,6 +267,7 @@ function normalize(
     y: Number.isFinite(y) ? y : 256,
     x: Number.isFinite(x) ? Math.round(x) : 0,
     z: Number.isFinite(z) ? Math.round(z) : 0,
+    zoom: Number.isFinite(zoom) && zoom > 0 ? zoom : undefined,
     largeBiomes: !!data.largeBiomes,
     grid: data.grid !== false,
     terrain,

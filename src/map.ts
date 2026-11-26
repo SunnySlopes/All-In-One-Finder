@@ -375,6 +375,8 @@ interface MapSession {
   /** 地图中心坐标；旧存档没有时回落到 0,0。 */
   x: number;
   z: number;
+  /** 地图缩放（pixels-per-block）；旧存档缺省保持默认 1/16。 */
+  zoom?: number;
   largeBiomes: boolean;
   grid: boolean;
   terrain: boolean;
@@ -515,6 +517,7 @@ function parseSession(raw: string | null): MapSession | null {
       typeof data.version === 'string' ? data.version : typeof data.mcVersion === 'string' ? data.mcVersion : '';
     const x = Number(data.x);
     const z = Number(data.z);
+    const zoom = Number(data.zoom);
     const filters = data.lootFilters;
     const seed = data.seed.trim();
     const searchers =
@@ -536,6 +539,7 @@ function parseSession(raw: string | null): MapSession | null {
       // 旧存档没有中心坐标：缺省 0,0（与旧版本行为一致）。
       x: Number.isFinite(x) ? Math.round(x) : 0,
       z: Number.isFinite(z) ? Math.round(z) : 0,
+      zoom: Number.isFinite(zoom) && zoom > 0 ? zoom : undefined,
       largeBiomes: !!data.largeBiomes,
       grid: data.grid !== false,
       // Older sessions have no state and must stay on the biome map; the
@@ -829,8 +833,9 @@ export class MapView {
       this.grid.checked = session.grid;
       this.terrain.checked = session.terrain;
       localStorage.setItem('aio.grid', session.grid ? '1' : '0');
-      // 跨 session 打开：把地图中心恢复到上次的位置（旧存档缺省 0,0）。
+      // 跨 session 打开：把地图中心与缩放恢复到上次的状态（旧存档缺省 0,0 / 1:16）。
       this.restoreCenter(session.x, session.z);
+      this.restoreZoom(session.zoom);
       // 战利品分项（杂项/模板/唱片/陶片）的展示状态随存档恢复。
       if (session.lootFilters) this.lootFilters = { ...session.lootFilters };
     }
@@ -1053,6 +1058,16 @@ export class MapView {
     if (Number.isFinite(z)) this.cz = Math.max(-limit, Math.min(limit, Math.round(Number(z))));
   }
 
+  /**
+   * 把地图缩放恢复到存档里的 pixels-per-block。
+   * 旧存档没有 zoom、或值非法时保持当前默认（1/16）。
+   */
+  private restoreZoom(zoom?: number): void {
+    if (!Number.isFinite(zoom) || Number(zoom) <= 0) return;
+    this.pixelsPerBlock = clampZoom(Number(zoom));
+    this.lastActiveScale = this.activeScale();
+  }
+
   exportSnapshot(): MapSessionData {
     const version = this.versions.find((item) => String(item.id) === this.version.value);
     const dim = Number(this.dimension.value);
@@ -1079,9 +1094,10 @@ export class MapView {
       mcVersion: version?.name || '',
       dim: dim === -1 || dim === 1 ? dim : 0,
       y: Number.isFinite(y) ? y : 256,
-      // 同时记录地图中心，跨 session 打开时回到同一个位置。
+      // 同时记录地图中心与缩放，跨 session 打开时回到同一视口。
       x: Math.round(this.cx),
       z: Math.round(this.cz),
+      zoom: this.pixelsPerBlock,
       largeBiomes: this.large.checked,
       grid: this.grid.checked,
       terrain: this.terrain.checked,
@@ -1105,8 +1121,9 @@ export class MapView {
     if (match) this.version.value = String(match.id);
     this.dimension.value = String(data.dim);
     this.y.value = String(data.dim === 0 ? data.y : defaultYForDim(data.dim));
-    // 恢复到存档里的地图中心（旧存档没有坐标时保持当前中心）。
+    // 恢复到存档里的地图中心与缩放（旧存档缺字段时保持当前默认）。
     this.restoreCenter(data.x, data.z);
+    this.restoreZoom(data.zoom);
     this.large.checked = data.largeBiomes && data.dim === 0;
     this.grid.checked = data.grid;
     this.terrain.checked = data.terrain === true;
@@ -1393,7 +1410,7 @@ export class MapView {
         const after = this.screenToWorld(event.offsetX, event.offsetY);
         this.cx += before.x - after.x;
         this.cz += before.z - after.z;
-        this.persistSession(); // 缩放也会平移中心，落盘供下次打开恢复
+        this.persistSession(); // 缩放（含中心漂移）落盘，下次打开恢复同一视口
         this.onZoomChanged();
       },
       { passive: false },
@@ -1403,6 +1420,7 @@ export class MapView {
 
   private zoom(factor: number): void {
     this.pixelsPerBlock = clampZoom(this.pixelsPerBlock * factor);
+    this.persistSession();
     this.onZoomChanged();
   }
 
