@@ -25,7 +25,7 @@ export interface SearcherItem {
 
 export const SEARCHER_ITEMS: SearcherItem[] = [
   // 地图不占 Tab：它由顶栏左侧的品牌图标承载（点击图标即回到地图）。
-  { id: 'LowYSwampHut', enabled: true, icon: 'hut' },
+  { id: 'LowYSwampHut', enabled: true, icon: 'searcher_hut' },
   { id: 'River', enabled: true, icon: 'drowned' },
   { id: 'LowYDripstoneCave', enabled: true, icon: 'drowned' },
   { id: 'LowYPitDripstoneCave', enabled: true, icon: 'drowned' },
@@ -34,8 +34,8 @@ export const SEARCHER_ITEMS: SearcherItem[] = [
   { id: 'MultiMonument', enabled: true, icon: 'guardian' },
   { id: 'NetherFortressCross', enabled: true, icon: 'blaze' },
   { id: 'NetherFortressOverall', enabled: true, icon: 'blaze' },
-  { id: 'TrialSpawner', enabled: true, icon: 'chambers' },
-  { id: 'BuddingAmethyst', enabled: true, icon: 'geode' },
+  { id: 'TrialSpawner', enabled: true, icon: 'searcher_trial' },
+  { id: 'BuddingAmethyst', enabled: true, icon: 'searcher_geode' },
   { id: 'FlowerFarm', enabled: true, icon: 'torchflower' },
 ];
 
